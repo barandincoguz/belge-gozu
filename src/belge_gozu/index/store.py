@@ -20,6 +20,15 @@ class PackedIndex:
 
     @classmethod
     def build(cls, page_ids: list[str], embs: list[np.ndarray]) -> "PackedIndex":
+        if len(page_ids) != len(embs):
+            raise ValueError(
+                f"page_ids ({len(page_ids)}) ve embs ({len(embs)}) uzunlukları eşleşmiyor"
+            )
+        if not embs:
+            raise ValueError("boş korpus: en az bir sayfa embedding'i gerekli")
+        for pid, e in zip(page_ids, embs, strict=True):
+            if e.shape[0] == 0:
+                raise ValueError(f"sıfır token'lı sayfa: {pid}")
         packed = [binarize_pack(e) for e in embs]
         offsets = np.zeros(len(embs) + 1, dtype=np.int64)
         np.cumsum([p.shape[0] for p in packed], out=offsets[1:])

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from belge_gozu.index.store import PackedIndex, binarize_pack
 
@@ -30,3 +31,26 @@ def test_roundtrip(tmp_path: Path):
     assert loaded.page_ids == idx.page_ids
     np.testing.assert_array_equal(loaded.page_tokens(2), idx.page_tokens(2))
     np.testing.assert_array_equal(loaded.page_vecs, idx.page_vecs)
+    assert isinstance(loaded.tokens, np.memmap)
+
+
+def test_build_rejects_length_mismatch():
+    rng = np.random.default_rng(1)
+    embs = [rng.standard_normal((4, 128)).astype(np.float32)] * 2
+    with pytest.raises(ValueError, match="eşleşmiyor"):
+        PackedIndex.build(["p0"], embs)
+
+
+def test_build_rejects_empty():
+    with pytest.raises(ValueError, match="boş korpus"):
+        PackedIndex.build([], [])
+
+
+def test_build_rejects_zero_token_page():
+    rng = np.random.default_rng(1)
+    embs = [
+        rng.standard_normal((4, 128)).astype(np.float32),
+        np.zeros((0, 128), np.float32),
+    ]
+    with pytest.raises(ValueError, match="p1"):
+        PackedIndex.build(["p0", "p1"], embs)
