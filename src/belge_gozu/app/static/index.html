@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Belge-Gözü</title>
+<style>
+  :root { --ink:#17202B; --muted:#56637A; --line:#D8DFE9; --accent:#1E44B0; --bg:#F5F7FA; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: .95rem; }
+  .bar { display:flex; gap:8px; }
+  input { flex:1; padding:12px 14px; font-size:1rem; border:1px solid var(--line);
+          border-radius:8px; background:#fff; color:var(--ink); }
+  button { padding:12px 18px; font-size:1rem; border:0; border-radius:8px;
+           background:var(--accent); color:#fff; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:wait; }
+  #answer { margin-top:24px; padding:18px 20px; background:#fff; border:1px solid var(--line);
+            border-radius:10px; white-space:pre-wrap; display:none; }
+  #answer.abstained { border-left:4px solid #B5402A; }
+  .cites { margin-top:10px; font-size:.85rem; color:var(--muted); }
+  #hits { margin-top:20px; display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+          gap:12px; }
+  .hit { background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .hit img { width:100%; display:block; }
+  .hit .cap { padding:6px 8px; font-size:.78rem; color:var(--muted); }
+  .hit .cap b { color:var(--ink); display:block; }
+  #status { margin-top:16px; color:var(--muted); font-size:.9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Belge-Gözü</h1>
+  <p class="sub">Türk mevzuatında görsel arama — sayfalar OCR'sız, görüntü olarak indekslendi.
+     Soru sor, dayanak sayfalarıyla yanıt al.</p>
+  <div class="bar">
+    <input id="q" placeholder="ör. Kira artışı en fazla ne kadar olabilir?" autofocus>
+    <button id="ask-btn">Sor</button>
+  </div>
+  <div id="status"></div>
+  <div id="answer"></div>
+  <div id="hits"></div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+async function ask() {
+  const q = $("q").value.trim();
+  if (!q) return;
+  $("ask-btn").disabled = true;
+  $("status").textContent = "Aranıyor ve yanıtlanıyor…";
+  $("answer").style.display = "none";
+  $("hits").innerHTML = "";
+  try {
+    const r = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: q }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    const a = $("answer");
+    a.textContent = data.answer.text;
+    a.className = data.answer.abstained ? "abstained" : "";
+    if (data.answer.citations.length) {
+      const c = document.createElement("div");
+      c.className = "cites";
+      c.textContent = "Dayanak: " + data.answer.citations.join(", ");
+      a.appendChild(c);
+    }
+    a.style.display = "block";
+    for (const h of data.hits) {
+      const d = document.createElement("div");
+      d.className = "hit";
+      d.innerHTML = `<img src="/pages/${h.image_path}" alt="${h.page_id}">
+        <div class="cap"><b>${h.doc_name}</b>sayfa ${h.page_no} · skor ${h.score.toFixed(1)}</div>`;
+      $("hits").appendChild(d);
+    }
+    $("status").textContent = "";
+  } catch (e) {
+    $("status").textContent = "Hata: " + e.message + " — tekrar dene.";
+  } finally {
+    $("ask-btn").disabled = false;
+  }
+}
+$("ask-btn").addEventListener("click", ask);
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
+</script>
+</body>
+</html>

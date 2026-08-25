@@ -52,7 +52,9 @@ def test_page_image_served(tiny_corpus):
 def test_root_serves_ui(tiny_corpus):
     c = make_client(tiny_corpus)
     r = c.get("/")
-    assert r.status_code == 200 and "Belge-Gözü" in r.text
+    assert r.status_code == 200
+    assert "Belge-Gözü" in r.text
+    assert 'id="q"' in r.text and 'id="ask-btn"' in r.text  # gerçek UI yüklendi
 
 
 def test_log_write_never_raises():
