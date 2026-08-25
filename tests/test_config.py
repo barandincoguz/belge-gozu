@@ -17,6 +17,7 @@ def test_env_override(monkeypatch):
 def test_env_file_and_google_alias(monkeypatch, tmp_path):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("BG_GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("GOOGLE_API_KEY=test-key-123\n")
     assert Settings().gemini_api_key == "test-key-123"
