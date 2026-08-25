@@ -131,10 +131,12 @@ serve:
 ```
 .venv/
 __pycache__/
-data/
+data/*
 !data/manifest/
+!data/manifest/**
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
 requests.sqlite
 .env
 .env.*
