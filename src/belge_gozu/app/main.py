@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +34,21 @@ def _log_db(settings: Settings) -> sqlite3.Connection:
     return db
 
 
+def _log_write(
+    db: sqlite3.Connection, lock: threading.Lock, path: str, ms: float, top_score: float
+) -> None:
+    # Telemetri best-effort'tur: log yazımı hiçbir koşulda isteği düşürmez.
+    try:
+        with lock:
+            db.execute(
+                "INSERT INTO log VALUES (?,?,?,?)",
+                (datetime.now(UTC).isoformat(), path, ms, top_score),
+            )
+            db.commit()
+    except Exception:
+        pass
+
+
 def create_app(settings: Settings | None = None, encoder=None, answerer=None) -> FastAPI:
     s = settings or get_settings()
     index = PackedIndex.load(s.index_dir)
@@ -52,14 +68,11 @@ def create_app(settings: Settings | None = None, encoder=None, answerer=None) ->
     retriever = TwoStageRetriever(index, meta, encoder)
     service = AskService(retriever, answerer, s.min_score_threshold, load_image)
     db = _log_db(s)
+    lock = threading.Lock()
     app = FastAPI(title="Belge-Gözü")
 
     def log(path: str, ms: float, top_score: float) -> None:
-        db.execute(
-            "INSERT INTO log VALUES (?,?,?,?)",
-            (datetime.now(UTC).isoformat(), path, ms, top_score),
-        )
-        db.commit()
+        _log_write(db, lock, path, ms, top_score)
 
     @app.get("/healthz")
     def healthz() -> dict:

@@ -1,3 +1,5 @@
+import threading
+
 from fastapi.testclient import TestClient
 
 from belge_gozu.answer.base import Answer
@@ -51,3 +53,14 @@ def test_root_serves_ui(tiny_corpus):
     c = make_client(tiny_corpus)
     r = c.get("/")
     assert r.status_code == 200 and "Belge-Gözü" in r.text
+
+
+def test_log_write_never_raises():
+    import sqlite3 as sq
+    from unittest.mock import MagicMock
+
+    from belge_gozu.app.main import _log_write
+
+    bad_db = MagicMock()
+    bad_db.execute.side_effect = sq.OperationalError("database is locked")
+    _log_write(bad_db, threading.Lock(), "/search", 1.0, 0.5)  # ne exception ne 500
