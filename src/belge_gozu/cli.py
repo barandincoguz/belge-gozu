@@ -68,10 +68,22 @@ def index_build(fake: bool = typer.Option(False, "--fake")) -> None:  # noqa: B0
 
         encoder = ColSmolEncoder(s.retriever_model, s.device)
     embs, ids = [], []
-    for _, row in meta.iterrows():
-        img = Image.open(s.data_dir / row["image_path"]).convert("RGB")
-        embs.extend(encoder.encode_pages([img]))
-        ids.append(row["page_id"])
+    batch_size = 8
+    total = len(meta)
+    for start in range(0, total, batch_size):
+        chunk = meta.iloc[start : start + batch_size]
+        images = []
+        for _, row in chunk.iterrows():
+            with Image.open(s.data_dir / row["image_path"]) as raw:
+                images.append(raw.convert("RGB"))
+        embs.extend(encoder.encode_pages(images))
+        ids.extend(chunk["page_id"])
+        for img in images:
+            img.close()
+        chunk_no = start // batch_size + 1
+        done = min(start + batch_size, total)
+        if chunk_no % 10 == 0 or done == total:
+            print(f"{done}/{total} sayfa", flush=True)
     PackedIndex.build(ids, embs).save(s.index_dir)
     shutil.copy(s.data_dir / "meta.parquet", s.index_dir / "meta.parquet")
     typer.echo(f"{len(ids)} sayfa indekslendi -> {s.index_dir}")

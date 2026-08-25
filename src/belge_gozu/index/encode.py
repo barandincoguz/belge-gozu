@@ -51,11 +51,14 @@ class ColSmolEncoder:
         )
 
         self.device = resolve_device(device)
+        # gpu'da yarım hassasiyet: index build hızı için (Task 13 controller
+        # optimizasyonu). cpu'da float32'de kalır (yarım hassasiyet cpu'da desteksiz/yavaş).
+        dtype = torch.float32 if self.device == "cpu" else torch.float16
         # device_map=self.device (ör. "mps") segfault veriyor: bu torch/transformers/
         # accelerate sürüm bileşiminde ağırlıkları doğrudan mps'e yükleyen yol kırık
         # (Task 13 canlı doğrulama, izole edildi). cpu'da yükleyip .to(device) ile
         # taşımak aynı sonucu güvenle veriyor.
-        model = ColIdefics3.from_pretrained(model_name, torch_dtype=torch.float32, device_map="cpu")
+        model = ColIdefics3.from_pretrained(model_name, torch_dtype=dtype, device_map="cpu")
         # transformers'ın PreTrainedModel.to = @wraps(torch.nn.Module.to) sarmalayıcısı
         # pyright'ı .to()'nun "self"ini sıradan zorunlu parametre sanmaya itiyor
         # (typeshed/functools.wraps kısıtı); çalışma zamanında sorunsuz (üstte doğrulandı).
