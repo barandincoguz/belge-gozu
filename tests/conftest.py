@@ -1,0 +1,42 @@
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+from PIL import Image
+
+from belge_gozu.index.encode import FakeEncoder
+from belge_gozu.index.store import PackedIndex
+
+
+@pytest.fixture
+def tiny_corpus(tmp_path: Path):
+    """3 sayfalık sahte korpus: görüntüler + meta.parquet + FakeEncoder indeksi."""
+    enc = FakeEncoder()
+    images, ids, records = [], [], []
+    for i in range(3):
+        rel = f"images/d{i}/0001.webp"
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        img = Image.new("RGB", (32, 32), (i * 40, 10, 10))
+        img.save(p, format="WEBP")
+        images.append(img)
+        ids.append(f"d{i}:1")
+        records.append(
+            {
+                "page_id": f"d{i}:1",
+                "doc_id": f"d{i}",
+                "doc_name": f"Belge {i}",
+                "doc_type": "kanun",
+                "source_url": "https://example.org",
+                "page_no": 1,
+                "image_path": rel,
+            }
+        )
+    meta = pd.DataFrame.from_records(records)
+    meta.to_parquet(tmp_path / "meta.parquet", index=False)
+    idx = PackedIndex.build(ids, enc.encode_pages(images))
+    idx_dir = tmp_path / "index"
+    idx.save(idx_dir)
+    meta.to_parquet(idx_dir / "meta.parquet", index=False)
+    return tmp_path, enc, np.array([])  # (data_dir, encoder, _)
