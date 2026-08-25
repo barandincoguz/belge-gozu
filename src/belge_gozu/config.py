@@ -24,8 +24,9 @@ class Settings(BaseSettings):
     )
     stage1_candidates: int = 200
     top_k: int = 5
-    # Uncalibrated in v0; calibrated against the benchmark in Plan 2 (spec §6).
-    min_score_threshold: float = 20.0
+    # kaba v0 ayarı; gerçek kalibrasyon Plan 2 (Task 13 smoke test: gerçek soru
+    # top_score~70.6, saçma soru top_score~52.4 -- 20.0 hiçbir zaman tetiklemiyordu)
+    min_score_threshold: float = 60.0
     request_delay_s: float = 1.0
 
 
