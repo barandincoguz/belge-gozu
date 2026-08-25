@@ -80,14 +80,20 @@ def index_build(fake: bool = typer.Option(False, "--fake")) -> None:  # noqa: B0
 
 @index_app.command("push")
 def index_push() -> None:
-    typer.echo("hub modülü Task 9'da geliyor")
-    raise typer.Exit(1)
+    from belge_gozu.index.hub import push_index
+
+    s = _settings()
+    push_index(s.index_dir, s.hf_dataset_repo)
+    typer.echo(f"indeks {s.hf_dataset_repo} reposuna gönderildi")
 
 
 @index_app.command("pull")
 def index_pull() -> None:
-    typer.echo("hub modülü Task 9'da geliyor")
-    raise typer.Exit(1)
+    from belge_gozu.index.hub import pull_index
+
+    s = _settings()
+    pull_index(s.hf_dataset_repo, s.index_dir)
+    typer.echo(f"indeks {s.hf_dataset_repo} reposundan indirildi")
 
 
 @app.command("serve")
@@ -97,8 +103,9 @@ def serve(
 ) -> None:
     s = _settings()
     if pull and s.hf_dataset_repo:
-        typer.echo("hub modülü Task 9'da geliyor")
-        raise typer.Exit(1)
+        from belge_gozu.index.hub import pull_index
+
+        pull_index(s.hf_dataset_repo, s.index_dir)
     import uvicorn
 
     uvicorn.run("belge_gozu.app.main:create_app", factory=True, host="0.0.0.0", port=port)
