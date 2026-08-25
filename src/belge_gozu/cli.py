@@ -94,7 +94,10 @@ def index_push() -> None:
     from belge_gozu.index.hub import push_index
 
     s = _settings()
-    push_index(s.index_dir, s.hf_dataset_repo)
+    images_dir = s.data_dir / "images"
+    push_index(
+        s.index_dir, s.hf_dataset_repo, images_dir=images_dir if images_dir.exists() else None
+    )
     typer.echo(f"indeks {s.hf_dataset_repo} reposuna gönderildi")
 
 
@@ -103,7 +106,7 @@ def index_pull() -> None:
     from belge_gozu.index.hub import pull_index
 
     s = _settings()
-    pull_index(s.hf_dataset_repo, s.index_dir)
+    pull_index(s.hf_dataset_repo, s.index_dir, data_dir=s.data_dir)
     typer.echo(f"indeks {s.hf_dataset_repo} reposundan indirildi")
 
 
@@ -116,7 +119,7 @@ def serve(
     if pull and s.hf_dataset_repo:
         from belge_gozu.index.hub import pull_index
 
-        pull_index(s.hf_dataset_repo, s.index_dir)
+        pull_index(s.hf_dataset_repo, s.index_dir, data_dir=s.data_dir)
     import uvicorn
 
     uvicorn.run("belge_gozu.app.main:create_app", factory=True, host="0.0.0.0", port=port)
