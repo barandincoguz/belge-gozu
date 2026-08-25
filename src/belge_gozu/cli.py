@@ -1,14 +1,13 @@
 import shutil
 from pathlib import Path
 
-import httpx
 import pandas as pd
 import typer
 from PIL import Image
 
 from belge_gozu.config import Settings
 from belge_gozu.corpus.download import download_all
-from belge_gozu.corpus.manifest import load_manifest, probe
+from belge_gozu.corpus.manifest import build_http_client, load_manifest, probe
 from belge_gozu.corpus.render import render_all
 from belge_gozu.index.encode import FakeEncoder
 from belge_gozu.index.store import PackedIndex
@@ -36,7 +35,7 @@ def corpus_download(
 ) -> None:
     s = _settings()
     rows = load_manifest(_manifest_path(s, manifest))
-    with httpx.Client() as client:
+    with build_http_client() as client:
         report = download_all(rows, s.data_dir, client, delay_s=s.request_delay_s)
     typer.echo(f"ok={len(report.ok)} skipped={len(report.skipped)} failed={report.failed}")
 
@@ -45,7 +44,7 @@ def corpus_download(
 def corpus_probe(manifest: Path | None = typer.Option(None)) -> None:  # noqa: B008
     s = _settings()
     rows = load_manifest(_manifest_path(s, manifest))
-    with httpx.Client() as client:
+    with build_http_client() as client:
         for doc_id, status in probe(rows, client):
             typer.echo(f"{doc_id}\t{status}")
 

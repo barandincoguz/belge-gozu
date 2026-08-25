@@ -8,9 +8,7 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel
 
-from belge_gozu.corpus.manifest import ManifestRow
-
-USER_AGENT = "belge-gozu/0.1 (acik kaynak arastirma projesi)"
+from belge_gozu.corpus.manifest import USER_AGENT, ManifestRow
 
 
 class DownloadReport(BaseModel):

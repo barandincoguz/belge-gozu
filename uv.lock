@@ -64,6 +64,7 @@ name = "belge-gozu"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "httpx" },
@@ -93,6 +94,7 @@ ml = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2024.0.0" },
     { name = "colpali-engine", marker = "extra == 'ml'", specifier = ">=0.3" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "google-genai", specifier = ">=1.0" },
