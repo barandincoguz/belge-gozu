@@ -136,6 +136,8 @@ data/
 *.egg-info/
 .pytest_cache/
 requests.sqlite
+.env
+.env.*
 ```
 
 `.pre-commit-config.yaml`:
