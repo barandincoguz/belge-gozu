@@ -51,9 +51,15 @@ class ColSmolEncoder:
         )
 
         self.device = resolve_device(device)
-        self.model = ColIdefics3.from_pretrained(
-            model_name, torch_dtype=torch.float32, device_map=self.device
-        ).eval()
+        # device_map=self.device (ör. "mps") segfault veriyor: bu torch/transformers/
+        # accelerate sürüm bileşiminde ağırlıkları doğrudan mps'e yükleyen yol kırık
+        # (Task 13 canlı doğrulama, izole edildi). cpu'da yükleyip .to(device) ile
+        # taşımak aynı sonucu güvenle veriyor.
+        model = ColIdefics3.from_pretrained(model_name, torch_dtype=torch.float32, device_map="cpu")
+        # transformers'ın PreTrainedModel.to = @wraps(torch.nn.Module.to) sarmalayıcısı
+        # pyright'ı .to()'nun "self"ini sıradan zorunlu parametre sanmaya itiyor
+        # (typeshed/functools.wraps kısıtı); çalışma zamanında sorunsuz (üstte doğrulandı).
+        self.model = model.to(self.device).eval()  # type: ignore[reportArgumentType]
         self.processor = ColIdefics3Processor.from_pretrained(model_name)
 
     def _run(self, batch) -> list[np.ndarray]:
