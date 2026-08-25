@@ -1,7 +1,7 @@
 from pathlib import Path
 
-import fitz  # PyMuPDF
 import pandas as pd
+import pymupdf as fitz
 
 from belge_gozu.corpus.manifest import load_manifest_from_text
 from belge_gozu.corpus.render import render_all
@@ -35,3 +35,17 @@ def test_render_skips_missing_pdf(tmp_path: Path):
     (tmp_path / "pdf").mkdir()
     df = render_all(load_manifest_from_text(CSV), tmp_path, dpi=72)
     assert df.empty
+
+
+def test_corrupt_pdf_skipped_batch_survives(tmp_path: Path):
+    (tmp_path / "pdf").mkdir()
+    (tmp_path / "pdf" / "bad.pdf").write_bytes(b"this is not a pdf")
+    make_pdf(tmp_path / "pdf" / "good.pdf", pages=2)
+    csv = (
+        "doc_id,doc_name,doc_type,url\n"
+        "bad,Bozuk Belge,kanun,https://example.org/bad.pdf\n"
+        "good,Saglam Belge,kanun,https://example.org/good.pdf\n"
+    )
+    df = render_all(load_manifest_from_text(csv), tmp_path, dpi=72)
+    assert df.doc_id.unique().tolist() == ["good"]
+    assert (tmp_path / "meta.parquet").exists()
