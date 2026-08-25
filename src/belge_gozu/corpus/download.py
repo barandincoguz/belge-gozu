@@ -54,11 +54,15 @@ def download_all(
                 timeout=60,
             )
             resp.raise_for_status()
+            # gov.tr bazı kırık/eskimiş URL'lerde 200 ile kendi hata sayfasına (HTML)
+            # yönlendiriyor; durum kodu tek başına yeterli değil (Task 13 canlı koşu).
+            if not resp.content.startswith(b"%PDF"):
+                raise ValueError(f"{row.doc_id}: yanıt PDF değil (muhtemelen hata sayfası)")
             target.write_bytes(resp.content)
             sha = hashlib.sha256(resp.content).hexdigest()
             state[row.doc_id] = {"sha256": sha, "status": "ok"}
             report.ok.append(row.doc_id)
-        except (httpx.HTTPError, httpx.InvalidURL, OSError):
+        except (httpx.HTTPError, httpx.InvalidURL, OSError, ValueError):
             state[row.doc_id] = {"sha256": "", "status": "failed"}
             report.failed.append(row.doc_id)
         tmp_path = state_path.parent / f"{state_path.name}.tmp"

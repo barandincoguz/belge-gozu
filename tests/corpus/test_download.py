@@ -63,6 +63,25 @@ b,Belge B,kanun,https://example.org/b.pdf
     assert state["a"]["status"] == "failed"
 
 
+def test_non_pdf_200_response_recorded_as_failure(tmp_path: Path):
+    # gov.tr bazı kırık URL'lerde 200 ile kendi HTML hata sayfasına yönlendiriyor
+    # (Task 13 canlı koşu bulgusu); durum kodu tek başına güvenilmez.
+    rows = load_manifest_from_text(CSV)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        name = str(request.url).rsplit("/", 1)[-1].removesuffix(".pdf")
+        if name == "b":
+            return httpx.Response(200, content=b"<!DOCTYPE html><html>hata sayfasi</html>")
+        return httpx.Response(200, content=b"%PDF-1.4 " + name.encode())
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    r = download_all(rows, tmp_path, client, delay_s=0, sleep=lambda _: None)
+    assert r.ok == ["a"] and r.failed == ["b"]
+    assert not (tmp_path / "pdf" / "b.pdf").exists()
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert state["b"]["status"] == "failed"
+
+
 def test_oserror_recorded_not_raised(tmp_path: Path):
     rows = load_manifest_from_text(CSV)
     with patch("pathlib.Path.write_bytes", side_effect=OSError("disk full")):
