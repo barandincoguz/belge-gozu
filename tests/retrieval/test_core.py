@@ -1,0 +1,64 @@
+import numpy as np
+import pandas as pd
+
+from belge_gozu.index.store import PackedIndex, binarize_pack
+from belge_gozu.retrieval.core import TwoStageRetriever, binary_maxsim
+
+
+def naive_maxsim(q_bits: np.ndarray, d_bits: np.ndarray) -> float:
+    # saf referans: bit dizileri (n,128) 0/1 uint8
+    total = 0
+    for qrow in q_bits:
+        best = -129
+        for drow in d_bits:
+            ham = int(np.sum(qrow != drow))
+            best = max(best, 128 - 2 * ham)
+        total += best
+    return float(total)
+
+
+def unpack(packed: np.ndarray) -> np.ndarray:
+    return np.unpackbits(packed, axis=1)
+
+
+def test_binary_maxsim_matches_naive():
+    rng = np.random.default_rng(3)
+    q = binarize_pack(rng.standard_normal((5, 128)).astype(np.float32))
+    d = binarize_pack(rng.standard_normal((9, 128)).astype(np.float32))
+    assert binary_maxsim(q, d) == naive_maxsim(unpack(q), unpack(d))
+
+
+def build_fixture(n_pages: int = 30, seed: int = 11):
+    rng = np.random.default_rng(seed)
+    embs = [rng.standard_normal((8, 128)).astype(np.float32) for _ in range(n_pages)]
+    ids = [f"d{i}:1" for i in range(n_pages)]
+    idx = PackedIndex.build(ids, embs)
+    meta = pd.DataFrame(
+        {
+            "page_id": ids,
+            "doc_id": [f"d{i}" for i in range(n_pages)],
+            "doc_name": [f"Belge {i}" for i in range(n_pages)],
+            "doc_type": ["kanun"] * n_pages,
+            "source_url": ["https://example.org"] * n_pages,
+            "page_no": [1] * n_pages,
+            "image_path": [f"images/d{i}/0001.webp" for i in range(n_pages)],
+        }
+    )
+    return idx, meta, embs
+
+
+def test_planted_needle_found():
+    idx, meta, embs = build_fixture()
+    retriever = TwoStageRetriever(idx, meta, encoder=None)
+    hits = retriever.search_embedding(embs[17], k=5, candidates=10)
+    assert hits[0][0] == 17  # sorgu = sayfa 17'nin embedding'i → ilk sırada 17
+    assert hits[0][1] >= hits[1][1]
+
+
+def test_stage1_prefilter_respected():
+    idx, meta, embs = build_fixture()
+    retriever = TwoStageRetriever(idx, meta, encoder=None)
+    all_hits = retriever.search_embedding(embs[17], k=30, candidates=30)
+    assert len(all_hits) == 30
+    few = retriever.search_embedding(embs[17], k=5, candidates=3)
+    assert len(few) == 3  # aday sayısı k'den küçükse sonuç aday sayısıyla sınırlı
