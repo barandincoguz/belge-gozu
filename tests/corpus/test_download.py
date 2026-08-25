@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 
@@ -39,3 +40,46 @@ def test_failure_recorded(tmp_path: Path):
     assert r.ok == ["a"] and r.failed == ["b"]
     state = json.loads((tmp_path / "state.json").read_text())
     assert state["b"]["status"] == "failed"
+
+
+def test_invalid_url_recorded_not_raised(tmp_path: Path):
+    csv_with_bad = """doc_id,doc_name,doc_type,url
+a,Belge A,kanun,http://[invalid-url
+b,Belge B,kanun,https://example.org/b.pdf
+"""
+    rows = load_manifest_from_text(csv_with_bad)
+
+    def handler_with_invalid(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "%5B" in url_str or "[" in url_str:
+            raise httpx.InvalidURL(url_str)
+        name = url_str.rsplit("/", 1)[-1].removesuffix(".pdf")
+        return httpx.Response(200, content=b"%PDF-1.4 " + name.encode())
+
+    client = httpx.Client(transport=httpx.MockTransport(handler_with_invalid))
+    r = download_all(rows, tmp_path, client, delay_s=0, sleep=lambda _: None)
+    assert r.ok == ["b"] and r.failed == ["a"]
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert state["a"]["status"] == "failed"
+
+
+def test_oserror_recorded_not_raised(tmp_path: Path):
+    rows = load_manifest_from_text(CSV)
+    with patch("pathlib.Path.write_bytes", side_effect=OSError("disk full")):
+        r = download_all(rows, tmp_path, make_client(set()), delay_s=0, sleep=lambda _: None)
+        assert r.ok == [] and r.failed == ["a", "b"]
+        state = json.loads((tmp_path / "state.json").read_text())
+        assert state["a"]["status"] == "failed"
+        assert state["b"]["status"] == "failed"
+
+
+def test_corrupt_state_self_heals(tmp_path: Path):
+    rows = load_manifest_from_text(CSV)
+    state_path = tmp_path / "state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text("{truncated")
+    r = download_all(rows, tmp_path, make_client(set()), delay_s=0, sleep=lambda _: None)
+    assert r.ok == ["a", "b"] and r.failed == []
+    state = json.loads(state_path.read_text())
+    assert state["a"]["status"] == "ok"
+    assert state["b"]["status"] == "ok"
