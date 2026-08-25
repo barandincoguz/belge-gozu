@@ -46,14 +46,16 @@ class TwoStageRetriever:
     def search(self, query: str, k: int = 5, candidates: int = 200) -> list[PageHit]:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
-        hits = self.search_embedding(self.encoder.encode_query(query), k, candidates)
+        q_emb = self.encoder.encode_query(query)
+        hits = self.search_embedding(q_emb, k, candidates)
+        n_q = max(1, q_emb.shape[0])
         out: list[PageHit] = []
         for i, score in hits:
             row = self.meta.loc[self.index.page_ids[i]]
             out.append(
                 PageHit(
                     page_id=row["page_id"],
-                    score=score,
+                    score=score / n_q,
                     doc_name=row["doc_name"],
                     page_no=int(row["page_no"]),
                     image_path=row["image_path"],

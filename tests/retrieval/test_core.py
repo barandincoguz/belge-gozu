@@ -62,3 +62,19 @@ def test_stage1_prefilter_respected():
     assert len(all_hits) == 30
     few = retriever.search_embedding(embs[17], k=5, candidates=3)
     assert len(few) == 3  # aday sayısı k'den küçükse sonuç aday sayısıyla sınırlı
+
+
+def test_search_scores_normalized_per_query_token():
+    idx, meta, embs = build_fixture()
+
+    class OneTokenEncoder:
+        def encode_pages(self, images):
+            raise NotImplementedError
+
+        def encode_query(self, text):
+            return embs[17][:1]  # tek token → normalize skor = ham skor
+
+    r = TwoStageRetriever(idx, meta, OneTokenEncoder())
+    hits = r.search("x", k=1, candidates=30)
+    raw = r.search_embedding(embs[17][:1], k=1, candidates=30)
+    assert hits[0].score == raw[0][1] / 1
