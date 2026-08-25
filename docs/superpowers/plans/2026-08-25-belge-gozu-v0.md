@@ -1615,18 +1615,19 @@ satırını şu şekilde güncelle (skor sorgu token sayısına bölünür; `sea
 Ve `tests/retrieval/test_core.py`'ye normalizasyon testi ekle:
 
 ```python
-def test_search_scores_normalized_per_query_token():
+def test_search_normalizes_by_multi_token_query():
     idx, meta, embs = build_fixture()
 
-    class OneTokenEncoder:
+    class MultiTokenEncoder:
         def encode_pages(self, images): raise NotImplementedError
         def encode_query(self, text):
-            return embs[17][:1]  # tek token → normalize skor = ham skor
+            return embs[17]  # 8 token → normalize skor = ham skor / 8 (n_q=1 testi ayrım yapamaz!)
 
-    r = TwoStageRetriever(idx, meta, OneTokenEncoder())
+    r = TwoStageRetriever(idx, meta, MultiTokenEncoder())
     hits = r.search("x", k=1, candidates=30)
-    raw = r.search_embedding(embs[17][:1], k=1, candidates=30)
-    assert hits[0].score == raw[0][1] / 1
+    raw = r.search_embedding(embs[17], k=1, candidates=30)
+    assert hits[0].score == raw[0][1] / embs[17].shape[0]
+    assert hits[0].score != raw[0][1]  # normalizasyon gerçekten iz bırakıyor
 ```
 
 - [ ] **Step 4: Testlerin geçtiğini gör**
