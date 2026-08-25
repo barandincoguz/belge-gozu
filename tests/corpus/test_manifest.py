@@ -33,3 +33,24 @@ def test_probe():
     client = httpx.Client(transport=httpx.MockTransport(handler))
     rows = load_manifest_from_text(CSV)
     assert probe(rows, client) == [("k6098", 200), ("rg1930", 404)]
+
+
+def test_probe_invalid_url_recorded_not_raised(monkeypatch):
+    csv_with_bad_url = """doc_id,doc_name,doc_type,url
+k6098,Türk Borçlar Kanunu,kanun,https://example.org/1.5.6098.pdf
+rg1930,RG 1930 örneği,rg_tarihi,http://[bad
+"""
+    rows = load_manifest_from_text(csv_with_bad_url)
+
+    def mock_head(url, **kwargs):
+        if url == "http://[bad":
+            raise httpx.InvalidURL("Invalid URL")
+        return httpx.Response(200)
+
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    monkeypatch.setattr(client, "head", mock_head)
+    results = probe(rows, client)
+    # bad row recorded as failure, no exception raised
+    assert ("rg1930", 0) in results
+    # good row still probed
+    assert ("k6098", 200) in results

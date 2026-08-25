@@ -36,6 +36,6 @@ def probe(rows: list[ManifestRow], client: httpx.Client) -> list[tuple[str, int]
         try:
             resp = client.head(r.url, follow_redirects=True, timeout=20)
             out.append((r.doc_id, resp.status_code))
-        except httpx.HTTPError:
+        except (httpx.HTTPError, httpx.InvalidURL):
             out.append((r.doc_id, 0))
     return out
