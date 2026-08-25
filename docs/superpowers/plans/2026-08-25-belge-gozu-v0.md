@@ -477,6 +477,7 @@ Expected: FAIL (modül yok)
 ```python
 import hashlib
 import json
+import os
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -486,7 +487,7 @@ from pydantic import BaseModel
 
 from belge_gozu.corpus.manifest import ManifestRow
 
-USER_AGENT = "belge-gozu/0.1 (açık kaynak araştırma projesi)"
+USER_AGENT = "belge-gozu/0.1 (acik kaynak arastirma projesi)"  # ASCII: header'lar latin-1/ascii alanı
 
 
 class DownloadReport(BaseModel):
@@ -496,7 +497,12 @@ class DownloadReport(BaseModel):
 
 
 def _load_state(path: Path) -> dict:
-    return json.loads(path.read_text()) if path.exists() else {}
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}  # bozuk state: kendini onarır, idempotent yeniden indirme güvenli
 
 
 def download_all(
@@ -528,10 +534,12 @@ def download_all(
             sha = hashlib.sha256(resp.content).hexdigest()
             state[row.doc_id] = {"sha256": sha, "status": "ok"}
             report.ok.append(row.doc_id)
-        except httpx.HTTPError:
+        except (httpx.HTTPError, httpx.InvalidURL, OSError):
             state[row.doc_id] = {"sha256": "", "status": "failed"}
             report.failed.append(row.doc_id)
-        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=1))
+        tmp = state_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1))
+        os.replace(tmp, state_path)  # atomik: yarıda kesilme state'i bozamaz
     return report
 ```
 
