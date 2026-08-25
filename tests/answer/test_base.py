@@ -56,7 +56,7 @@ def test_ask_abstains_on_empty_index():
     assert answer.abstained and hits == []
 
 
-def test_ask_degrades_gracefully_when_answerer_fails():
+def test_ask_degrades_gracefully_when_answerer_fails(caplog):
     class BoomAnswerer:
         def answer(self, question, pages, image_loader):
             raise RuntimeError("quota exceeded")
@@ -71,3 +71,4 @@ def test_ask_degrades_gracefully_when_answerer_fails():
     assert answer.abstained and answer.citations == []
     assert "kullanılamıyor" in answer.text
     assert hits and hits[0].page_id == "a:1"  # retrieval sonuçları kaybolmaz
+    assert "answerer failed" in caplog.text

@@ -18,19 +18,32 @@ def build_prompt(question: str, pages: list[PageHit]) -> str:
 
 
 class GeminiClient:
-    """google-genai ince sarmalayıcısı. SDK yüzeyi Task 13'te canlı doğrulanır."""
+    """google-genai ince sarmalayıcısı. SDK yüzeyi Task 13'te canlı doğrulanır.
+
+    Tembel kurulum: __init__ yalnızca model+api_key saklar, SDK'ya dokunmaz —
+    böylece anahtarsız `serve` çökmez (keyless boot). Gerçek genai.Client, ve
+    onunla birlikte boş-anahtar hatası, yalnızca ilk generate() çağrısında
+    oluşur; AskService'in degradation guard'ı bunu SERVICE_ERROR_TEXT'e çevirir.
+    """
 
     def __init__(self, model: str, api_key: str):
-        from google import genai
-
         self.model = model
-        self.client = genai.Client(api_key=api_key)
+        self.api_key = api_key
+        self._client = None
+
+    def _ensure_client(self):
+        if self._client is None:
+            from google import genai
+
+            self._client = genai.Client(api_key=self.api_key)
+        return self._client
 
     def generate(self, prompt: str, images: list[bytes]) -> str:
         from google.genai import types
 
+        client = self._ensure_client()
         parts = [types.Part.from_bytes(data=b, mime_type="image/webp") for b in images]
-        resp = self.client.models.generate_content(model=self.model, contents=[*parts, prompt])
+        resp = client.models.generate_content(model=self.model, contents=[*parts, prompt])
         return resp.text or ""
 
 

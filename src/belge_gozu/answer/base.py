@@ -1,9 +1,12 @@
+import logging
 from collections.abc import Callable
 from typing import Protocol
 
 from pydantic import BaseModel
 
 from belge_gozu.retrieval.types import PageHit
+
+logger = logging.getLogger(__name__)
 
 ABSTAIN_TEXT = "Bu soruya korpustaki belgelerde dayanak bulamadım."
 SERVICE_ERROR_TEXT = (
@@ -40,4 +43,5 @@ class AskService:
         try:
             return self.answerer.answer(question, hits, self.image_loader), hits
         except Exception:
+            logger.exception("answerer failed")
             return Answer(text=SERVICE_ERROR_TEXT, citations=[], abstained=True), hits
