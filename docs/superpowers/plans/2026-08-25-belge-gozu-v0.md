@@ -1763,6 +1763,7 @@ yoksa `/` inline yer tutucu HTML döndürür — içinde "Belge-Gözü" başlı�
 
 ```python
 import sqlite3
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1788,6 +1789,21 @@ class SearchBody(BaseModel):
 
 class AskBody(BaseModel):
     question: str
+
+
+def _log_write(
+    db: sqlite3.Connection, lock: threading.Lock, path: str, ms: float, top_score: float
+) -> None:
+    # Telemetri best-effort'tur: log yazımı hiçbir koşulda isteği düşürmez.
+    try:
+        with lock:
+            db.execute(
+                "INSERT INTO log VALUES (?,?,?,?)",
+                (datetime.now(UTC).isoformat(), path, ms, top_score),
+            )
+            db.commit()
+    except Exception:
+        pass
 
 
 def _log_db(settings: Settings) -> sqlite3.Connection:
@@ -1818,12 +1834,10 @@ def create_app(settings: Settings | None = None, encoder=None, answerer=None) ->
     db = _log_db(s)
     app = FastAPI(title="Belge-Gözü")
 
+    lock = threading.Lock()
+
     def log(path: str, ms: float, top_score: float) -> None:
-        db.execute(
-            "INSERT INTO log VALUES (?,?,?,?)",
-            (datetime.now(UTC).isoformat(), path, ms, top_score),
-        )
-        db.commit()
+        _log_write(db, lock, path, ms, top_score)
 
     @app.get("/healthz")
     def healthz() -> dict:
