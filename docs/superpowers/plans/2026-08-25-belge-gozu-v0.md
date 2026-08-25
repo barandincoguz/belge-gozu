@@ -570,8 +570,8 @@ git add -A && git commit -m "feat: rate-limited idempotent PDF downloader"
 ```python
 from pathlib import Path
 
-import fitz  # PyMuPDF
 import pandas as pd
+import pymupdf as fitz
 
 from belge_gozu.corpus.manifest import load_manifest_from_text
 from belge_gozu.corpus.render import render_all
@@ -617,8 +617,8 @@ Expected: FAIL (modül yok)
 ```python
 from pathlib import Path
 
-import fitz
 import pandas as pd
+import pymupdf as fitz
 
 from belge_gozu.corpus.manifest import ManifestRow
 
@@ -633,27 +633,34 @@ def render_all(rows: list[ManifestRow], corpus_dir: Path, dpi: int = 150) -> pd.
             continue
         img_dir = corpus_dir / "images" / row.doc_id
         img_dir.mkdir(parents=True, exist_ok=True)
-        with fitz.open(pdf_path) as doc:
-            for i, page in enumerate(doc, start=1):
-                rel = f"images/{row.doc_id}/{i:04d}.webp"
-                out = corpus_dir / rel
-                if not out.exists():
-                    pix = page.get_pixmap(dpi=dpi)
-                    pix.pil_save(out, format="WEBP", quality=80)
-                records.append(
-                    {
-                        "page_id": f"{row.doc_id}:{i}",
-                        "doc_id": row.doc_id,
-                        "doc_name": row.doc_name,
-                        "doc_type": row.doc_type,
-                        "source_url": row.url,
-                        "page_no": i,
-                        "image_path": rel,
-                    }
-                )
+        try:
+            _render_doc(row, pdf_path, corpus_dir, dpi, records)
+        except (fitz.FileDataError, RuntimeError):
+            continue  # bozuk PDF: belgeyi atla, parti devam eder (meta yine yazılır)
     df = pd.DataFrame.from_records(records, columns=META_COLUMNS)
     df.to_parquet(corpus_dir / "meta.parquet", index=False)
     return df
+
+
+def _render_doc(row: ManifestRow, pdf_path: Path, corpus_dir: Path, dpi: int, records: list[dict]) -> None:
+    with fitz.open(pdf_path) as doc:
+        for i, page in enumerate(doc, start=1):
+            rel = f"images/{row.doc_id}/{i:04d}.webp"
+            out = corpus_dir / rel
+            if not out.exists():
+                pix = page.get_pixmap(dpi=dpi)
+                pix.pil_save(out, format="WEBP", quality=80)
+            records.append(
+                {
+                    "page_id": f"{row.doc_id}:{i}",
+                    "doc_id": row.doc_id,
+                    "doc_name": row.doc_name,
+                    "doc_type": row.doc_type,
+                    "source_url": row.url,
+                    "page_no": i,
+                    "image_path": rel,
+                }
+            )
 ```
 
 - [ ] **Step 4: Testlerin geçtiğini gör**
