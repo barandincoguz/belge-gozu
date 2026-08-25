@@ -54,3 +54,20 @@ def test_ask_abstains_on_empty_index():
     )
     answer, hits = svc.ask("soru", k=5, candidates=200)
     assert answer.abstained and hits == []
+
+
+def test_ask_degrades_gracefully_when_answerer_fails():
+    class BoomAnswerer:
+        def answer(self, question, pages, image_loader):
+            raise RuntimeError("quota exceeded")
+
+    svc = AskService(
+        FakeRetriever([hit("a:1", 90.0)]),
+        BoomAnswerer(),
+        min_score=20.0,
+        image_loader=lambda p: b"img",
+    )
+    answer, hits = svc.ask("soru", k=5, candidates=200)
+    assert answer.abstained and answer.citations == []
+    assert "kullanılamıyor" in answer.text
+    assert hits and hits[0].page_id == "a:1"  # retrieval sonuçları kaybolmaz

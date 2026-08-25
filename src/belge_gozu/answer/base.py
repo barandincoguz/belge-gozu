@@ -6,6 +6,10 @@ from pydantic import BaseModel
 from belge_gozu.retrieval.types import PageHit
 
 ABSTAIN_TEXT = "Bu soruya korpustaki belgelerde dayanak bulamadım."
+SERVICE_ERROR_TEXT = (
+    "Yanıt servisi şu anda kullanılamıyor (kota veya servis hatası). "
+    "Bulunan sayfalar aşağıda listeleniyor."
+)
 
 
 class Answer(BaseModel):
@@ -33,4 +37,7 @@ class AskService:
         hits = self.retriever.search(question, k=k, candidates=candidates)
         if not hits or hits[0].score < self.min_score:
             return Answer(text=ABSTAIN_TEXT, citations=[], abstained=True), hits
-        return self.answerer.answer(question, hits, self.image_loader), hits
+        try:
+            return self.answerer.answer(question, hits, self.image_loader), hits
+        except Exception:
+            return Answer(text=SERVICE_ERROR_TEXT, citations=[], abstained=True), hits
