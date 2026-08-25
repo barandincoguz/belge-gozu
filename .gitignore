@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+data/
+!data/manifest/
+*.egg-info/
+.pytest_cache/
+requests.sqlite
+.env
+.env.*
