@@ -45,8 +45,11 @@ def test_query_format_render_used(monkeypatch):
 @pytest.mark.slow
 def test_batch_vs_single_sign_determinism():
     """Batch içinde (padding'li) ve tek başına encode edilen sayfa, maske
-    kırpması sonrası SIGN düzeyinde aynı olmalı. Sapma varsa index build
-    batch_size=1'e iner (karar kuralı; sonuç p0-baseline raporuna yazılır)."""
+    kırpması sonrası SIGN düzeyinde büyük ölçüde aynı olmalı.
+
+    ==1.0 MPS'te tutmadı (ölçüm: 0.9990/0.9989, 2026-08-26); karar: index
+    build batch_size=1 (cli.py). Bu eşik yalnız kaba gerilemeleri (ör.
+    maskeleme bozulması) yakalar; bit-exact kilit T10 canary testlerinde."""
     from pathlib import Path
 
     from PIL import Image
@@ -63,4 +66,4 @@ def test_batch_vs_single_sign_determinism():
     for b, s, p in zip(batch_out, single_out, paths, strict=True):
         assert b.shape == s.shape, f"{p}: sekans uzunluğu batch'e bağlı olmamalı"
         agree = float(((b > 0) == (s > 0)).mean())
-        assert agree == 1.0, f"{p}: sign uyuşması {agree:.4f} < 1.0 -> build batch=1 kararı"
+        assert agree >= 0.995, f"{p}: sign uyuşması {agree:.4f} < 0.995 -> build batch=1 kararı"
