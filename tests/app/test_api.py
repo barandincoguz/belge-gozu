@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 from fastapi.testclient import TestClient
@@ -99,7 +100,7 @@ def test_events_row_written_for_ask(tiny_corpus):
     row = (
         sqlite3.connect(data_dir / "requests.sqlite")
         .execute(
-            "SELECT endpoint, status, query_text, query_sha256, encode_ms, top_score "
+            "SELECT endpoint, status, query_text, query_sha256, encode_ms, top_score, detail "
             "FROM events WHERE endpoint='/ask'"
         )
         .fetchone()
@@ -107,6 +108,11 @@ def test_events_row_written_for_ask(tiny_corpus):
     assert row[0] == "/ask" and row[1] == "answered"
     assert row[2] == "kira artışı nedir?" and len(row[3]) == 64
     assert row[4] is not None and row[5] is not None
+    # detail: koşum künyesi (item 3) — hits/threshold korunur, model/device/version eklenir.
+    detail = json.loads(row[6])
+    assert "hits" in detail and "threshold" in detail
+    assert detail["retriever_model"] and detail["gemini_model"]
+    assert "device" in detail and detail["app_version"]
 
 
 def test_query_text_flag_off_hashes_only(tiny_corpus):

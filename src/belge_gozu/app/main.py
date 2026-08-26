@@ -145,6 +145,10 @@ def create_app(
             detail={
                 "hits": [{"page_id": h.page_id, "score": h.score} for h in hits],
                 "threshold": s.min_score_threshold,
+                "retriever_model": s.retriever_model,
+                "gemini_model": s.gemini_model,
+                "device": s.device,
+                "app_version": app_version,
             },
         )
 

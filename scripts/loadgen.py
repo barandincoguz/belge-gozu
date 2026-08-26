@@ -73,7 +73,12 @@ async def run(args: argparse.Namespace) -> dict:
             )
         )
         dur = time.monotonic() - t0
-    return {"config": vars(args), "endpoint": endpoint, **summarize(lat, errs[0], dur)}
+    return {
+        "config": vars(args),
+        "endpoint": endpoint,
+        "duration_s": round(dur, 2),
+        **summarize(lat, errs[0], dur),
+    }
 
 
 def main() -> None:

@@ -135,7 +135,8 @@ def metrics_summary() -> None:
         db = sqlite3.connect(s.data_dir / "requests.sqlite")
         n, avg = db.execute("SELECT COUNT(*), COALESCE(AVG(total_ms),0) FROM events").fetchone()
         ab = db.execute(
-            "SELECT COALESCE(AVG(abstained),0) FROM events WHERE endpoint='/ask'"
+            "SELECT COALESCE(AVG(abstained),0) FROM events "
+            "WHERE endpoint='/ask' AND status <> 'degraded'"
         ).fetchone()[0]
         tok = db.execute(
             "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0), "

@@ -84,6 +84,42 @@ def test_metrics_summary_cli(tmp_path, monkeypatch):
     assert "token in/out=5/7 maliyet≈$0.0010" in result.output
 
 
+def test_metrics_summary_excludes_degraded_from_abstain(tmp_path, monkeypatch):
+    from belge_gozu.telemetry.recorder import EventRecorder
+    from belge_gozu.telemetry.schema import RequestEvent
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    rec = EventRecorder(tmp_path / "requests.sqlite")
+    rec.record(
+        RequestEvent(
+            ts="t",
+            endpoint="/ask",
+            status="answered",
+            http_status=200,
+            total_ms=10.0,
+            abstained=False,
+            query_sha256="a" * 64,
+        )
+    )
+    # degraded satır: abstained=1 olsa bile abstain oranından hariç tutulmalı.
+    rec.record(
+        RequestEvent(
+            ts="t",
+            endpoint="/ask",
+            status="degraded",
+            http_status=200,
+            total_ms=10.0,
+            abstained=True,
+            query_sha256="b" * 64,
+        )
+    )
+    rec.close()
+    result = runner.invoke(app, ["metrics", "summary"])
+    assert result.exit_code == 0, result.output
+    # degraded satır hariç tutulmasaydı abstain %50.0 olurdu (1/2); dışlanınca %0.0 (0/1).
+    assert "abstain=0.0%" in result.output
+
+
 def test_metrics_summary_p95_nearest_rank(tmp_path, monkeypatch):
     from belge_gozu.telemetry.recorder import EventRecorder
     from belge_gozu.telemetry.schema import RequestEvent

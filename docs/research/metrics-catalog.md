@@ -98,7 +98,13 @@ Kaynak: `src/belge_gozu/telemetry/prom.py` — `REQUEST_BUCKETS`, `STAGE_BUCKETS
 Bunlar Prometheus'ta değil, `events` tablosundan `belge-gozu metrics
 export`/`summary` veya pandas ile hesaplanır:
 
-- Abstain oranı zaman serisi (`abstained` + `status='degraded'` / toplam)
+- **Eşik abstain oranı** zaman serisi (`AVG(abstained)` WHERE `endpoint='/ask' AND status <>
+  'degraded'` — `belge-gozu metrics summary`, `/stats`'ın `abstain_rate`'i): `degraded` (kota/servis
+  hatası) satırları hem paydan hem paydadan hariç tutulur, yalnızca eşik altı kalıp LLM'e hiç
+  gitmeyen istekleri yansıtır. Bunu Prometheus'taki `bg_abstain_total` (§2) ile karıştırmayın —
+  o sayaç `reason ∈ {threshold, degraded}` ile **toplam fren aktivasyonunu** sayar (degraded
+  dahil); ikisi farklı sorulara cevap verir: SQL "eşik yüzünden ne kadar sıklıkla LLM'e hiç
+  gidilmedi", Prometheus "hangi nedenle olursa olsun fren kaç kez tetiklendi".
 - Skor ↔ soru-uzunluğu ilişkisi (`top_score` vs `query_len`)
 - Encode süresi ↔ soru uzunluğu ilişkisi (`encode_ms` vs `query_len`)
 - Eşzamanlılık ↔ throughput eğrisi (loadgen taraması, `--concurrency` süpürmesi)

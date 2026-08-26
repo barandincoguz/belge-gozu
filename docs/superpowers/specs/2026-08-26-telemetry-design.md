@@ -46,6 +46,9 @@ istek → FastAPI route
 
 - **Telemetri asla isteği düşürmez** (mevcut ilke korunur): recorder ve olay
   birleştirme try/except ile sarılır; hata bir kez WARNING loglanır.
+  **Öncelik netliği:** "istek asla düşmez" ilkesi "her istek bir satır yazar" beklentisinden
+  önceliklidir — olay kurulumu (`build_event`) çökerse satır hiç yazılmaz, ama istek yine de
+  başarılıdır (bkz. §14 kabul ölçütü 1).
 - StageCollector **contextvar** tabanlıdır: kolektör yokken tüm çağrılar no-op
   (testler ve CLI yolları etkilenmez). FastAPI sync endpoint'lerinde contextvar,
   istek thread'ine taşınır; istek içi akış tek thread olduğundan güvenlidir.
