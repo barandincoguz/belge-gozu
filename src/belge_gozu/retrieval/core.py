@@ -31,6 +31,7 @@ class TwoStageRetriever:
     def search_embedding(
         self, q_emb: np.ndarray, k: int, candidates: int
     ) -> list[tuple[int, float]]:
+        """RAW MaxSim toplamları döner (normalize edilmemiş); normalize search()'te yapılır."""
         q_packed = binarize_pack(q_emb)
         q_vec = binarize_pack(q_emb.mean(axis=0, keepdims=True))
         # Aşama 1: sayfa vektörüyle Hamming eleme
@@ -104,13 +105,16 @@ class ExhaustiveBinaryRetriever:
         bounds = self._chunk_bounds()
         for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
             t0, t1 = int(self.offsets[b0]), int(self.offsets[b1])
-            ham = np.bitwise_count(qa[:, None, :] ^ ta[None, t0:t1, :]).sum(axis=2)
-            sim = (128 - 2 * ham).astype(np.int32)
+            ham = np.bitwise_count(qa[:, None, :] ^ ta[None, t0:t1, :]).sum(axis=2, dtype=np.int32)
+            sim = 128 - 2 * ham
             starts = (self.offsets[b0:b1] - t0).astype(np.int64)
+            # offsets kesin artan (PackedIndex.build sıfır-token sayfayı reddeder) ->
+            # reduceat boş segment göremez.
             out[b0:b1] = np.maximum.reduceat(sim, starts, axis=1).sum(axis=0)
         return out / max(1, q_emb.shape[0])
 
     def search_embedding(self, q_emb: np.ndarray, k: int) -> list[tuple[int, float]]:
+        """Per-query-token NORMALIZE edilmiş skorlar döner (score_all zaten böler)."""
         scores = self.score_all(q_emb)
         order = np.argsort(-scores, kind="stable")[:k]
         return [(int(i), float(scores[i])) for i in order]

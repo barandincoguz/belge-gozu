@@ -23,17 +23,21 @@ def test_self_match_is_top1():
     assert hits[0][0] == 17
 
 
-def test_exhaustive_beats_broken_stage1_counterexample():
-    """Stage-1'in kaybettiği sonucu exhaustive bulur: Stage-1'i top-1 aday ile
-    kısıtla; exhaustive tüm sayfaları görür."""
+def test_exhaustive_recovers_what_stage1_loses():
+    """Karışık sorgu (iki sayfanın token'ları): mean-sign Stage-1'in top-1 adayı
+    exhaustive argmax'tan sapan bir çift bul ve sapmayı assert et."""
     idx, meta, embs = build_fixture(n_pages=30)
     ex = ExhaustiveBinaryRetriever(idx, meta, encoder=None)
     ts = TwoStageRetriever(idx, meta, encoder=None)
-    q = embs[23]
-    ex_top = ex.search_embedding(q, k=30)
-    ts_top = ts.search_embedding(q, k=30, candidates=1)
-    assert len(ex_top) == 30 and len(ts_top) == 1
-    assert ex_top[0][0] == 23
+    for a in range(30):
+        for b in range(a + 1, 30):
+            q = np.vstack([embs[a][:4], embs[b][:4]])
+            ex_best_i, ex_best_s = ex.search_embedding(q, k=1)[0]
+            ts_best_i, ts_best_raw = ts.search_embedding(q, k=1, candidates=1)[0]
+            if ts_best_i != ex_best_i:
+                assert ex_best_s >= ts_best_raw / q.shape[0]  # TwoStage raw döner
+                return
+    raise AssertionError("hiçbir karışık sorguda stage-1 sapması bulunamadı — fikstürü genişlet")
 
 
 def test_chunk_boundaries_do_not_change_scores():

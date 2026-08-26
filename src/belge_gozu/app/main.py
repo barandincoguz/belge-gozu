@@ -167,6 +167,7 @@ def create_app(
                 "gemini_model": s.gemini_model,
                 "device": s.device,
                 "app_version": app_version,
+                "stages": dict(col.stages),
             },
         )
 
@@ -200,7 +201,7 @@ def create_app(
                 else:
                     # cand is not None <=> retrieval_pipeline == "two-stage" (TwoStageRetriever);
                     # pyright can't narrow retriever's union type from cand's nullability.
-                    hits = retriever.search(body.query, k=k, candidates=cand)  # type: ignore[reportCallIssue]
+                    hits = retriever.search(body.query, k=k, candidates=cand)  # pyright: ignore[reportCallIssue]
             except Exception as e:
                 record_event(
                     endpoint="/search",

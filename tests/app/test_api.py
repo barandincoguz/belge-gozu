@@ -115,6 +115,21 @@ def test_events_row_written_for_ask(tiny_corpus):
     assert "device" in detail and detail["app_version"]
 
 
+def test_search_detail_records_exhaustive_stage_timing(tiny_corpus):
+    """Varsayılan pipeline ("exhaustive"): exhaustive_maxsim süresi detail.stages'e düşer."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post("/search", json={"query": "deneme sorgusu"})
+    row = (
+        sqlite3.connect(data_dir / "requests.sqlite")
+        .execute("SELECT detail FROM events WHERE endpoint='/search' ORDER BY id DESC")
+        .fetchone()
+    )
+    detail = json.loads(row[0])
+    assert "stages" in detail
+    assert "exhaustive_maxsim" in detail["stages"]
+
+
 def test_query_text_flag_off_hashes_only(tiny_corpus):
     data_dir, enc, _ = tiny_corpus
     settings = Settings(
