@@ -5,6 +5,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from belge_gozu.retrieval.types import PageHit
+from belge_gozu.telemetry.collect import annotate, stage
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,9 @@ class AskService:
         if not hits or hits[0].score < self.min_score:
             return Answer(text=ABSTAIN_TEXT, citations=[], abstained=True), hits
         try:
-            return self.answerer.answer(question, hits, self.image_loader), hits
+            with stage("answerer"):
+                return self.answerer.answer(question, hits, self.image_loader), hits
         except Exception:
             logger.exception("answerer failed")
+            annotate("degraded", True)
             return Answer(text=SERVICE_ERROR_TEXT, citations=[], abstained=True), hits

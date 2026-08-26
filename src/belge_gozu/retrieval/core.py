@@ -4,6 +4,7 @@ import pandas as pd
 from belge_gozu.index.encode import Encoder
 from belge_gozu.index.store import PackedIndex, binarize_pack
 from belge_gozu.retrieval.types import PageHit
+from belge_gozu.telemetry.collect import stage
 
 
 def _as_u64(packed: np.ndarray) -> np.ndarray:
@@ -33,20 +34,23 @@ class TwoStageRetriever:
         q_packed = binarize_pack(q_emb)
         q_vec = binarize_pack(q_emb.mean(axis=0, keepdims=True))
         # Aşama 1: sayfa vektörüyle Hamming eleme
-        dists = hamming_matrix(q_vec, self.index.page_vecs)[0]
-        n_cand = min(candidates, len(dists))
-        cand_ids = np.argpartition(dists, n_cand - 1)[:n_cand]
+        with stage("stage1_hamming"):
+            dists = hamming_matrix(q_vec, self.index.page_vecs)[0]
+            n_cand = min(candidates, len(dists))
+            cand_ids = np.argpartition(dists, n_cand - 1)[:n_cand]
         # Aşama 2: adaylarda kesin binary MaxSim
-        scored = [
-            (int(i), binary_maxsim(q_packed, self.index.page_tokens(int(i)))) for i in cand_ids
-        ]
-        scored.sort(key=lambda t: t[1], reverse=True)
+        with stage("stage2_maxsim"):
+            scored = [
+                (int(i), binary_maxsim(q_packed, self.index.page_tokens(int(i)))) for i in cand_ids
+            ]
+            scored.sort(key=lambda t: t[1], reverse=True)
         return scored[:k]
 
     def search(self, query: str, k: int = 5, candidates: int = 200) -> list[PageHit]:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
-        q_emb = self.encoder.encode_query(query)
+        with stage("query_encode"):
+            q_emb = self.encoder.encode_query(query)
         hits = self.search_embedding(q_emb, k, candidates)
         n_q = max(1, q_emb.shape[0])
         out: list[PageHit] = []
