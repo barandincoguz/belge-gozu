@@ -27,9 +27,11 @@ app = typer.Typer(help="Belge-Gözü: Türkçe mevzuat için görsel belge RAG")
 corpus_app = typer.Typer()
 index_app = typer.Typer()
 metrics_app = typer.Typer()
+bench_app = typer.Typer()
 app.add_typer(corpus_app, name="corpus")
 app.add_typer(index_app, name="index")
 app.add_typer(metrics_app, name="metrics")
+app.add_typer(bench_app, name="bench")
 
 DEFAULT_MANIFEST = Path("data/manifest/v0_manifest.csv")
 
@@ -217,6 +219,54 @@ def metrics_summary() -> None:
     p95 = vals[min(len(vals) - 1, math.ceil(0.95 * len(vals)) - 1)] if vals else 0.0
     typer.echo(f"istek={n} ort={avg:.0f}ms p95={p95:.0f}ms abstain={ab:.1%}")
     typer.echo(f"token in/out={tok[0]}/{tok[1]} maliyet≈${tok[2]:.4f}")
+
+
+@bench_app.command("run")
+def bench_run(
+    bench: Path = typer.Option(Path("data/bench/canary_v1.jsonl")),  # noqa: B008
+    pipeline: str = typer.Option("exhaustive", "--pipeline"),  # noqa: B008
+    out: Path | None = typer.Option(None, "--out"),  # noqa: B008
+) -> None:
+    from belge_gozu.bench.dataset import load_bench
+    from belge_gozu.bench.harness import (
+        ExhaustiveDiagnosticAdapter,
+        TwoStageDiagnosticAdapter,
+        _git_commit,
+        run_retrieval_eval,
+    )
+    from belge_gozu.index.encode import ColSmolEncoder
+    from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever, TwoStageRetriever
+
+    s = _settings()
+    idx = PackedIndex.load(s.index_dir)
+    meta = pd.read_parquet(s.index_dir / "meta.parquet")
+    encoder = ColSmolEncoder(s.retriever_model, s.device)
+
+    adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter
+    if pipeline == "two-stage":
+        adapter = TwoStageDiagnosticAdapter(
+            TwoStageRetriever(idx, meta, encoder), candidates=s.stage1_candidates
+        )
+    else:
+        adapter = ExhaustiveDiagnosticAdapter(ExhaustiveBinaryRetriever(idx, meta, encoder))
+
+    questions = load_bench(bench)
+    run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{_git_commit()}-{pipeline}"
+    out_path = out or Path("data/bench/results") / f"{run_id}.json"
+
+    report = run_retrieval_eval(
+        adapter,
+        questions,
+        known_page_ids=set(idx.page_ids),
+        run_id=run_id,
+        index_manifest=idx.manifest,
+        config={"pipeline": pipeline, "bench": str(bench)},
+    )
+    report.to_json(out_path)
+    typer.echo(f"recall@5={report.overall.recall_at.get(5, 0.0):.3f} mrr={report.overall.mrr:.3f}")
+    typer.echo(f"rapor -> {out_path}")
+    if report.missing_gold_pages:
+        typer.echo(f"missing_gold_pages={len(report.missing_gold_pages)}")
 
 
 @app.command("serve")
