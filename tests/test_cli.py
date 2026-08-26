@@ -34,3 +34,50 @@ def test_render_and_fake_build(tmp_path: Path, monkeypatch):
     assert r2.exit_code == 0, r2.output
     assert (tmp_path / "index" / "tokens.npy").exists()
     assert (tmp_path / "index" / "meta.parquet").exists()
+
+
+def test_metrics_export_cli(tmp_path, monkeypatch):
+    from belge_gozu.telemetry.recorder import EventRecorder
+    from belge_gozu.telemetry.schema import RequestEvent
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    rec = EventRecorder(tmp_path / "requests.sqlite")
+    rec.record(
+        RequestEvent(
+            ts="t",
+            endpoint="/search",
+            status="ok",
+            http_status=200,
+            total_ms=1.0,
+            query_sha256="f" * 64,
+        )
+    )
+    rec.close()
+    result = runner.invoke(app, ["metrics", "export", "--out", str(tmp_path / "e.parquet")])
+    assert result.exit_code == 0 and (tmp_path / "e.parquet").exists()
+
+
+def test_metrics_summary_cli(tmp_path, monkeypatch):
+    from belge_gozu.telemetry.recorder import EventRecorder
+    from belge_gozu.telemetry.schema import RequestEvent
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    rec = EventRecorder(tmp_path / "requests.sqlite")
+    rec.record(
+        RequestEvent(
+            ts="t",
+            endpoint="/ask",
+            status="answered",
+            http_status=200,
+            total_ms=10.0,
+            abstained=False,
+            tokens_in=5,
+            tokens_out=7,
+            est_cost_usd=0.001,
+            query_sha256="a" * 64,
+        )
+    )
+    rec.close()
+    result = runner.invoke(app, ["metrics", "summary"])
+    assert result.exit_code == 0, result.output
+    assert "istek=" in result.output and "token" in result.output

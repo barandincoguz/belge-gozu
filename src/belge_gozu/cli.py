@@ -15,8 +15,10 @@ from belge_gozu.index.store import PackedIndex
 app = typer.Typer(help="Belge-Gözü: Türkçe mevzuat için görsel belge RAG")
 corpus_app = typer.Typer()
 index_app = typer.Typer()
+metrics_app = typer.Typer()
 app.add_typer(corpus_app, name="corpus")
 app.add_typer(index_app, name="index")
+app.add_typer(metrics_app, name="metrics")
 
 DEFAULT_MANIFEST = Path("data/manifest/v0_manifest.csv")
 
@@ -108,6 +110,36 @@ def index_pull() -> None:
     s = _settings()
     pull_index(s.hf_dataset_repo, s.index_dir, data_dir=s.data_dir)
     typer.echo(f"indeks {s.hf_dataset_repo} reposundan indirildi")
+
+
+@metrics_app.command("export")
+def metrics_export(out: Path = typer.Option(Path("data/exports/events.parquet"))) -> None:  # noqa: B008
+    from belge_gozu.telemetry.export import export_events
+
+    s = _settings()
+    n = export_events(s.data_dir / "requests.sqlite", out)
+    typer.echo(f"{n} olay -> {out}")
+
+
+@metrics_app.command("summary")
+def metrics_summary() -> None:
+    import sqlite3
+
+    s = _settings()
+    db = sqlite3.connect(s.data_dir / "requests.sqlite")
+    n, avg = db.execute("SELECT COUNT(*), COALESCE(AVG(total_ms),0) FROM events").fetchone()
+    ab = db.execute(
+        "SELECT COALESCE(AVG(abstained),0) FROM events WHERE endpoint='/ask'"
+    ).fetchone()[0]
+    tok = db.execute(
+        "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0), "
+        "COALESCE(SUM(est_cost_usd),0) FROM events"
+    ).fetchone()
+    vals = sorted(r[0] for r in db.execute("SELECT total_ms FROM events"))
+    p95 = vals[int(len(vals) * 0.95) - 1] if vals else 0.0
+    db.close()
+    typer.echo(f"istek={n} ort={avg:.0f}ms p95={p95:.0f}ms abstain={ab:.1%}")
+    typer.echo(f"token in/out={tok[0]}/{tok[1]} maliyet≈${tok[2]:.4f}")
 
 
 @app.command("serve")
