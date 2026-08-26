@@ -1,0 +1,23 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  grafana:
+    image: grafana/grafana:11.1.0
+    # Host port 3001 (not spec default 3000): an unrelated process already
+    # holds :3000 on the dev machine this stack was verified on. Container
+    # port stays 3000 (Grafana's default) — only the host mapping moved.
+    ports: ["3001:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - graf-data:/var/lib/grafana
+volumes:
+  prom-data:
+  graf-data:

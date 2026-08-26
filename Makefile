@@ -1,4 +1,4 @@
-.PHONY: setup lint test serve
+.PHONY: setup lint test serve obs-up obs-down
 setup:
 	uv sync --extra dev
 lint:
@@ -7,3 +7,7 @@ test:
 	uv run pytest -m "not slow" -q
 serve:
 	uv run belge-gozu serve
+obs-up:
+	docker compose -f observability/docker-compose.yml up -d
+obs-down:
+	docker compose -f observability/docker-compose.yml down
