@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # doğrulama adımıyla güncellenir, env ile geçersiz kılınır.
     gemini_price_in_usd_per_1m: float = 0.10
     gemini_price_out_usd_per_1m: float = 0.40
+    # Ham sorgu metnini events tablosuna yaz (gizlilik hassasiyeti olan
+    # dağıtımlarda kapatılabilir; sha256 her koşulda yazılır).
+    log_query_text: bool = True
 
 
 @lru_cache
