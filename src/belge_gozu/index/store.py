@@ -4,6 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
+from belge_gozu.index.manifest import IndexManifest, read_manifest, write_manifest
+
 
 def binarize_pack(emb: np.ndarray) -> np.ndarray:
     if emb.ndim != 2 or emb.shape[1] != 128:
@@ -17,9 +19,15 @@ class PackedIndex:
     offsets: np.ndarray
     page_vecs: np.ndarray
     page_ids: list[str]
+    manifest: IndexManifest | None = None
 
     @classmethod
-    def build(cls, page_ids: list[str], embs: list[np.ndarray]) -> "PackedIndex":
+    def build(
+        cls,
+        page_ids: list[str],
+        embs: list[np.ndarray],
+        manifest: IndexManifest | None = None,
+    ) -> "PackedIndex":
         if len(page_ids) != len(embs):
             raise ValueError(
                 f"page_ids ({len(page_ids)}) ve embs ({len(embs)}) uzunlukları eşleşmiyor"
@@ -29,11 +37,13 @@ class PackedIndex:
         for pid, e in zip(page_ids, embs, strict=True):
             if e.shape[0] == 0:
                 raise ValueError(f"sıfır token'lı sayfa: {pid}")
+            if (np.abs(e).sum(axis=1) == 0).any():
+                raise ValueError(f"padding satırı sızmış: {pid}")
         packed = [binarize_pack(e) for e in embs]
         offsets = np.zeros(len(embs) + 1, dtype=np.int64)
         np.cumsum([p.shape[0] for p in packed], out=offsets[1:])
         page_vecs = np.vstack([binarize_pack(e.mean(axis=0, keepdims=True)) for e in embs])
-        return cls(np.vstack(packed), offsets, page_vecs, list(page_ids))
+        return cls(np.vstack(packed), offsets, page_vecs, list(page_ids), manifest)
 
     def page_tokens(self, i: int) -> np.ndarray:
         return self.tokens[self.offsets[i] : self.offsets[i + 1]]
@@ -44,6 +54,8 @@ class PackedIndex:
         np.save(dir / "offsets.npy", self.offsets)
         np.save(dir / "page_vecs.npy", self.page_vecs)
         (dir / "page_ids.json").write_text(json.dumps(self.page_ids, ensure_ascii=False))
+        if self.manifest is not None:
+            write_manifest(dir, self.manifest)
 
     @classmethod
     def load(cls, dir: Path, mmap: bool = True) -> "PackedIndex":
@@ -53,4 +65,5 @@ class PackedIndex:
             offsets=np.load(dir / "offsets.npy"),
             page_vecs=np.load(dir / "page_vecs.npy"),
             page_ids=json.loads((dir / "page_ids.json").read_text()),
+            manifest=read_manifest(dir),
         )

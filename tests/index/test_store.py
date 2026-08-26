@@ -54,3 +54,32 @@ def test_build_rejects_zero_token_page():
     ]
     with pytest.raises(ValueError, match="p1"):
         PackedIndex.build(["p0", "p1"], embs)
+
+
+def test_build_rejects_zero_rows():
+    embs = [
+        np.vstack(
+            [
+                np.ones((2, 128), dtype=np.float32),
+                np.zeros((1, 128), dtype=np.float32),
+            ]
+        )
+    ]
+    with pytest.raises(ValueError, match="padding satırı sızmış: p:1"):
+        PackedIndex.build(["p:1"], embs)
+
+
+def test_manifest_roundtrip(tmp_path: Path):
+    from tests.index.test_manifest import make_manifest
+
+    embs = [np.random.default_rng(0).standard_normal((4, 128)).astype(np.float32)]
+    idx = PackedIndex.build(["p:1"], embs, manifest=make_manifest(n_pages=1, n_tokens=4))
+    idx.save(tmp_path)
+    loaded = PackedIndex.load(tmp_path, mmap=False)
+    assert loaded.manifest is not None and loaded.manifest.n_pages == 1
+
+
+def test_legacy_index_loads_without_manifest(tmp_path: Path):
+    embs = [np.random.default_rng(0).standard_normal((4, 128)).astype(np.float32)]
+    PackedIndex.build(["p:1"], embs).save(tmp_path)
+    assert PackedIndex.load(tmp_path, mmap=False).manifest is None
