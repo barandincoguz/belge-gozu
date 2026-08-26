@@ -76,7 +76,11 @@ def create_app(settings: Settings | None = None, encoder=None, answerer=None) ->
 
     @app.get("/healthz")
     def healthz() -> dict:
-        return {"status": "ok", "pages": len(index.page_ids)}
+        return {
+            "status": "ok",
+            "pages": len(index.page_ids),
+            "threshold": s.min_score_threshold,
+        }
 
     @app.post("/search")
     def search(body: SearchBody) -> dict[str, list[PageHit]]:

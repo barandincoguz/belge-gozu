@@ -22,7 +22,8 @@ def make_client(tiny_corpus) -> TestClient:
 def test_healthz(tiny_corpus):
     c = make_client(tiny_corpus)
     r = c.get("/healthz")
-    assert r.status_code == 200 and r.json() == {"status": "ok", "pages": 3}
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "pages": 3, "threshold": -1e9}
 
 
 def test_search_returns_hits(tiny_corpus):

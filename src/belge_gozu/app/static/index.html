@@ -3,56 +3,422 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#F7F5F0">
+<meta name="description" content="Türk mevzuatında görsel arama — sayfalar OCR'sız, görüntü olarak dizinlendi.">
 <title>Belge-Gözü</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root { --ink:#17202B; --muted:#56637A; --line:#D8DFE9; --accent:#1E44B0; --bg:#F5F7FA; }
+  :root {
+    --paper: #F7F5F0;   /* gazete baskı kâğıdı */
+    --card:  #FFFDF8;   /* belge kâğıdı */
+    --ink:   #1C1B17;   /* matbaa mürekkebi */
+    --muted: #6B665C;   /* solmuş mürekkep */
+    --rule:  #D6D1C4;   /* ince cetvel çizgisi */
+    --stamp: #4247A8;   /* mavi mühür — vurgu */
+    --stamp-lt: #8189D6;/* eşik altı skor çubuğu */
+    --seal:  #A02C2C;   /* kırmızı mühür — abstain + eşik */
+    --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --sans:  "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+  }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink);
-         font:16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
-  h1 { font-size: 1.6rem; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 24px; font-size: .95rem; }
-  .bar { display:flex; gap:8px; }
-  input { flex:1; padding:12px 14px; font-size:1rem; border:1px solid var(--line);
-          border-radius:8px; background:#fff; color:var(--ink); }
-  button { padding:12px 18px; font-size:1rem; border:0; border-radius:8px;
-           background:var(--accent); color:#fff; cursor:pointer; }
-  button:disabled { opacity:.5; cursor:wait; }
-  #answer { margin-top:24px; padding:18px 20px; background:#fff; border:1px solid var(--line);
-            border-radius:10px; white-space:pre-wrap; display:none; }
-  #answer.abstained { border-left:4px solid #B5402A; }
-  .cites { margin-top:10px; font-size:.85rem; color:var(--muted); }
-  #hits { margin-top:20px; display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
-          gap:12px; }
-  .hit { background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
-  .hit img { width:100%; display:block; }
-  .hit .cap { padding:6px 8px; font-size:.78rem; color:var(--muted); }
-  .hit .cap b { color:var(--ink); display:block; }
-  #status { margin-top:16px; color:var(--muted); font-size:.9rem; }
+  html { scroll-behavior: smooth; color-scheme: light; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 16px/1.65 var(--sans); }
+  button, .chip, .hit { touch-action: manipulation; }
+  h1, h2 { text-wrap: balance; }
+  a { color: var(--stamp); }
+  :focus-visible { outline: 2px solid var(--stamp); outline-offset: 2px; border-radius: 2px; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden;
+                     clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ---- manşet ---- */
+  .masthead { max-width: 940px; margin: 0 auto; padding: 28px 20px 0; text-align: center; }
+  .rule-thick { border-top: 3px solid var(--ink); }
+  .rule-thin  { border-top: 1px solid var(--ink); margin-top: 2px; }
+  .masthead h1 { font-family: var(--serif); font-weight: 700; font-size: clamp(2.1rem, 6vw, 3.4rem);
+                 letter-spacing: .12em; margin: 18px 0 2px; text-transform: uppercase; }
+  .masthead .tagline { margin: 0 0 10px; color: var(--muted); font-size: .98rem; }
+  .masthead .kunye { font-family: var(--mono); font-size: .8rem; color: var(--muted);
+                     letter-spacing: .02em; margin: 0 0 16px; }
+  .masthead .kunye b { color: var(--ink); font-weight: 500; }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 30px 20px 60px; }
+
+  /* ---- soru ---- */
+  .bar { display: flex; gap: 10px; }
+  input[type="text"] { flex: 1; padding: 13px 16px; font: 1.02rem/1.4 var(--sans);
+          border: 1px solid var(--rule); border-radius: 8px; background: var(--card);
+          color: var(--ink); }
+  input[type="text"]::placeholder { color: var(--muted); }
+  #ask-btn { padding: 13px 26px; font: 600 1rem var(--sans); border: 0; border-radius: 8px;
+             background: var(--stamp); color: #fff; cursor: pointer; }
+  #ask-btn:hover { background: #363B92; }
+  #ask-btn:disabled { opacity: .55; cursor: wait; }
+  .chips { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .chips-label { font-family: var(--mono); font-size: .78rem; color: var(--muted); }
+  .chip { border: 1px solid var(--rule); background: var(--card); color: var(--ink);
+          border-radius: 999px; padding: 6px 14px; font: .85rem var(--sans); cursor: pointer; }
+  .chip:hover { border-color: var(--stamp); color: var(--stamp); }
+
+  /* ---- pipeline ---- */
+  .pipeline { margin-top: 26px; padding: 14px 16px; background: var(--card);
+              border: 1px solid var(--rule); border-radius: 8px; }
+  .pipeline ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap;
+                 gap: 6px 18px; align-items: center; }
+  .stage { display: flex; align-items: center; gap: 7px; font-family: var(--mono);
+           font-size: .78rem; color: var(--muted); }
+  .stage .dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--rule);
+                background: transparent; flex: none; }
+  .stage.active { color: var(--ink); }
+  .stage.active .dot { border-color: var(--stamp); background: var(--stamp);
+                       animation: pulse 1.1s ease-in-out infinite; }
+  .stage.done { color: var(--ink); }
+  .stage.done .dot { border-color: var(--stamp); background: var(--stamp); animation: none; }
+  .stage.skipped { color: var(--seal); }
+  .stage.skipped .dot { border-color: var(--seal); background: transparent; }
+  .elapsed { margin-left: auto; font-family: var(--mono); font-size: .78rem; color: var(--muted); }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  /* ---- cevap ---- */
+  .answer-card { position: relative; margin-top: 26px; padding: 24px 26px;
+                 background: var(--card); border: 1px solid var(--rule); border-radius: 8px;
+                 box-shadow: 0 1px 3px rgba(28,27,23,.06); }
+  .answer-card .head { font-family: var(--mono); font-size: .72rem; letter-spacing: .14em;
+                       text-transform: uppercase; color: var(--muted);
+                       border-bottom: 1px solid var(--rule); padding-bottom: 8px; margin: 0 0 14px; }
+  #answer-text { margin: 0; max-width: 64ch; }
+  #answer-text p { margin: 0 0 10px; }
+  #answer-text ul { margin: 0 0 10px; padding-left: 22px; }
+  #answer-text li { margin-bottom: 4px; }
+  #answer-text > :last-child { margin-bottom: 0; }
+  .answer-card.abstained #answer-text { color: var(--muted); max-width: 48ch; }
+  .stamp { position: absolute; top: 16px; right: 20px; transform: rotate(-7deg);
+           border: 4px double var(--seal); color: var(--seal); border-radius: 6px;
+           font-family: var(--serif); font-weight: 700; font-size: .95rem;
+           letter-spacing: .1em; line-height: 1.25; text-align: center;
+           padding: 8px 16px; opacity: .88; }
+  @keyframes thud { from { transform: rotate(-7deg) scale(1.6); opacity: 0; }
+                    to   { transform: rotate(-7deg) scale(1);   opacity: .88; } }
+  .stamp.inked { animation: thud .28s cubic-bezier(.2,.8,.3,1) both; }
+  .cites { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .cites-label { font-family: var(--mono); font-size: .78rem; color: var(--muted); }
+  .cite { font-family: var(--mono); font-size: .78rem; border: 1px solid var(--rule);
+          background: var(--paper); color: var(--ink); border-radius: 999px;
+          padding: 3px 12px; cursor: pointer; }
+  .cite:hover { border-color: var(--stamp); color: var(--stamp); }
+
+  /* ---- retrieval ---- */
+  .sec-title { font-family: var(--serif); font-weight: 600; font-size: 1.3rem;
+               margin: 40px 0 4px; }
+  .sec-sub { margin: 0 0 18px; color: var(--muted); font-size: .9rem; max-width: 68ch; }
+  .sec-sub b { color: var(--seal); font-weight: 600; }
+
+  .chart { background: var(--card); border: 1px solid var(--rule); border-radius: 8px;
+           padding: 18px 20px 14px; }
+  .chart-rows { position: relative; }
+  .crow { display: grid; grid-template-columns: minmax(120px, 220px) 1fr 64px;
+          gap: 12px; align-items: center; padding: 5px 0; border-radius: 4px; cursor: pointer; }
+  .crow:hover, .crow.hl { background: var(--paper); }
+  .crow .name { display: flex; align-items: baseline; gap: 6px; min-width: 0;
+                font-size: .82rem; color: var(--ink); }
+  .crow .name .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .crow .name small { flex: none; color: var(--muted); font-family: var(--mono);
+                      font-size: .72rem; }
+  .crow .track { display: block; position: relative; height: 18px; }
+  /* eşik çizgisi: her satırın track'i içinde %'yle çizilir; -5px taşma satır
+     aralıklarını kapatıp tek sürekli çizgi görünümü verir */
+  .crow .track::after { content: ""; position: absolute; top: -5px; bottom: -5px;
+                        left: var(--th); width: 2px; background: var(--seal); }
+  .crow .barfill { display: block; height: 100%; border-radius: 0 4px 4px 0;
+                   background: var(--stamp-lt); min-width: 2px; }
+  .crow.above .barfill { background: var(--stamp); }
+  .crow .val { font-family: var(--mono); font-size: .8rem; color: var(--ink); text-align: left;
+               font-variant-numeric: tabular-nums; }
+  .crow.below .val { color: var(--muted); }
+  .thlabel { position: absolute; top: -30px; left: var(--th); transform: translateX(-50%);
+             font-family: var(--mono); font-size: .72rem; color: var(--seal);
+             white-space: nowrap; }
+  .chart-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
+                font-family: var(--mono); font-size: .74rem; color: var(--muted); }
+
+  /* ---- sayfa kartları ---- */
+  .hits { margin-top: 20px; display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; }
+  .hit { position: relative; background: var(--card); border: 1px solid var(--rule);
+         border-radius: 8px; overflow: hidden; cursor: zoom-in; padding: 0; text-align: left;
+         font: inherit; color: inherit; transition: border-color .15s; }
+  .hit:hover, .hit.hl { border-color: var(--stamp); }
+  .hit img { width: 100%; aspect-ratio: 3/4; object-fit: cover; object-position: top;
+             display: block; background: var(--paper); }
+  .badge { position: absolute; top: 8px; right: 8px; display: flex; align-items: center;
+           gap: 5px; background: var(--card); border: 1px solid var(--rule);
+           border-radius: 999px; padding: 2px 9px;
+           font-family: var(--mono); font-size: .72rem; color: var(--ink); }
+  .badge .sq { width: 8px; height: 8px; border-radius: 2px; background: var(--stamp-lt); }
+  .hit.above .badge .sq { background: var(--stamp); }
+  .hit .cap { padding: 9px 11px 11px; }
+  .hit .cap b { display: block; font-family: var(--serif); font-weight: 600;
+                font-size: .88rem; line-height: 1.3; margin-bottom: 2px; }
+  .hit .cap span { font-size: .76rem; color: var(--muted); }
+  .hit .cap a { font-size: .76rem; }
+
+  /* ---- durum + hata ---- */
+  #status { margin-top: 18px; color: var(--muted); font-size: .9rem; }
+  #status.error { color: var(--seal); }
+
+  /* ---- lightbox ---- */
+  .lightbox { position: fixed; inset: 0; background: rgba(28,27,23,.82); z-index: 50;
+              display: flex; flex-direction: column; align-items: center; padding: 24px;
+              overscroll-behavior: contain; }
+  .lightbox[hidden] { display: none; }
+  .lightbox img { max-width: min(920px, 100%); max-height: 82vh; object-fit: contain;
+                  background: #fff; border-radius: 4px; }
+  .lb-cap { color: #EDEAE2; font-size: .9rem; margin-top: 12px; display: flex;
+            gap: 16px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .lb-cap a { color: #B9BEEE; }
+  .lb-close { position: absolute; top: 16px; right: 20px; background: none; border: 1px solid
+              rgba(237,234,226,.5); color: #EDEAE2; border-radius: 999px; width: 36px;
+              height: 36px; font-size: 1.1rem; cursor: pointer; }
+
+  /* ---- alt bilgi ---- */
+  footer { max-width: 940px; margin: 0 auto; padding: 0 20px 40px; }
+  footer .inner { border-top: 1px solid var(--rule); padding-top: 14px;
+                  font-family: var(--mono); font-size: .76rem; color: var(--muted); }
+
+  @media (max-width: 560px) {
+    .bar { flex-direction: column; }
+    .crow { grid-template-columns: 1fr 56px; }
+    .crow .name { grid-column: 1 / -1; padding-bottom: 2px; }
+    .stamp { position: static; display: inline-block; margin-bottom: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .stage.active .dot { animation: none; }
+    .stamp.inked { animation: none; }
+    .hit { transition: none; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<header class="masthead">
+  <div class="rule-thick"></div>
+  <div class="rule-thin"></div>
   <h1>Belge-Gözü</h1>
-  <p class="sub">Türk mevzuatında görsel arama — sayfalar OCR'sız, görüntü olarak indekslendi.
-     Soru sor, dayanak sayfalarıyla yanıt al.</p>
-  <div class="bar">
-    <input id="q" placeholder="ör. Kira artışı en fazla ne kadar olabilir?" autofocus>
-    <button id="ask-btn">Sor</button>
-  </div>
-  <div id="status"></div>
-  <div id="answer"></div>
-  <div id="hits"></div>
+  <p class="tagline">Türk mevzuatında görsel arama — sayfalar OCR’sız, görüntü olarak dizinlendi.</p>
+  <p class="kunye"><b id="page-count">4.222</b> sayfa · <b>50</b> kanun · <b>1928–2024</b> · Resmî Gazete ve mevzuat.gov.tr kaynaklı</p>
+  <div class="rule-thin"></div>
+</header>
+
+<main class="wrap">
+  <section aria-label="Soru">
+    <label for="q" class="visually-hidden">Mevzuata dair sorunuz</label>
+    <div class="bar">
+      <input type="text" id="q" name="question" placeholder="Mevzuata dair bir soru yazın…"
+             autocomplete="off" spellcheck="false" enterkeyhint="send" autofocus>
+      <button id="ask-btn">Sor</button>
+    </div>
+    <div class="chips" id="chips">
+      <span class="chips-label">deneyin:</span>
+      <button class="chip">Kişisel Verilerin Korunması Kanunu'na göre açık rızanın geçerlilik şartları nelerdir?</button>
+      <button class="chip">İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?</button>
+      <button class="chip">Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?</button>
+    </div>
+  </section>
+
+  <section id="pipeline" class="pipeline" hidden aria-label="İşlem aşamaları">
+    <ol>
+      <li class="stage" data-st="0"><span class="dot"></span><span>sorgu kodlanıyor</span></li>
+      <li class="stage" data-st="1"><span class="dot"></span><span id="st-scan">4.222 sayfada Hamming taraması</span></li>
+      <li class="stage" data-st="2"><span class="dot"></span><span>200 aday → MaxSim ilk 5</span></li>
+      <li class="stage" data-st="3"><span class="dot"></span><span id="st-th">eşik kontrolü</span></li>
+      <li class="stage" data-st="4"><span class="dot"></span><span id="st-llm">Gemini sayfaları okuyor</span></li>
+      <li class="elapsed" id="elapsed" aria-hidden="true"></li>
+    </ol>
+  </section>
+
+  <section id="answer-sec" hidden aria-label="Yanıt">
+    <div id="answer" class="answer-card">
+      <p class="head">Yanıt</p>
+      <div id="stamp" class="stamp" hidden aria-hidden="true">DAYANAK<br>BULUNAMADI</div>
+      <div id="answer-text"></div>
+      <div id="cites" class="cites"></div>
+    </div>
+  </section>
+
+  <section id="retrieval-sec" hidden aria-label="Retrieval sonuçları">
+    <h2 class="sec-title">Sistem hangi sayfalara baktı?</h2>
+    <p class="sec-sub">İki aşamalı retrieval’ın seçtiği en yakın 5 sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
+      en iyi skor çizgiyi geçemezse sistem, yanıt uydurmak yerine “dayanak bulunamadı” der ve
+      Gemini hiç çağrılmaz.</p>
+    <div class="chart" id="chart"></div>
+    <div id="hits" class="hits"></div>
+  </section>
+
+  <p id="status" role="status"></p>
+</main>
+
+<footer>
+  <p class="inner">ColSmol-500M görsel dizin · Hamming eleme + MaxSim geç-etkileşim ·
+     Gemini Flash yanıtlayıcı · kaynaklar sayfa kartlarında</p>
+</footer>
+
+<div id="lightbox" class="lightbox" hidden>
+  <button class="lb-close" id="lb-close" aria-label="Kapat">✕</button>
+  <img id="lb-img" alt="">
+  <p class="lb-cap"><span id="lb-cap-text"></span><a id="lb-src" target="_blank" rel="noopener">resmî kaynağı aç ↗</a></p>
 </div>
+
 <script>
 const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 1) => n.toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let THRESHOLD = 60.0;
+
+fetch("/healthz").then(r => r.json()).then(h => {
+  THRESHOLD = h.threshold ?? THRESHOLD;
+  $("page-count").textContent = h.pages.toLocaleString("tr-TR");
+  $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada Hamming taraması`;
+  $("st-th").textContent = `eşik kontrolü (${fmt(THRESHOLD)})`;
+}).catch(() => {});
+
+/* ---- pipeline ---- */
+let stageTimers = [];
+function pipelineStart() {
+  stageTimers.forEach(clearTimeout); stageTimers = [];
+  const stages = document.querySelectorAll(".stage");
+  stages.forEach(s => s.className = "stage");
+  $("pipeline").hidden = false;
+  $("elapsed").textContent = "";
+  if (reduced) { stages.forEach(s => s.classList.add("active")); return; }
+  // gerçek aşama süreleri istemciden görünmez; sıra gerçeği, tempo tahmindir
+  const pacing = [0, 900, 1700, 2100, 2600];
+  pacing.forEach((t, i) => stageTimers.push(setTimeout(() => {
+    stages.forEach((s, j) => {
+      if (j < i) { s.className = "stage done"; }
+      else if (j === i) { s.className = "stage active"; }
+    });
+  }, t)));
+}
+function pipelineFinish(abstained, ms) {
+  stageTimers.forEach(clearTimeout);
+  document.querySelectorAll(".stage").forEach((s, j) => {
+    s.className = "stage done";
+    if (j === 4 && abstained) { s.className = "stage skipped"; $("st-llm").textContent = "Gemini çağrılmadı — eşik altı"; }
+    else if (j === 4) { $("st-llm").textContent = "Gemini sayfaları okudu"; }
+  });
+  $("elapsed").textContent = `${fmt(ms / 1000)} sn`;
+}
+
+/* ---- skor grafiği ---- */
+function renderChart(hits) {
+  const c = $("chart");
+  c.innerHTML = "";
+  if (!hits.length) { c.innerHTML = '<p class="sec-sub">Hiç sayfa bulunamadı.</p>'; return; }
+  const maxV = Math.max(...hits.map(h => h.score), THRESHOLD) * 1.08;
+  const thPct = (THRESHOLD / maxV * 100).toFixed(2) + "%";
+  const rows = document.createElement("div");
+  rows.className = "chart-rows";
+  rows.style.paddingTop = "32px"; /* eşik etiketi için yer */
+  hits.forEach((h, i) => {
+    const above = h.score >= THRESHOLD;
+    const row = document.createElement("div");
+    row.className = "crow " + (above ? "above" : "below");
+    row.dataset.pid = h.page_id;
+    row.title = `${h.doc_name} — sayfa ${h.page_no}`;
+    row.innerHTML = `
+      <span class="name"><span class="nm">${esc(h.doc_name)}</span><small>s.${h.page_no}</small></span>
+      <span class="track" style="--th:${thPct}">
+        <span class="barfill" style="width:${(h.score / maxV * 100).toFixed(2)}%"></span>
+        ${i === 0 ? `<span class="thlabel">eşik ${fmt(THRESHOLD)}</span>` : ""}
+      </span>
+      <span class="val">${fmt(h.score)}</span>`;
+    row.addEventListener("click", () => {
+      const card = document.querySelector(`.hit[data-pid="${CSS.escape(h.page_id)}"]`);
+      if (card) { card.scrollIntoView({ block: "center" }); flash(card); }
+    });
+    row.addEventListener("mouseenter", () => hl(h.page_id, true));
+    row.addEventListener("mouseleave", () => hl(h.page_id, false));
+    rows.appendChild(row);
+  });
+  c.appendChild(rows);
+  const foot = document.createElement("p");
+  foot.className = "chart-foot";
+  foot.textContent = "skor: sorgu jetonu başına ortalama MaxSim benzerliği (yüksek = daha yakın)";
+  c.appendChild(foot);
+}
+function hl(pid, on) {
+  document.querySelectorAll(`[data-pid="${CSS.escape(pid)}"]`)
+    .forEach(el => el.classList.toggle("hl", on));
+}
+function flash(el) {
+  el.classList.add("hl");
+  setTimeout(() => el.classList.remove("hl"), 1200);
+}
+
+/* ---- sayfa kartları ---- */
+function renderHits(hits) {
+  const wrap = $("hits");
+  wrap.innerHTML = "";
+  for (const h of hits) {
+    const above = h.score >= THRESHOLD;
+    const card = document.createElement("button");
+    card.className = "hit " + (above ? "above" : "below");
+    card.dataset.pid = h.page_id;
+    card.setAttribute("aria-label", `${h.doc_name} sayfa ${h.page_no}, büyütmek için tıklayın`);
+    card.innerHTML = `
+      <span class="badge"><span class="sq"></span>${fmt(h.score)}</span>
+      <img src="/pages/${encodeURI(h.image_path)}" loading="lazy"
+           alt="${esc(h.doc_name)}, sayfa ${h.page_no}">
+      <span class="cap"><b>${esc(h.doc_name)}</b>
+        <span>sayfa ${h.page_no}</span></span>`;
+    card.addEventListener("click", () => openLightbox(h));
+    card.addEventListener("mouseenter", () => hl(h.page_id, true));
+    card.addEventListener("mouseleave", () => hl(h.page_id, false));
+    wrap.appendChild(card);
+  }
+}
+
+/* ---- lightbox ---- */
+let lbLastFocus = null;
+function openLightbox(h) {
+  lbLastFocus = document.activeElement;
+  $("lb-img").src = "/pages/" + encodeURI(h.image_path);
+  $("lb-img").alt = `${h.doc_name}, sayfa ${h.page_no} — tam boy`;
+  $("lb-cap-text").textContent = `${h.doc_name} · sayfa ${h.page_no}`;
+  $("lb-src").href = h.source_url;
+  $("lightbox").hidden = false;
+  $("lb-close").focus();
+}
+function closeLightbox() {
+  $("lightbox").hidden = true;
+  $("lb-img").src = "";
+  if (lbLastFocus) lbLastFocus.focus();
+}
+$("lb-close").addEventListener("click", closeLightbox);
+$("lightbox").addEventListener("click", e => { if (e.target === $("lightbox")) closeLightbox(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !$("lightbox").hidden) closeLightbox();
+});
+
+/* ---- soru akışı ---- */
+const ABSTAIN_TEXT = "Bu soruya korpustaki belgelerde dayanak bulamadım.";
 async function ask() {
   const q = $("q").value.trim();
-  if (!q) return;
+  if (!q) { $("q").focus(); return; }
+  history.replaceState(null, "", "?q=" + encodeURIComponent(q));
   $("ask-btn").disabled = true;
-  $("status").textContent = "Aranıyor ve yanıtlanıyor…";
-  $("answer").style.display = "none";
-  $("hits").innerHTML = "";
+  $("ask-btn").textContent = "Soruluyor…";
+  $("status").textContent = "";
+  $("status").className = "";
+  $("answer-sec").hidden = true;
+  $("retrieval-sec").hidden = true;
+  pipelineStart();
+  const t0 = performance.now();
   try {
     const r = await fetch("/ask", {
       method: "POST",
@@ -61,32 +427,71 @@ async function ask() {
     });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const data = await r.json();
-    const a = $("answer");
-    a.textContent = data.answer.text;
-    a.className = data.answer.abstained ? "abstained" : "";
-    if (data.answer.citations.length) {
-      const c = document.createElement("div");
-      c.className = "cites";
-      c.textContent = "Dayanak: " + data.answer.citations.join(", ");
-      a.appendChild(c);
+    const ms = performance.now() - t0;
+    const a = data.answer;
+    pipelineFinish(a.abstained, ms);
+
+    const hardAbstain = a.abstained && a.text === ABSTAIN_TEXT;
+    $("answer").className = "answer-card" + (a.abstained ? " abstained" : "");
+    $("answer-text").innerHTML = mdLite(a.text);
+    $("stamp").hidden = !hardAbstain;
+    if (hardAbstain) { $("stamp").classList.remove("inked"); void $("stamp").offsetWidth; $("stamp").classList.add("inked"); }
+    const cites = $("cites");
+    cites.innerHTML = "";
+    if (a.citations.length) {
+      const lab = document.createElement("span");
+      lab.className = "cites-label"; lab.textContent = "dayanak:";
+      cites.appendChild(lab);
+      for (const pid of a.citations) {
+        const b = document.createElement("button");
+        b.className = "cite"; b.textContent = pid;
+        b.addEventListener("click", () => {
+          const card = document.querySelector(`.hit[data-pid="${CSS.escape(pid)}"]`);
+          if (card) { card.scrollIntoView({ block: "center" }); flash(card); }
+        });
+        cites.appendChild(b);
+      }
     }
-    a.style.display = "block";
-    for (const h of data.hits) {
-      const d = document.createElement("div");
-      d.className = "hit";
-      d.innerHTML = `<img src="/pages/${h.image_path}" alt="${h.page_id}">
-        <div class="cap"><b>${h.doc_name}</b>sayfa ${h.page_no} · skor ${h.score.toFixed(1)}</div>`;
-      $("hits").appendChild(d);
-    }
-    $("status").textContent = "";
-  } catch (e) {
-    $("status").textContent = "Hata: " + e.message + " — tekrar dene.";
+    $("answer-sec").hidden = false;
+    renderChart(data.hits);
+    renderHits(data.hits);
+    $("retrieval-sec").hidden = false;
+  } catch (err) {
+    $("pipeline").hidden = true;
+    $("status").className = "error";
+    $("status").textContent =
+      "Sunucuya ulaşılamadı (" + err.message + "). Servisin çalıştığından emin olun ve yeniden deneyin.";
   } finally {
     $("ask-btn").disabled = false;
+    $("ask-btn").textContent = "Sor";
   }
 }
+// derin link: ?q= ile gelen soru kutuyu doldurur (LLM maliyeti yüzünden otomatik sormaz)
+const urlQ = new URLSearchParams(location.search).get("q");
+if (urlQ) $("q").value = urlQ;
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+/* yanıtlayıcının markdown'ı: yalnızca **kalın** ve "* " maddeleri; önce esc, sonra dönüşüm */
+function mdLite(text) {
+  const html = esc(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  let out = "", inList = false;
+  for (const ln of html.split("\n")) {
+    const m = ln.match(/^\s*[*•-]\s+(.*)$/);
+    if (m) { if (!inList) { out += "<ul>"; inList = true; } out += `<li>${m[1]}</li>`; }
+    else {
+      if (inList) { out += "</ul>"; inList = false; }
+      if (ln.trim()) out += `<p>${ln}</p>`;
+    }
+  }
+  return out + (inList ? "</ul>" : "");
+}
 $("ask-btn").addEventListener("click", ask);
-$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+$("chips").addEventListener("click", e => {
+  if (e.target.classList.contains("chip")) { $("q").value = e.target.textContent; ask(); }
+});
 </script>
 </body>
 </html>
