@@ -120,6 +120,7 @@ def question_split(q: BenchQuestion, splits: dict[str, set[str]]) -> Literal["de
             return "dev"
         if primary_doc in splits["test_docs"]:
             return "test"
-        return "dev"  # güvenli varsayılan: hiçbir kümede yok
+        # T12 öncesi doldurulmamış split → güvenli varsayılan dev (hiçbir kümede yok)
+        return "dev"
     digest = hashlib.sha256(q.question_id.encode()).hexdigest()
     return "dev" if int(digest, 16) % 2 == 0 else "test"

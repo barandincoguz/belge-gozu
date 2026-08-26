@@ -54,6 +54,16 @@ def test_answerable_requires_gold_pages():
         BenchQuestion(**q_dict(gold_page_ids=[]))
 
 
+def test_answerable_requires_reference_answer():
+    with pytest.raises(ValueError):
+        BenchQuestion(**q_dict(reference_answer=""))
+
+
+def test_answerable_forbids_unanswerable_reason():
+    with pytest.raises(ValueError):
+        BenchQuestion(**q_dict(unanswerable_reason="korpus-disi"))
+
+
 def test_unanswerable_requires_reason_and_no_gold():
     with pytest.raises(ValueError):
         BenchQuestion(
@@ -76,9 +86,31 @@ def test_unanswerable_requires_reason_and_no_gold():
     assert ok.answerable is False
 
 
+def test_unanswerable_forbids_nonempty_gold_pages():
+    with pytest.raises(ValueError):
+        BenchQuestion(
+            **q_dict(
+                answerable=False,
+                gold_page_ids=["k4721:4"],
+                reference_answer="",
+                unanswerable_reason="korpus-disi",
+            )
+        )
+
+
 def test_gold_page_doc_consistency():
     with pytest.raises(ValueError):
         BenchQuestion(**q_dict(gold_page_ids=["k9999:1"]))
+
+
+def test_gold_page_id_requires_colon():
+    with pytest.raises(ValueError):
+        BenchQuestion(**q_dict(gold_page_ids=["k4721"]))
+
+
+def test_verified_requires_verified_by():
+    with pytest.raises(ValueError):
+        BenchQuestion(**q_dict(verified_by=""))
 
 
 def test_bench_stats_counts_all_slices_with_zero_default():
@@ -108,3 +140,11 @@ def test_split_assignment(tmp_path: Path):
         )
     )
     assert question_split(ood, splits) in ("dev", "test")  # deterministik hash ataması
+
+
+def test_split_assignment_unknown_doc_defaults_to_dev(tmp_path: Path):
+    sp = tmp_path / "splits.json"
+    sp.write_text(json.dumps({"dev_docs": ["k4721"], "test_docs": ["k6098"]}))
+    splits = load_splits(sp)
+    q = BenchQuestion(**q_dict(gold_doc_ids=["k9999"], gold_page_ids=["k9999:4"]))
+    assert question_split(q, splits) == "dev"
