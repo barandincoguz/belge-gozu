@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # top_score~70.6, saçma soru top_score~52.4 -- 20.0 hiçbir zaman tetiklemiyordu)
     min_score_threshold: float = 60.0
     request_delay_s: float = 1.0
+    # Tahmini birim fiyatlar (USD / 1M token). Kesin değildir; runbook'taki
+    # doğrulama adımıyla güncellenir, env ile geçersiz kılınır.
+    gemini_price_in_usd_per_1m: float = 0.10
+    gemini_price_out_usd_per_1m: float = 0.40
 
 
 @lru_cache

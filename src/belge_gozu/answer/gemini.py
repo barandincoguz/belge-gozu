@@ -1,8 +1,10 @@
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from belge_gozu.answer.base import Answer
 from belge_gozu.retrieval.types import PageHit
+from belge_gozu.telemetry.collect import annotate
 
 SYSTEM = (
     "Sen Türk mevzuatı üzerine bir asistansın. YALNIZCA sana verilen sayfa "
@@ -10,6 +12,13 @@ SYSTEM = (
     "dayandığı kaynağı [S1] gibi işaretle. Sayfalarda yanıt yoksa açıkça "
     "'verilen sayfalarda bulamadım' de. Sayfa dışı bilgi ekleme."
 )
+
+
+@dataclass
+class GenResult:
+    text: str
+    tokens_in: int | None = None
+    tokens_out: int | None = None
 
 
 def build_prompt(question: str, pages: list[PageHit]) -> str:
@@ -38,13 +47,18 @@ class GeminiClient:
             self._client = genai.Client(api_key=self.api_key)
         return self._client
 
-    def generate(self, prompt: str, images: list[bytes]) -> str:
+    def generate(self, prompt: str, images: list[bytes]) -> GenResult:
         from google.genai import types
 
         client = self._ensure_client()
         parts = [types.Part.from_bytes(data=b, mime_type="image/webp") for b in images]
         resp = client.models.generate_content(model=self.model, contents=[*parts, prompt])
-        return resp.text or ""
+        usage = getattr(resp, "usage_metadata", None)
+        return GenResult(
+            text=resp.text or "",
+            tokens_in=getattr(usage, "prompt_token_count", None),
+            tokens_out=getattr(usage, "candidates_token_count", None),
+        )
 
 
 class GeminiAnswerer:
@@ -56,7 +70,12 @@ class GeminiAnswerer:
     ) -> Answer:
         prompt = build_prompt(question, pages)
         images = [image_loader(p.image_path) for p in pages]
-        text = self._client.generate(prompt, images)
+        gen = self._client.generate(prompt, images)
+        text = gen.text
+        if gen.tokens_in is not None:
+            annotate("tokens_in", gen.tokens_in)
+        if gen.tokens_out is not None:
+            annotate("tokens_out", gen.tokens_out)
         idxs = {int(m) for m in re.findall(r"\[S(\d+)\]", text)}
         citations = [pages[i - 1].page_id for i in sorted(idxs) if 0 < i <= len(pages)]
         if not citations and pages:

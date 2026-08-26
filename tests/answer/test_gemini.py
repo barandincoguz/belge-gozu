@@ -2,8 +2,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from belge_gozu.answer.gemini import GeminiAnswerer, GeminiClient, build_prompt
+from belge_gozu.answer.gemini import GeminiAnswerer, GeminiClient, GenResult, build_prompt
 from belge_gozu.retrieval.types import PageHit
+from belge_gozu.telemetry.collect import collecting
 
 
 def hit(pid: str) -> PageHit:
@@ -25,7 +26,7 @@ def test_prompt_mentions_sources():
 
 def test_citations_parsed_from_response():
     client = MagicMock()
-    client.generate.return_value = "Kira artışı TÜFE ile sınırlıdır [S2]."
+    client.generate.return_value = GenResult(text="Kira artışı TÜFE ile sınırlıdır [S2].")
     ans = GeminiAnswerer("gemini-2.0-flash", "key", client=client)
     a = ans.answer("soru", [hit("k6098:12"), hit("k6098:13")], image_loader=lambda p: b"img")
     assert a.citations == ["k6098:13"] and not a.abstained
@@ -33,7 +34,7 @@ def test_citations_parsed_from_response():
 
 def test_citation_fallback_top1():
     client = MagicMock()
-    client.generate.return_value = "Atıfsız bir yanıt."
+    client.generate.return_value = GenResult(text="Atıfsız bir yanıt.")
     ans = GeminiAnswerer("gemini-2.0-flash", "key", client=client)
     a = ans.answer("soru", [hit("k6098:12")], image_loader=lambda p: b"img")
     assert a.citations == ["k6098:12"]
@@ -54,3 +55,27 @@ def test_client_generate_raises_on_empty_key():
     client = GeminiClient("m", "")
     with pytest.raises(Exception):  # noqa: B017
         client.generate("p", [])
+
+
+class StubClient:
+    def generate(self, prompt, images):
+        return GenResult(text="cevap [S1]", tokens_in=1234, tokens_out=56)
+
+
+class StubClientNoUsage:
+    def generate(self, prompt, images):
+        return GenResult(text="cevap [S1]")
+
+
+def test_answer_annotates_token_usage():
+    ans = GeminiAnswerer("m", "k", client=StubClient())
+    with collecting() as col:
+        ans.answer("soru", [hit("k1:1")], lambda p: b"img")
+    assert col.notes["tokens_in"] == 1234 and col.notes["tokens_out"] == 56
+
+
+def test_answer_without_usage_annotates_nothing():
+    ans = GeminiAnswerer("m", "k", client=StubClientNoUsage())
+    with collecting() as col:
+        ans.answer("soru", [hit("k1:1")], lambda p: b"img")
+    assert "tokens_in" not in col.notes and "tokens_out" not in col.notes
