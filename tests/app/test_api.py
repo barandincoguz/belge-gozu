@@ -2,14 +2,39 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
-from belge_gozu.answer.base import Answer
+from belge_gozu.answer.base import SERVICE_ERROR_TEXT, Answer
 from belge_gozu.app.main import create_app
 from belge_gozu.config import Settings
+from belge_gozu.telemetry.recorder import EventRecorder
 
 
 class StubAnswerer:
     def answer(self, question, pages, image_loader):
         return Answer(text=f"yanıt: {question}", citations=[pages[0].page_id])
+
+
+class BoomAnswerer:
+    """answer() her koşulda patlar — AskService'in degrade-guard'ını tetikler."""
+
+    def answer(self, question, pages, image_loader):
+        raise RuntimeError("boom")
+
+
+class BoomEncoder:
+    """encode_query() her koşulda patlar — retriever.search()'ün başarısız olduğu yol."""
+
+    def encode_pages(self, images):
+        raise NotImplementedError
+
+    def encode_query(self, text):
+        raise RuntimeError("boom")
+
+
+class BoomRecorder(EventRecorder):
+    """record() her koşulda patlar — telemetri hatasının isteği düşürmediğini kilitler."""
+
+    def record(self, ev):
+        raise RuntimeError("boom")
 
 
 def make_client(tiny_corpus) -> TestClient:
@@ -64,6 +89,7 @@ def test_metrics_endpoint_exposes_series(tiny_corpus):
     r = c.get("/metrics")
     assert r.status_code == 200
     assert "bg_http_requests_total" in r.text and "bg_stage_duration_seconds" in r.text
+    assert 'bg_http_requests_total{endpoint="/search",status="ok"} 1.0' in r.text
 
 
 def test_events_row_written_for_ask(tiny_corpus):
@@ -110,3 +136,49 @@ def test_stats_extended_shape(tiny_corpus):
     s = c.get("/stats").json()
     assert s["requests"] >= 1 and s["avg_ms"] >= 0
     assert "p95_ms" in s and "abstain_rate" in s and "by_endpoint" in s
+
+
+def test_ask_degrades_on_answerer_failure(tiny_corpus):
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    app = create_app(settings=settings, encoder=enc, answerer=BoomAnswerer())
+    c = TestClient(app)
+    r = c.post("/ask", json={"question": "soru?"})
+    assert r.status_code == 200
+    assert r.json()["answer"]["text"] == SERVICE_ERROR_TEXT
+    row = (
+        sqlite3.connect(data_dir / "requests.sqlite")
+        .execute("SELECT status FROM events WHERE endpoint='/ask'")
+        .fetchone()
+    )
+    assert row[0] == "degraded"
+    # abstain_rate degraded satırları hariç tutmalı (bir /ask isteği ve o
+    # degraded olduğu için abstain_rate 0.0 olmalı, 1.0 değil).
+    stats = c.get("/stats").json()
+    assert stats["abstain_rate"] == 0.0
+
+
+def test_search_encoder_failure_500s_and_records_error(tiny_corpus):
+    data_dir, _, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    app = create_app(settings=settings, encoder=BoomEncoder(), answerer=StubAnswerer())
+    c = TestClient(app, raise_server_exceptions=False)
+    r = c.post("/search", json={"query": "deneme"})
+    assert r.status_code == 500
+    rows = (
+        sqlite3.connect(data_dir / "requests.sqlite")
+        .execute("SELECT status, error_type FROM events WHERE endpoint='/search'")
+        .fetchall()
+    )
+    assert len(rows) == 1
+    assert rows[0][0] == "error" and rows[0][1] == "RuntimeError"
+
+
+def test_search_survives_recorder_failure(tiny_corpus):
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    boom_rec = BoomRecorder(data_dir / "requests.sqlite")
+    app = create_app(settings=settings, encoder=enc, answerer=StubAnswerer(), recorder=boom_rec)
+    c = TestClient(app)
+    r = c.post("/search", json={"query": "deneme"})
+    assert r.status_code == 200  # olay kaydı patladı ama istek etkilenmedi

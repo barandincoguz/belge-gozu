@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import math
 import sqlite3
 import time
 from datetime import UTC, datetime
@@ -243,25 +244,42 @@ def create_app(
 
     @app.get("/stats")
     def stats() -> dict:
-        db = sqlite3.connect(s.data_dir / "requests.sqlite")
-        n, avg = db.execute("SELECT COUNT(*), COALESCE(AVG(total_ms),0) FROM events").fetchone()
-        vals = [
-            r[0] for r in db.execute("SELECT total_ms FROM events ORDER BY id DESC LIMIT 10000")
-        ]
-        vals.sort()
-        p95 = vals[int(len(vals) * 0.95) - 1] if vals else 0.0
-        ab = db.execute(
-            "SELECT COALESCE(AVG(abstained),0) FROM events WHERE endpoint='/ask'"
-        ).fetchone()[0]
-        by = dict(db.execute("SELECT endpoint, COUNT(*) FROM events GROUP BY endpoint"))
-        db.close()
-        return {
-            "requests": n,
-            "avg_ms": round(avg, 1),
-            "p95_ms": round(p95, 1),
-            "abstain_rate": round(ab, 3),
-            "by_endpoint": by,
+        # /stats bir telemetri okuma uç noktasıdır: herhangi bir sqlite hatası
+        # isteği asla 500'e düşürmez, sıfırlanmış bir gövdeye geriler.
+        degraded = {
+            "requests": 0,
+            "avg_ms": 0.0,
+            "p95_ms": 0.0,
+            "abstain_rate": 0.0,
+            "by_endpoint": {},
         }
+        db = None
+        try:
+            db = sqlite3.connect(rec.db_path)
+            n, avg = db.execute("SELECT COUNT(*), COALESCE(AVG(total_ms),0) FROM events").fetchone()
+            vals = [
+                r[0] for r in db.execute("SELECT total_ms FROM events ORDER BY id DESC LIMIT 10000")
+            ]
+            vals.sort()
+            p95 = vals[min(len(vals) - 1, math.ceil(0.95 * len(vals)) - 1)] if vals else 0.0
+            ab = db.execute(
+                "SELECT COALESCE(AVG(abstained),0) FROM events "
+                "WHERE endpoint='/ask' AND status <> 'degraded'"
+            ).fetchone()[0]
+            by = dict(db.execute("SELECT endpoint, COUNT(*) FROM events GROUP BY endpoint"))
+            return {
+                "requests": n,
+                "avg_ms": round(avg, 1),
+                "p95_ms": round(p95, 1),
+                "abstain_rate": round(ab, 3),
+                "by_endpoint": by,
+            }
+        except Exception:
+            logger.exception("/stats okunamadı, sıfırlanmış gövdeye gerilendi")
+            return degraded
+        finally:
+            if db is not None:
+                db.close()
 
     @app.get("/pages/{image_path:path}")
     def page_image(image_path: str) -> FileResponse:
