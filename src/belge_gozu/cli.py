@@ -1,4 +1,6 @@
+import math
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -117,27 +119,36 @@ def metrics_export(out: Path = typer.Option(Path("data/exports/events.parquet"))
     from belge_gozu.telemetry.export import export_events
 
     s = _settings()
-    n = export_events(s.data_dir / "requests.sqlite", out)
+    try:
+        n = export_events(s.data_dir / "requests.sqlite", out)
+    except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        typer.echo("0 olay — tablo yok")
+        return
     typer.echo(f"{n} olay -> {out}")
 
 
 @metrics_app.command("summary")
 def metrics_summary() -> None:
-    import sqlite3
-
     s = _settings()
-    db = sqlite3.connect(s.data_dir / "requests.sqlite")
-    n, avg = db.execute("SELECT COUNT(*), COALESCE(AVG(total_ms),0) FROM events").fetchone()
-    ab = db.execute(
-        "SELECT COALESCE(AVG(abstained),0) FROM events WHERE endpoint='/ask'"
-    ).fetchone()[0]
-    tok = db.execute(
-        "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0), "
-        "COALESCE(SUM(est_cost_usd),0) FROM events"
-    ).fetchone()
-    vals = sorted(r[0] for r in db.execute("SELECT total_ms FROM events"))
-    p95 = vals[int(len(vals) * 0.95) - 1] if vals else 0.0
-    db.close()
+    db: sqlite3.Connection | None = None
+    try:
+        db = sqlite3.connect(s.data_dir / "requests.sqlite")
+        n, avg = db.execute("SELECT COUNT(*), COALESCE(AVG(total_ms),0) FROM events").fetchone()
+        ab = db.execute(
+            "SELECT COALESCE(AVG(abstained),0) FROM events WHERE endpoint='/ask'"
+        ).fetchone()[0]
+        tok = db.execute(
+            "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0), "
+            "COALESCE(SUM(est_cost_usd),0) FROM events"
+        ).fetchone()
+        vals = sorted(r[0] for r in db.execute("SELECT total_ms FROM events"))
+    except sqlite3.OperationalError:
+        typer.echo("henüz olay kaydı yok")
+        return
+    finally:
+        if db is not None:
+            db.close()
+    p95 = vals[min(len(vals) - 1, math.ceil(0.95 * len(vals)) - 1)] if vals else 0.0
     typer.echo(f"istek={n} ort={avg:.0f}ms p95={p95:.0f}ms abstain={ab:.1%}")
     typer.echo(f"token in/out={tok[0]}/{tok[1]} maliyet≈${tok[2]:.4f}")
 

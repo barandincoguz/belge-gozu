@@ -80,4 +80,44 @@ def test_metrics_summary_cli(tmp_path, monkeypatch):
     rec.close()
     result = runner.invoke(app, ["metrics", "summary"])
     assert result.exit_code == 0, result.output
-    assert "istek=" in result.output and "token" in result.output
+    assert "istek=1 ort=10ms p95=10ms abstain=0.0%" in result.output
+    assert "token in/out=5/7 maliyet≈$0.0010" in result.output
+
+
+def test_metrics_summary_p95_nearest_rank(tmp_path, monkeypatch):
+    from belge_gozu.telemetry.recorder import EventRecorder
+    from belge_gozu.telemetry.schema import RequestEvent
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    rec = EventRecorder(tmp_path / "requests.sqlite")
+    for i in range(1, 11):
+        rec.record(
+            RequestEvent(
+                ts="t",
+                endpoint="/search",
+                status="ok",
+                http_status=200,
+                total_ms=float(i),
+                query_sha256=str(i) * 64,
+            )
+        )
+    rec.close()
+    result = runner.invoke(app, ["metrics", "summary"])
+    assert result.exit_code == 0, result.output
+    assert "p95=10ms" in result.output
+
+
+def test_metrics_summary_no_events_table(tmp_path, monkeypatch):
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    result = runner.invoke(app, ["metrics", "summary"])
+    assert result.exit_code == 0, result.output
+    assert "henüz olay kaydı yok" in result.output
+
+
+def test_metrics_export_no_events_table(tmp_path, monkeypatch):
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    out = tmp_path / "e.parquet"
+    result = runner.invoke(app, ["metrics", "export", "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    assert "0 olay — tablo yok" in result.output
+    assert not out.exists()
