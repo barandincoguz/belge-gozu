@@ -110,6 +110,21 @@ uv run belge-gozu serve
 `GOOGLE_API_KEY` (or `BG_GEMINI_API_KEY`) must be set for `/ask` to call the answerer;
 `/search` works without it.
 
+## Telemetri
+
+Every `/ask` and `/search` request is logged to `data/requests.sqlite` (stage-by-stage
+latency — encode, Hamming pre-filter, MaxSim rerank, answerer — plus token counts,
+estimated USD cost, and whether the request abstained) and mirrored as Prometheus
+metrics on `GET /metrics` (`bg_*` series: request/stage duration histograms, abstain
+and token counters, in-flight gauge, `bg_app_info`). `make obs-up` starts a local
+Prometheus + Grafana (`http://localhost:3001`, anonymous access, dashboard `belge-gozu`
+pre-provisioned) reading that endpoint; `make obs-down` tears it down.
+`uv run belge-gozu metrics summary` prints a quick p95/abstain/cost readout from the
+SQLite log; `uv run belge-gozu metrics export --out <path>.parquet` dumps the raw event
+table for offline analysis. See `docs/research/` for a real baseline measurement session
+(load test, live `/ask` calls, and an honest write-up including a concurrency crash
+found while running it).
+
 ## v0 limitations
 
 This is a working end-to-end system, not a finished product — v0's known gaps, honestly:

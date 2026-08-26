@@ -1,0 +1,17 @@
+{
+  "config": {
+    "base_url": "http://localhost:7860",
+    "endpoint": "search",
+    "concurrency": 4,
+    "duration": 60.0,
+    "out": "docs/research/findings/raw/2026-08-26-loadgen-c4.json",
+    "yes_burn_quota": false
+  },
+  "endpoint": "/search",
+  "requests": 1326,
+  "errors": 0,
+  "rps": 22.05,
+  "p50_ms": 179.06958299863618,
+  "p95_ms": 231.73645899805706,
+  "p99_ms": 260.90529099747073
+}

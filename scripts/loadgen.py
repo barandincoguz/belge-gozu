@@ -88,9 +88,9 @@ def main() -> None:
     if args.endpoint == "ask" and not args.yes_burn_quota:
         ap.error("/ask Gemini kotası yakar; bilinçliysen --yes-burn-quota ekle")
     result = asyncio.run(run(args))
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     if args.out:
-        args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2))
+        args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
 
 if __name__ == "__main__":
