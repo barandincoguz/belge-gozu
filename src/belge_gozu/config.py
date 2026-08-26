@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # Ham sorgu metnini events tablosuna yaz (gizlilik hassasiyeti olan
     # dağıtımlarda kapatılabilir; sha256 her koşulda yazılır).
     log_query_text: bool = True
+    # indeks/serve uyumsuzluğunda fail-fast yerine uyarı ile devam et (bilinçli
+    # bir riske girildiğinde kullanılır; varsayılan olarak kapalıdır).
+    allow_index_mismatch: bool = False
 
 
 @lru_cache

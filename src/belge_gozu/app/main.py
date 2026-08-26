@@ -13,6 +13,8 @@ from pydantic import BaseModel
 
 from belge_gozu.answer.base import Answer, AskService
 from belge_gozu.config import Settings, get_settings
+from belge_gozu.index.compat import IndexCompatibilityError, check_compatibility
+from belge_gozu.index.manifest import CPE_0_3_18
 from belge_gozu.index.store import PackedIndex
 from belge_gozu.retrieval.core import TwoStageRetriever
 from belge_gozu.retrieval.types import PageHit
@@ -52,6 +54,19 @@ def create_app(
         from belge_gozu.answer.gemini import GeminiAnswerer
 
         answerer = GeminiAnswerer(s.gemini_model, s.gemini_api_key)
+
+    problems = check_compatibility(
+        index.manifest,
+        model_name=s.retriever_model,
+        model_revision=getattr(encoder, "model_revision", None),
+        query_format_id=getattr(encoder, "query_format", CPE_0_3_18).format_id,
+        index_dir=s.index_dir,
+    )
+    if problems:
+        msg = "indeks/serve uyumsuzluğu: " + "; ".join(problems)
+        if not s.allow_index_mismatch:
+            raise IndexCompatibilityError(msg)
+        logger.warning("BG_ALLOW_INDEX_MISMATCH=true ile devam ediliyor — %s", msg)
 
     def load_image(image_path: str) -> bytes:
         return (s.data_dir / image_path).read_bytes()

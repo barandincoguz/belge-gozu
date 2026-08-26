@@ -6,7 +6,9 @@ import pytest
 from PIL import Image
 
 from belge_gozu.index.encode import FakeEncoder
+from belge_gozu.index.manifest import corpus_checksum, write_manifest
 from belge_gozu.index.store import PackedIndex
+from tests.index.test_manifest import make_manifest
 
 
 @pytest.fixture
@@ -39,4 +41,7 @@ def tiny_corpus(tmp_path: Path):
     idx_dir = tmp_path / "index"
     idx.save(idx_dir)
     meta.to_parquet(idx_dir / "meta.parquet", index=False)
+    write_manifest(
+        idx_dir, make_manifest(corpus_checksum=corpus_checksum(idx_dir), n_pages=3, n_tokens=24)
+    )
     return tmp_path, enc, np.array([])  # (data_dir, encoder, _)

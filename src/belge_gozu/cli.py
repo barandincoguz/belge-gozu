@@ -1,6 +1,8 @@
 import math
 import shutil
 import sqlite3
+import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +14,13 @@ from belge_gozu.corpus.download import download_all
 from belge_gozu.corpus.manifest import build_http_client, load_manifest, probe
 from belge_gozu.corpus.render import render_all
 from belge_gozu.index.encode import FakeEncoder
+from belge_gozu.index.manifest import (
+    CPE_0_3_18,
+    IndexManifest,
+    RenderConfig,
+    corpus_checksum,
+    write_manifest,
+)
 from belge_gozu.index.store import PackedIndex
 
 app = typer.Typer(help="Belge-Gözü: Türkçe mevzuat için görsel belge RAG")
@@ -91,6 +100,62 @@ def index_build(fake: bool = typer.Option(False, "--fake")) -> None:  # noqa: B0
     PackedIndex.build(ids, embs).save(s.index_dir)
     shutil.copy(s.data_dir / "meta.parquet", s.index_dir / "meta.parquet")
     typer.echo(f"{len(ids)} sayfa indekslendi -> {s.index_dir}")
+
+
+@index_app.command("write-manifest")
+def index_write_manifest(
+    legacy: bool = typer.Option(False, "--legacy"),  # noqa: B008
+) -> None:
+    if not legacy:
+        raise typer.BadParameter("şu an yalnız --legacy destekleniyor")
+    s = _settings()
+    index = PackedIndex.load(s.index_dir)
+    n_pages = len(index.page_ids)
+    n_tokens = int(index.offsets[-1])
+
+    def _pkg_version(name: str) -> str:
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as pkg_version
+
+        try:
+            return pkg_version(name)
+        except PackageNotFoundError:
+            return "unknown"
+
+    try:
+        git_commit = (
+            subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            or "unknown"
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        git_commit = "unknown"
+
+    manifest = IndexManifest(
+        model_name=s.retriever_model,
+        model_revision="unknown",
+        engine_versions={
+            "colpali-engine": _pkg_version("colpali-engine"),
+            "transformers": _pkg_version("transformers"),
+            "torch": _pkg_version("torch"),
+        },
+        query_format=CPE_0_3_18,
+        doc_prompt_sha256="unknown",
+        quantization="sign-1bit",
+        mask_policy="none",
+        render=RenderConfig(),
+        corpus_checksum=corpus_checksum(s.index_dir),
+        n_pages=n_pages,
+        n_tokens=n_tokens,
+        built_at=datetime.now(UTC).isoformat(),
+        git_commit=git_commit,
+    )
+    write_manifest(s.index_dir, manifest)
+    typer.echo(f"manifest yazıldı -> {s.index_dir / 'manifest.json'}")
 
 
 @index_app.command("push")

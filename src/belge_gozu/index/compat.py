@@ -1,0 +1,34 @@
+from pathlib import Path
+
+from belge_gozu.index.manifest import IndexManifest, corpus_checksum
+
+
+class IndexCompatibilityError(RuntimeError):
+    pass
+
+
+def check_compatibility(
+    manifest: IndexManifest | None,
+    *,
+    model_name: str,
+    model_revision: str | None,
+    query_format_id: str,
+    index_dir: Path,
+) -> list[str]:
+    if manifest is None:
+        return ["indekste manifest yok (v0 legacy?) — `belge-gozu index write-manifest --legacy`"]
+    problems: list[str] = []
+    if manifest.model_name != model_name:
+        problems.append(f"model_name: indeks={manifest.model_name} serve={model_name}")
+    if model_revision and model_revision != "unknown" and manifest.model_revision != model_revision:
+        problems.append(f"model_revision: indeks={manifest.model_revision} serve={model_revision}")
+    if manifest.query_format.format_id != query_format_id:
+        problems.append(
+            f"query_format: indeks={manifest.query_format.format_id} serve={query_format_id}"
+        )
+    if manifest.mask_policy != "drop-padding":
+        problems.append(f"mask_policy: indeks={manifest.mask_policy} (drop-padding bekleniyor)")
+    live = corpus_checksum(index_dir)
+    if manifest.corpus_checksum != live:
+        problems.append("corpus_checksum: indeks manifest'i ile meta/page_ids uyuşmuyor")
+    return problems
