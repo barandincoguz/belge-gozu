@@ -4,6 +4,8 @@ from typing import Protocol
 import numpy as np
 from PIL import Image
 
+from belge_gozu.index.manifest import CPE_0_3_18, QueryFormat
+
 
 class Encoder(Protocol):
     def encode_pages(self, images: list[Image.Image]) -> list[np.ndarray]: ...
@@ -39,11 +41,26 @@ def resolve_device(pref: str) -> str:
     return "cpu"
 
 
+def trim_by_mask(emb: np.ndarray, mask: np.ndarray) -> list[np.ndarray]:
+    """(B, L, D) embedding + (B, L) attention mask -> padding'siz [(l_i, D)].
+
+    colpali add_model_family sözleşmesi padding embedding'lerini sıfırlar; bu
+    sıfırlar dot-product MaxSim'de zararsızdır ama sign-binarizasyonda geçerli
+    bit desenine dönüşür (v0 bug'ı: indekste 3960 all-zero satır). Çözüm:
+    binarize ETMEDEN önce padding satırlarını at."""
+    return [e[m.astype(bool)] for e, m in zip(emb, mask, strict=True)]
+
+
 class ColSmolEncoder:
     """colpali-engine sarmalayıcı. Yalnız `ml` extra'sıyla çalışır; API yüzeyi
     Task 13'te gerçek modelle doğrulanır (spec §11 model-eskimesi riski)."""
 
-    def __init__(self, model_name: str, device: str = "auto"):
+    def __init__(
+        self,
+        model_name: str,
+        device: str = "auto",
+        query_format: QueryFormat | None = None,
+    ):
         import torch  # type: ignore[import-not-found]
         from colpali_engine.models import (  # type: ignore[import-not-found]
             ColIdefics3,
@@ -64,13 +81,19 @@ class ColSmolEncoder:
         # (typeshed/functools.wraps kısıtı); çalışma zamanında sorunsuz (üstte doğrulandı).
         self.model = model.to(self.device).eval()  # type: ignore[reportArgumentType]
         self.processor = ColIdefics3Processor.from_pretrained(model_name)
+        self.query_format = query_format or CPE_0_3_18
+        self.model_revision = getattr(model.config, "_commit_hash", None) or "unknown"
+        self.doc_prompt = self.processor.visual_prompt_prefix
+        self.doc_prompt_sha256 = hashlib.sha256(self.doc_prompt.encode()).hexdigest()
 
     def _run(self, batch) -> list[np.ndarray]:
         import torch  # type: ignore[import-not-found]
 
         with torch.no_grad():
             out = self.model(**{k: v.to(self.device) for k, v in batch.items()})
-        return [e.cpu().float().numpy() for e in out]
+        emb = out.cpu().float().numpy()
+        mask = batch["attention_mask"].cpu().numpy()
+        return trim_by_mask(emb, mask)
 
     def encode_pages(self, images: list[Image.Image]) -> list[np.ndarray]:
         results: list[np.ndarray] = []
@@ -80,4 +103,5 @@ class ColSmolEncoder:
         return results
 
     def encode_query(self, text: str) -> np.ndarray:
-        return self._run(self.processor.process_queries([text]))[0]
+        rendered = self.query_format.render(text)
+        return self._run(self.processor.process_texts([rendered]))[0]

@@ -72,7 +72,7 @@ def index_build(fake: bool = typer.Option(False, "--fake")) -> None:  # noqa: B0
 
         encoder = ColSmolEncoder(s.retriever_model, s.device)
     embs, ids = [], []
-    batch_size = 8
+    batch_size = 1
     total = len(meta)
     for start in range(0, total, batch_size):
         chunk = meta.iloc[start : start + batch_size]
