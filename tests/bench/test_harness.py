@@ -82,3 +82,26 @@ def test_exhaustive_adapter_records_ranks():
     ranked, stages = ad.run("17")
     assert ranked[0] == "d17:1"
     assert stages[0].stage == "exhaustive-binary" and stages[0].latency_ms >= 0
+
+
+def test_two_stage_adapter_matches_production_score():
+    from belge_gozu.bench.harness import TwoStageDiagnosticAdapter
+    from belge_gozu.retrieval.core import TwoStageRetriever
+    from tests.retrieval.test_core import build_fixture
+
+    idx, meta, embs = build_fixture(n_pages=30)
+
+    class SelfEnc:
+        def encode_pages(self, images):
+            raise NotImplementedError
+
+        def encode_query(self, text):
+            return embs[int(text)]
+
+    retriever = TwoStageRetriever(idx, meta, SelfEnc())
+    ad = TwoStageDiagnosticAdapter(retriever, candidates=30, record_top=30)
+    ranked, stages = ad.run("17")
+    assert [s.stage for s in stages] == ["stage1", "stage2"]
+    assert ranked[0] == "d17:1"
+    prod_hits = retriever.search("17", k=1, candidates=30)
+    assert stages[1].top_scores[0] == prod_hits[0].score

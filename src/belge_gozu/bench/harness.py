@@ -91,14 +91,26 @@ class ExhaustiveDiagnosticAdapter:
 
 
 class TwoStageDiagnosticAdapter:
-    """TwoStageRetriever sarar (B1/B2 ablasyonu)."""
+    """TwoStageRetriever sarar (B1/B2 ablasyonu).
+
+    Not: stage-1 kaydı `argsort` ile tam korpus üzerinde hesaplanır; üretim
+    yolu (`TwoStageRetriever.search_embedding`) içeride `argpartition`
+    kullanır — sınır (tie) durumlarında seçilen aday kümesi bu teşhis
+    kaydından küçük farklarla ayrışabilir. `gold_ranks` yalnız `record_top`
+    ile sınırlı `top_ids` listesine göre hesaplanır (-1 = gold sayfa ilk N'de
+    yok, tam-korpus sırası değil); tam-korpus sıra teşhisi (ör. gold sayfanın
+    gerçek global rütbesi) oracle koşumlarının işidir (controller ruling R12).
+    """
 
     name = "two-stage"
 
     def __init__(self, retriever: TwoStageRetriever, candidates: int = 200, record_top: int = 200):
         self.retriever = retriever
         self.candidates = candidates
-        self.record_top = record_top
+        # record_top < candidates olursa stage2'nin skorladığı adayların bir
+        # kısmı kayda giremez (top_ids[:record_top] kırpması); en az
+        # candidates kadar kaydedilmesi garanti edilir.
+        self.record_top = max(record_top, candidates)
 
     def run(self, question: str) -> tuple[list[str], list[StageRecord]]:
         if self.retriever.encoder is None:
@@ -125,7 +137,11 @@ class TwoStageDiagnosticAdapter:
         )
 
         # Aşama 2: adaylarda kesin binary MaxSim (RAW toplam n_q'ya bölünerek
-        # normalize edilir).
+        # normalize edilir). NOT: `search_embedding` üretim kodu, aday
+        # seçimini kendi içinde tekrar hesaplar (stage-1 hamming'i
+        # `argpartition` ile yeniden çalıştırır) — bu yüzden aşağıdaki
+        # latency_ms yalnız "aşama 2" değil, o dahili tekrar-hesaplamayı da
+        # (sub-ms mertebesinde) içerir; "stage2-only" değildir.
         hits = self.retriever.search_embedding(q_emb, k=self.candidates, candidates=self.candidates)
         t2 = time.perf_counter()
         n_q = max(1, q_emb.shape[0])
@@ -143,7 +159,7 @@ class TwoStageDiagnosticAdapter:
         return ranked, [stage1, stage2]
 
 
-def _git_commit() -> str:
+def git_commit() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -209,7 +225,7 @@ def run_retrieval_eval(
             per_doc.setdefault(d, []).append((q, r))
     return EvalReport(
         run_id=run_id,
-        git_commit=_git_commit(),
+        git_commit=git_commit(),
         index_manifest=index_manifest.model_dump() if index_manifest else None,
         config=config or {},
         missing_gold_pages=missing,

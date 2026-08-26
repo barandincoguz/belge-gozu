@@ -3,6 +3,7 @@ import shutil
 import sqlite3
 import subprocess
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 
 import pandas as pd
@@ -34,6 +35,11 @@ app.add_typer(metrics_app, name="metrics")
 app.add_typer(bench_app, name="bench")
 
 DEFAULT_MANIFEST = Path("data/manifest/v0_manifest.csv")
+
+
+class Pipeline(StrEnum):
+    exhaustive = "exhaustive"
+    two_stage = "two-stage"
 
 
 def _settings() -> Settings:
@@ -224,14 +230,14 @@ def metrics_summary() -> None:
 @bench_app.command("run")
 def bench_run(
     bench: Path = typer.Option(Path("data/bench/canary_v1.jsonl")),  # noqa: B008
-    pipeline: str = typer.Option("exhaustive", "--pipeline"),  # noqa: B008
+    pipeline: Pipeline = typer.Option(Pipeline.exhaustive, "--pipeline"),  # noqa: B008
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
 ) -> None:
     from belge_gozu.bench.dataset import load_bench
     from belge_gozu.bench.harness import (
         ExhaustiveDiagnosticAdapter,
         TwoStageDiagnosticAdapter,
-        _git_commit,
+        git_commit,
         run_retrieval_eval,
     )
     from belge_gozu.index.encode import ColSmolEncoder
@@ -243,15 +249,17 @@ def bench_run(
     encoder = ColSmolEncoder(s.retriever_model, s.device)
 
     adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter
-    if pipeline == "two-stage":
+    if pipeline == Pipeline.two_stage:
         adapter = TwoStageDiagnosticAdapter(
-            TwoStageRetriever(idx, meta, encoder), candidates=s.stage1_candidates
+            TwoStageRetriever(idx, meta, encoder),
+            candidates=s.stage1_candidates,
+            record_top=max(200, s.stage1_candidates),
         )
     else:
         adapter = ExhaustiveDiagnosticAdapter(ExhaustiveBinaryRetriever(idx, meta, encoder))
 
     questions = load_bench(bench)
-    run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{_git_commit()}-{pipeline}"
+    run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-{pipeline.value}"
     out_path = out or Path("data/bench/results") / f"{run_id}.json"
 
     report = run_retrieval_eval(
@@ -260,10 +268,14 @@ def bench_run(
         known_page_ids=set(idx.page_ids),
         run_id=run_id,
         index_manifest=idx.manifest,
-        config={"pipeline": pipeline, "bench": str(bench)},
+        config={"pipeline": pipeline.value, "bench": str(bench)},
     )
     report.to_json(out_path)
-    typer.echo(f"recall@5={report.overall.recall_at.get(5, 0.0):.3f} mrr={report.overall.mrr:.3f}")
+    o = report.overall
+    typer.echo(
+        f"recall@5={o.recall_at.get(5, 0.0):.3f} mrr={o.mrr:.3f} ndcg5={o.ndcg5:.3f} "
+        f"n={o.n} ci_recall5={o.ci_recall5}"
+    )
     typer.echo(f"rapor -> {out_path}")
     if report.missing_gold_pages:
         typer.echo(f"missing_gold_pages={len(report.missing_gold_pages)}")
