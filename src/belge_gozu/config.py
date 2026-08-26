@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,10 @@ class Settings(BaseSettings):
     )
     stage1_candidates: int = 200
     top_k: int = 5
+    # exhaustive: her arama tüm korpusu tarar (kesin, varsayılan). two-stage:
+    # mean-sign Hamming ile aday eleme + kesin MaxSim (ablasyon-only; spec §1.1
+    # karşı-örneği nedeniyle üretimde kullanılmaz).
+    retrieval_pipeline: Literal["exhaustive", "two-stage"] = "exhaustive"
     # kaba v0 ayarı; gerçek kalibrasyon Plan 2 (Task 13 smoke test: gerçek soru
     # top_score~70.6, saçma soru top_score~52.4 -- 20.0 hiçbir zaman tetiklemiyordu)
     min_score_threshold: float = 60.0

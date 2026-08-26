@@ -37,8 +37,13 @@ class AskService:
         self.min_score = min_score
         self.image_loader = image_loader
 
-    def ask(self, question: str, k: int, candidates: int) -> tuple[Answer, list[PageHit]]:
-        hits = self.retriever.search(question, k=k, candidates=candidates)
+    def ask(
+        self, question: str, k: int, candidates: int | None = None
+    ) -> tuple[Answer, list[PageHit]]:
+        if candidates is None:
+            hits = self.retriever.search(question, k=k)
+        else:
+            hits = self.retriever.search(question, k=k, candidates=candidates)
         if not hits or hits[0].score < self.min_score:
             return Answer(text=ABSTAIN_TEXT, citations=[], abstained=True), hits
         try:

@@ -67,3 +67,72 @@ class TwoStageRetriever:
                 )
             )
         return out
+
+
+class ExhaustiveBinaryRetriever:
+    """Tüm korpus üstünde kesin binary MaxSim. 4222 sayfada ~1.2 s (M4 Pro).
+
+    Mean-sign Stage-1 kaldırıldı: ölçülen top-200 kesişimi %11.5-19 ve rank-2
+    sonucu 1768'e atma karşı-örneği (spec §1.1). TwoStageRetriever yalnız
+    ablasyon için durur (config: retrieval_pipeline="two-stage")."""
+
+    CHUNK_TOKENS = 500_000
+
+    def __init__(self, index: PackedIndex, meta: pd.DataFrame, encoder: Encoder | None):
+        self.index = index
+        self.encoder = encoder
+        self.meta = meta.set_index("page_id", drop=False)
+        self.tokens = np.ascontiguousarray(np.asarray(index.tokens))
+        self.offsets = np.asarray(index.offsets)
+
+    def _chunk_bounds(self) -> list[int]:
+        bounds = [0]
+        for i in range(1, len(self.offsets)):
+            last = bounds[-1]
+            if self.offsets[i] - self.offsets[last] >= self.CHUNK_TOKENS:
+                bounds.append(i)
+        if bounds[-1] != len(self.offsets) - 1:
+            bounds.append(len(self.offsets) - 1)
+        return bounds
+
+    def score_all(self, q_emb: np.ndarray) -> np.ndarray:
+        q_packed = binarize_pack(q_emb)
+        qa = _as_u64(q_packed)
+        ta = _as_u64(self.tokens)
+        n_pages = len(self.index.page_ids)
+        out = np.empty(n_pages, dtype=np.float64)
+        bounds = self._chunk_bounds()
+        for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
+            t0, t1 = int(self.offsets[b0]), int(self.offsets[b1])
+            ham = np.bitwise_count(qa[:, None, :] ^ ta[None, t0:t1, :]).sum(axis=2)
+            sim = (128 - 2 * ham).astype(np.int32)
+            starts = (self.offsets[b0:b1] - t0).astype(np.int64)
+            out[b0:b1] = np.maximum.reduceat(sim, starts, axis=1).sum(axis=0)
+        return out / max(1, q_emb.shape[0])
+
+    def search_embedding(self, q_emb: np.ndarray, k: int) -> list[tuple[int, float]]:
+        scores = self.score_all(q_emb)
+        order = np.argsort(-scores, kind="stable")[:k]
+        return [(int(i), float(scores[i])) for i in order]
+
+    def search(self, query: str, k: int = 5) -> list[PageHit]:
+        if self.encoder is None:
+            raise RuntimeError("encoder yapılandırılmamış")
+        with stage("query_encode"):
+            q_emb = self.encoder.encode_query(query)
+        with stage("exhaustive_maxsim"):
+            hits = self.search_embedding(q_emb, k)
+        out: list[PageHit] = []
+        for i, score in hits:
+            row = self.meta.loc[self.index.page_ids[i]]
+            out.append(
+                PageHit(
+                    page_id=row["page_id"],
+                    score=score,
+                    doc_name=row["doc_name"],
+                    page_no=int(row["page_no"]),
+                    image_path=row["image_path"],
+                    source_url=row["source_url"],
+                )
+            )
+        return out

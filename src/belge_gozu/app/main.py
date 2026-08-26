@@ -16,7 +16,7 @@ from belge_gozu.config import Settings, get_settings
 from belge_gozu.index.compat import IndexCompatibilityError, check_compatibility
 from belge_gozu.index.manifest import CPE_0_3_18
 from belge_gozu.index.store import PackedIndex
-from belge_gozu.retrieval.core import TwoStageRetriever
+from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever, TwoStageRetriever
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import StageCollector, collecting
 from belge_gozu.telemetry.prom import PromMetrics
@@ -71,7 +71,10 @@ def create_app(
     def load_image(image_path: str) -> bytes:
         return (s.data_dir / image_path).read_bytes()
 
-    retriever = TwoStageRetriever(index, meta, encoder)
+    if s.retrieval_pipeline == "exhaustive":
+        retriever = ExhaustiveBinaryRetriever(index, meta, encoder)
+    else:
+        retriever = TwoStageRetriever(index, meta, encoder)
     service = AskService(retriever, answerer, s.min_score_threshold, load_image)
 
     rec = recorder or EventRecorder(s.data_dir / "requests.sqlite")
@@ -188,11 +191,16 @@ def create_app(
     @app.post("/search")
     def search(body: SearchBody) -> dict[str, list[PageHit]]:
         t0 = time.perf_counter()
+        cand = s.stage1_candidates if s.retrieval_pipeline == "two-stage" else None
         with collecting() as col, prom.inflight("/search"):
             try:
-                hits = retriever.search(
-                    body.query, k=body.k or s.top_k, candidates=s.stage1_candidates
-                )
+                k = body.k or s.top_k
+                if cand is None:
+                    hits = retriever.search(body.query, k=k)
+                else:
+                    # cand is not None <=> retrieval_pipeline == "two-stage" (TwoStageRetriever);
+                    # pyright can't narrow retriever's union type from cand's nullability.
+                    hits = retriever.search(body.query, k=k, candidates=cand)  # type: ignore[reportCallIssue]
             except Exception as e:
                 record_event(
                     endpoint="/search",
@@ -213,17 +221,18 @@ def create_app(
                 col=col,
                 query=body.query,
                 hits=hits,
-                k=body.k or s.top_k,
-                candidates=s.stage1_candidates,
+                k=k,
+                candidates=cand,
             )
         return {"hits": hits}
 
     @app.post("/ask")
     def ask(body: AskBody) -> dict:
         t0 = time.perf_counter()
+        cand = s.stage1_candidates if s.retrieval_pipeline == "two-stage" else None
         with collecting() as col, prom.inflight("/ask"):
             try:
-                answer, hits = service.ask(body.question, k=s.top_k, candidates=s.stage1_candidates)
+                answer, hits = service.ask(body.question, k=s.top_k, candidates=cand)
             except Exception as e:
                 record_event(
                     endpoint="/ask",
@@ -252,7 +261,7 @@ def create_app(
                 hits=hits,
                 answer=answer,
                 k=s.top_k,
-                candidates=s.stage1_candidates,
+                candidates=cand,
             )
         return {"answer": answer.model_dump(), "hits": [h.model_dump() for h in hits]}
 
