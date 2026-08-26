@@ -9,16 +9,35 @@ from belge_gozu.telemetry.schema import EVENTS_DDL, EVENTS_INDEXES, RequestEvent
 logger = logging.getLogger(__name__)
 
 _COLUMNS = [
-    "ts", "endpoint", "status", "http_status", "total_ms",
-    "encode_ms", "stage1_ms", "stage2_ms", "answer_ms",
-    "top_score", "margin_1_2", "abstained", "honest_miss",
-    "k", "candidates", "query_len", "query_text", "query_sha256",
-    "answer_len", "citations_n", "tokens_in", "tokens_out",
-    "tokens_per_s", "est_cost_usd", "error_type", "detail",
+    "ts",
+    "endpoint",
+    "status",
+    "http_status",
+    "total_ms",
+    "encode_ms",
+    "stage1_ms",
+    "stage2_ms",
+    "answer_ms",
+    "top_score",
+    "margin_1_2",
+    "abstained",
+    "honest_miss",
+    "k",
+    "candidates",
+    "query_len",
+    "query_text",
+    "query_sha256",
+    "answer_len",
+    "citations_n",
+    "tokens_in",
+    "tokens_out",
+    "tokens_per_s",
+    "est_cost_usd",
+    "error_type",
+    "detail",
 ]
 _INSERT = (
-    f"INSERT INTO events ({', '.join(_COLUMNS)}) "
-    f"VALUES ({', '.join(':' + c for c in _COLUMNS)})"
+    f"INSERT INTO events ({', '.join(_COLUMNS)}) VALUES ({', '.join(':' + c for c in _COLUMNS)})"
 )
 
 

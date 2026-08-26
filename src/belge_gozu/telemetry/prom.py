@@ -33,32 +33,60 @@ class PromMetrics:
     def __init__(self) -> None:
         self.registry = CollectorRegistry()
         r = self.registry
-        self.requests = Counter("bg_http_requests", "İstek sayısı",
-                                ["endpoint", "status"], registry=r)
-        self.duration = Histogram("bg_request_duration_seconds", "Uçtan uca süre",
-                                  ["endpoint"], buckets=REQUEST_BUCKETS, registry=r)
-        self.stage = Histogram("bg_stage_duration_seconds", "Aşama süresi",
-                               ["stage"], buckets=STAGE_BUCKETS, registry=r)
-        self.top_score = Histogram("bg_retrieval_top_score", "En iyi skor",
-                                   buckets=SCORE_BUCKETS, registry=r)
-        self.margin = Histogram("bg_retrieval_score_margin", "top1-top2 farkı",
-                                buckets=MARGIN_BUCKETS, registry=r)
+        self.requests = Counter(
+            "bg_http_requests", "İstek sayısı", ["endpoint", "status"], registry=r
+        )
+        self.duration = Histogram(
+            "bg_request_duration_seconds",
+            "Uçtan uca süre",
+            ["endpoint"],
+            buckets=REQUEST_BUCKETS,
+            registry=r,
+        )
+        self.stage = Histogram(
+            "bg_stage_duration_seconds",
+            "Aşama süresi",
+            ["stage"],
+            buckets=STAGE_BUCKETS,
+            registry=r,
+        )
+        self.top_score = Histogram(
+            "bg_retrieval_top_score", "En iyi skor", buckets=SCORE_BUCKETS, registry=r
+        )
+        self.margin = Histogram(
+            "bg_retrieval_score_margin", "top1-top2 farkı", buckets=MARGIN_BUCKETS, registry=r
+        )
         self.abstain = Counter("bg_abstain", "Abstain sayısı", ["reason"], registry=r)
         self.honest_miss = Counter("bg_honest_miss", "'bulamadım' yanıtları", registry=r)
         self.tokens = Counter("bg_llm_tokens", "LLM token sayısı", ["direction"], registry=r)
-        self.tps = Histogram("bg_llm_tokens_per_second", "Üretim hızı",
-                             buckets=TPS_BUCKETS, registry=r)
+        self.tps = Histogram(
+            "bg_llm_tokens_per_second", "Üretim hızı", buckets=TPS_BUCKETS, registry=r
+        )
         self.cost = Counter("bg_llm_cost_usd", "Tahmini maliyet (USD)", registry=r)
-        self.inflight_g = Gauge("bg_inflight_requests", "Anlık istek",
-                                ["endpoint"], registry=r)
+        self.inflight_g = Gauge("bg_inflight_requests", "Anlık istek", ["endpoint"], registry=r)
         self.pages = Gauge("bg_index_pages", "Dizindeki sayfa sayısı", registry=r)
         self.info = Info("bg_app", "Uygulama künyesi", registry=r)
 
-    def set_app_info(self, *, pages: int, retriever_model: str, gemini_model: str,
-                     device: str, version: str, threshold: float) -> None:
+    def set_app_info(
+        self,
+        *,
+        pages: int,
+        retriever_model: str,
+        gemini_model: str,
+        device: str,
+        version: str,
+        threshold: float,
+    ) -> None:
         self.pages.set(pages)
-        self.info.info({"retriever_model": retriever_model, "gemini_model": gemini_model,
-                        "device": device, "version": version, "threshold": str(threshold)})
+        self.info.info(
+            {
+                "retriever_model": retriever_model,
+                "gemini_model": gemini_model,
+                "device": device,
+                "version": version,
+                "threshold": str(threshold),
+            }
+        )
 
     @contextmanager
     def inflight(self, endpoint: str) -> Iterator[None]:

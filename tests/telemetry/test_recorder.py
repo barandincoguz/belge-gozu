@@ -8,16 +8,25 @@ from belge_gozu.telemetry.schema import RequestEvent
 
 
 def _ev(i: int = 0) -> RequestEvent:
-    return RequestEvent(ts=f"2026-08-26T00:00:{i:02d}+00:00", endpoint="/search",
-                        status="ok", http_status=200, total_ms=float(i),
-                        query_sha256="c" * 64, detail={"i": i})
+    return RequestEvent(
+        ts=f"2026-08-26T00:00:{i:02d}+00:00",
+        endpoint="/search",
+        status="ok",
+        http_status=200,
+        total_ms=float(i),
+        query_sha256="c" * 64,
+        detail={"i": i},
+    )
 
 
 def test_record_roundtrip(tmp_path: Path):
     rec = EventRecorder(tmp_path / "t.sqlite")
     rec.record(_ev(1))
-    row = sqlite3.connect(tmp_path / "t.sqlite").execute(
-        "SELECT endpoint, status, total_ms, detail FROM events").fetchone()
+    row = (
+        sqlite3.connect(tmp_path / "t.sqlite")
+        .execute("SELECT endpoint, status, total_ms, detail FROM events")
+        .fetchone()
+    )
     assert row[0] == "/search" and row[1] == "ok" and row[2] == 1.0
     assert json.loads(row[3]) == {"i": 1}
     rec.close()
@@ -32,8 +41,10 @@ def test_wal_mode_enabled(tmp_path: Path):
 
 def test_concurrent_writes_all_land(tmp_path: Path):
     rec = EventRecorder(tmp_path / "t.sqlite")
-    threads = [threading.Thread(target=lambda i=i: [rec.record(_ev(i)) for _ in range(20)])
-               for i in range(8)]
+    threads = [
+        threading.Thread(target=lambda i=i: [rec.record(_ev(i)) for _ in range(20)])
+        for i in range(8)
+    ]
     for t in threads:
         t.start()
     for t in threads:
