@@ -16,3 +16,9 @@ def test_summarize_percentiles():
 def test_summarize_empty():
     s = summarize([], errors=0, duration_s=1.0)
     assert s["requests"] == 0 and s["p95_ms"] == 0.0
+
+
+def test_summarize_small_n_matches_server_formula():
+    lat = [float(i) for i in range(1, 11)]  # 1..10 ms
+    s = summarize(lat, errors=0, duration_s=1.0)
+    assert s["p50_ms"] == 5.0 and s["p95_ms"] == 10.0

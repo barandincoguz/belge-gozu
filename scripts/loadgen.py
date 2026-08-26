@@ -8,6 +8,7 @@ Varsayılan /search'tür: /ask Gemini kotası yakar (≈20 çağrı/gün) ve anc
 import argparse
 import asyncio
 import json
+import math
 import random
 import time
 from pathlib import Path
@@ -23,7 +24,7 @@ def summarize(latencies_ms: list[float], errors: int, duration_s: float) -> dict
     def pct(p: float) -> float:
         if not lat:
             return 0.0
-        return lat[min(len(lat) - 1, max(0, int(round(p * len(lat))) - 1))]
+        return lat[min(len(lat) - 1, max(0, math.ceil(p * len(lat)) - 1))]
 
     return {
         "requests": len(lat),
