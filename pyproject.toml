@@ -50,3 +50,12 @@ typeCheckingMode = "basic"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: gerçek model/ağ gerektirir; CI'da koşmaz"]
+filterwarnings = [
+  "ignore:builtin type Swig:DeprecationWarning",
+  "ignore:builtin type swigvarlink:DeprecationWarning",
+  # bu filterwarnings bloğu eklenince pytest'in uyarı kayıt önbelleği sıfırlanıyor
+  # ve daha önce sessizce yutulan şu üçüncü-taraf uyarısı da görünür hale geliyor
+  # (davranış değişikliği değil, yalnız görünürlük); fastapi/starlette sürümü
+  # yükseltilene kadar bastırılıyor.
+  "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
+]

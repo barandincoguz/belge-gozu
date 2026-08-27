@@ -51,13 +51,20 @@ TNBJE0GmP2fhXhP1D/XVfIW/h0yCJGEiV9Glm/uGOa3DXHlmbAcxSyCRraG+ZBkA
 """
 
 
+def build_ssl_context() -> ssl.SSLContext:
+    """certifi CA paketi + eksik GeoTrust ara sertifikasıyla tam doğrulama
+    yapan bir SSL context üretir (bkz. yukarıdaki not). TLS doğrulaması
+    (verify_mode/check_hostname) varsayılan olarak açık kalır."""
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    ctx.load_verify_locations(cadata=_GEOTRUST_TLS_RSA_CA_G1)
+    return ctx
+
+
 def build_http_client(**kwargs) -> httpx.Client:
     """gov.tr indirmeleri için TLS zinciri tamamlanmış httpx.Client üretir
     (bkz. yukarıdaki not). Testler kendi MockTransport client'ını kurduğu için
     bu yalnız gerçek ağ (cli.py) çağrılarında kullanılır."""
-    ctx = ssl.create_default_context(cafile=certifi.where())
-    ctx.load_verify_locations(cadata=_GEOTRUST_TLS_RSA_CA_G1)
-    return httpx.Client(verify=ctx, **kwargs)
+    return httpx.Client(verify=build_ssl_context(), **kwargs)
 
 
 class ManifestRow(BaseModel):

@@ -35,6 +35,23 @@ def test_probe():
     assert probe(rows, client) == [("k6098", 200), ("rg1930", 404)]
 
 
+def test_shipped_manifest_parses_and_ids_unique():
+    rows = load_manifest(Path("data/manifest/v0_manifest.csv"))
+    ids = [r.doc_id for r in rows]
+    assert len(ids) == len(set(ids))
+    assert len(rows) >= 56
+
+
+def test_http_client_keeps_tls_verification():
+    import ssl
+
+    from belge_gozu.corpus.manifest import build_ssl_context
+
+    ctx = build_ssl_context()
+    assert isinstance(ctx, ssl.SSLContext)
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname
+
+
 def test_probe_invalid_url_recorded_not_raised(monkeypatch):
     csv_with_bad_url = """doc_id,doc_name,doc_type,url
 k6098,Türk Borçlar Kanunu,kanun,https://example.org/1.5.6098.pdf

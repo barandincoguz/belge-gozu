@@ -36,6 +36,38 @@ def test_render_and_fake_build(tmp_path: Path, monkeypatch):
     assert (tmp_path / "index" / "meta.parquet").exists()
 
 
+def test_fake_build_multichunk_alignment(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BG_INDEX_DIR", str(tmp_path / "index"))
+    (tmp_path / "manifest").mkdir(parents=True)
+    csv = "doc_id,doc_name,doc_type,url\n" + "\n".join(
+        f"d{i},Belge {i},kanun,https://example.org/d{i}.pdf" for i in range(3)
+    )
+    (tmp_path / "manifest" / "v0_manifest.csv").write_text(csv, encoding="utf-8")
+    (tmp_path / "pdf").mkdir()
+    for i in range(3):
+        make_pdf(tmp_path / "pdf" / f"d{i}.pdf", pages=7)
+    assert runner.invoke(app, ["corpus", "render", "--dpi", "72"]).exit_code == 0
+    assert runner.invoke(app, ["index", "build", "--fake"]).exit_code == 0
+
+    import numpy as np
+    import pandas as pd
+    from PIL import Image
+
+    from belge_gozu.index.encode import FakeEncoder
+    from belge_gozu.index.store import PackedIndex, binarize_pack
+
+    idx = PackedIndex.load(tmp_path / "index", mmap=False)
+    meta = pd.read_parquet(tmp_path / "index" / "meta.parquet")
+    assert idx.page_ids == meta.page_id.tolist()  # sıra birebir
+    enc = FakeEncoder()
+    # rastgele 3 sayfanın embedding'i, bağımsız yeniden-encode ile birebir aynı mı?
+    for pos in (0, 10, 20):
+        img = Image.open(tmp_path / meta.iloc[pos]["image_path"]).convert("RGB")
+        expected = binarize_pack(enc.encode_pages([img])[0])
+        np.testing.assert_array_equal(idx.page_tokens(pos), expected)
+
+
 def test_index_build_manifest_passes_compat_check(tmp_path: Path, monkeypatch):
     from belge_gozu.config import Settings
     from belge_gozu.index.compat import check_compatibility
