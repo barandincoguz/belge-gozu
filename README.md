@@ -67,9 +67,26 @@ to be discarding good candidates (see [v0 limitations](#v0-limitations)) and was
 removed from the production path — it survives only as an ablation option
 (`BG_RETRIEVAL_PIPELINE=two-stage`). MaxSim over the binarized codes is exact *within
 that binary code space*, but relative to native float ColPali scoring it is an
-approximation; the size of that loss is meant to be measured by the P0 plan's
-quantization ablation (C1/C2: float16 oracle vs. int8 vs. 1-bit), which has not been
-run yet — no results exist for it as of this writing. The resulting score is itself
+approximation, and the P0 plan's quantization ablation (C1/C2: float16 oracle vs.
+int8 vs. 1-bit) has now been run on the 48-question canary benchmark (43 answerable;
+the canary set is **draft, pending human verification**, so treat these numbers as
+provisional), in the production query/document format: **int8 matches float16 exactly
+at every k** (Recall@1/5/20/50/200 all identical); **1-bit loses 7.0 points of
+Recall@20** relative to float16 (0.233 vs. 0.302). 1-bit is also **slower, not
+faster**: scoring all 4,222 pages against a 40-token query takes 1.08 s at 1-bit vs.
+0.24 s at int8 vs. 0.08 s at float16 (CPU, idle machine), because int8/float16 hit a
+BLAS matmul path while the 1-bit path builds large temporaries for the popcount
+reduction. Index size is the one axis where 1-bit still wins (58 MB vs. 474 MB for
+int8 vs. 919 MB for float16). The production index is still 1-bit purely because the
+retriever currently only accepts the packed 1-bit index — wiring int8 into serving is
+deferred to P1, so 1-bit is what ships, not what won the ablation. Full tables:
+[`docs/research/findings/2026-08-27-p0-baseline.md`](docs/research/findings/2026-08-27-p0-baseline.md)
+and
+[`docs/research/findings/2026-08-27-p0-gate.md`](docs/research/findings/2026-08-27-p0-gate.md).
+Separately, the single biggest P0 result to date: switching the document encoder to
+the checkpoint's training-time prompt (instead of the format `colpali-engine==0.3.18`
+emits by default) raised float16 Recall@5 from 0.093 to 0.233 on that same draft
+canary set. The resulting score is itself
 an **uncalibrated similarity**
 (`128 − 2×Hamming`, averaged per query token) — not a confidence or probability — and
 if it doesn't clear a threshold (a rough v0 cut-off, not a tuned operating point), the
@@ -157,11 +174,20 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
   but **2** under exhaustive. Stage-1's top-200 candidate set overlapped the exhaustive
   top-200 by only 11.5-19% across the queries checked — it was picking a mostly
   different set of pages, not a faster version of the same ranking. Separately, the
-  index was found to contain 3,960 all-zero padding-token rows across 15 pages (now
-  rejected at build time), and the encoder's retrieval training data is English-only,
-  which is the likely reason Turkish paraphrase queries score weaker than queries that
-  name the statute explicitly. A hybrid text+visual retrieval path is the planned fix
-  (P1); a full retrieval benchmark is in progress to quantify where things stand today.
+  index was found to contain 3,960 all-zero padding-token rows across 15 pages — a
+  real correctness defect (padding embeddings collapsing to an all-zero bit vector and
+  scoring as if it were a genuine token). This is now fixed and locked:
+  `PackedIndex.build` rejects all-zero rows at build time, and the rebuilt index has
+  0 such rows and 3,776,882 tokens — exactly 3,960 fewer than the old index's
+  3,780,842. It was **not**, however, one of the causes of today's poor retrieval
+  numbers: measured on the canary benchmark (draft, pending human verification), an
+  index rebuilt in the same format without the padding rows produced byte-identical
+  Recall at every k and an identical top-20 list for 42 of the 43 questions versus the
+  old, padded index. Independently, the encoder's retrieval training data is
+  English-only, which is the likely reason Turkish paraphrase queries score weaker
+  than queries that name the statute explicitly. A hybrid text+visual retrieval path
+  is the planned fix (P1); a full retrieval benchmark is in progress to quantify where
+  things stand today.
 - **Single retrieval mode, single answerer.** No query rewriting, no agentic
   multi-step retrieval, no local-VLM fallback — Gemini Flash is the only answerer
   implemented, behind a pluggable `Answerer` protocol.
