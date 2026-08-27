@@ -1,0 +1,98 @@
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import ClassVar
+
+import numpy as np
+
+from belge_gozu.bench.oracle import CHUNK_TOKENS, FloatIndex, _chunk_bounds
+from belge_gozu.index.manifest import IndexManifest, read_manifest, write_manifest
+from belge_gozu.index.store import PackedIndex
+
+
+def derive_packed(findex: FloatIndex) -> PackedIndex:
+    """f16 master -> sign-1bit (T3 `PackedIndex`).
+
+    Her sayfanın f16 token'ları float32'ye açılıp `binarize_pack` uygulanır;
+    all-zero satır f16 master'da zaten yok (T2 mask policy padding'i düşürür),
+    bu yüzden `PackedIndex.build`'in o kontrolü burada da güvenle çalışır.
+    Manifest varsa `quantization="sign-1bit"` ile taşınır, yoksa None kalır."""
+    embs = [
+        np.asarray(findex.page_tokens(i), dtype=np.float32) for i in range(len(findex.page_ids))
+    ]
+    manifest = (
+        findex.manifest.model_copy(update={"quantization": "sign-1bit"})
+        if findex.manifest is not None
+        else None
+    )
+    return PackedIndex.build(list(findex.page_ids), embs, manifest=manifest)
+
+
+@dataclass
+class Int8Index:
+    """Per-token simetrik ölçekli int8 kuantizasyon: scale_t = max|x_t| / 127,
+    q_t = round(x_t / scale_t). Skor: chunk'lar float32'ye açılıp T5/oracle
+    desenindeki aynı sayfa-hizalı MaxSim (`np.maximum.reduceat`) uygulanır --
+    saklama küçülür, hesap yine float."""
+
+    codes: np.ndarray  # (toplam_token, 128) int8
+    scales: np.ndarray  # (toplam_token,) float32
+    offsets: np.ndarray
+    page_ids: list[str]
+    manifest: IndexManifest | None = None
+
+    # oracle.CHUNK_TOKENS ile aynı varsayılan; test override'ı için instance
+    # üstünde değiştirilebilir (bkz. retrieval/core.py'deki aynı desen).
+    CHUNK_TOKENS: ClassVar[int] = CHUNK_TOKENS
+
+    @classmethod
+    def derive(cls, findex: FloatIndex) -> "Int8Index":
+        embs = np.asarray(findex.embs, dtype=np.float32)
+        abs_max = np.abs(embs).max(axis=1)  # (toplam_token,)
+        scale = np.maximum(abs_max / np.float32(127.0), np.float32(1e-8)).astype(np.float32)
+        codes = np.clip(np.round(embs / scale[:, None]), -127, 127).astype(np.int8)
+        manifest = (
+            findex.manifest.model_copy(update={"quantization": "int8"})
+            if findex.manifest is not None
+            else None
+        )
+        return cls(codes, scale, np.asarray(findex.offsets), list(findex.page_ids), manifest)
+
+    def page_tokens(self, i: int) -> np.ndarray:
+        return self.codes[self.offsets[i] : self.offsets[i + 1]]
+
+    def score_all(self, q_emb: np.ndarray) -> np.ndarray:
+        """(n_pages,) — dequantize edilmiş chunk'larla float MaxSim, T5/oracle
+        ile birebir aynı sayfa-hizalı chunk + reduceat deseni."""
+        q = np.asarray(q_emb, dtype=np.float32)
+        offsets = np.asarray(self.offsets)
+        n_pages = len(self.page_ids)
+        out = np.empty(n_pages, dtype=np.float64)
+        bounds = _chunk_bounds(offsets, self.CHUNK_TOKENS)
+        for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
+            t0, t1 = int(offsets[b0]), int(offsets[b1])
+            chunk = self.codes[t0:t1].astype(np.float32) * self.scales[t0:t1, None]
+            sim = q @ chunk.T  # (n_q, chunk_tokens)
+            starts = (offsets[b0:b1] - t0).astype(np.int64)
+            out[b0:b1] = np.maximum.reduceat(sim, starts, axis=1).sum(axis=0)
+        return out / max(1, q.shape[0])
+
+    def save(self, dir: Path) -> None:
+        dir.mkdir(parents=True, exist_ok=True)
+        np.save(dir / "codes.npy", self.codes)
+        np.save(dir / "scales.npy", self.scales)
+        np.save(dir / "offsets.npy", self.offsets)
+        (dir / "page_ids.json").write_text(json.dumps(self.page_ids, ensure_ascii=False))
+        if self.manifest is not None:
+            write_manifest(dir, self.manifest)
+
+    @classmethod
+    def load(cls, dir: Path, mmap: bool = True) -> "Int8Index":
+        mode = "r" if mmap else None
+        return cls(
+            codes=np.load(dir / "codes.npy", mmap_mode=mode),
+            scales=np.load(dir / "scales.npy", mmap_mode=mode),
+            offsets=np.load(dir / "offsets.npy"),
+            page_ids=json.loads((dir / "page_ids.json").read_text()),
+            manifest=read_manifest(dir),
+        )

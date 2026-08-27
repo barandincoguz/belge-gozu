@@ -59,6 +59,11 @@ class QueryFormatChoice(StrEnum):
     train_compat_v1 = "train-compat-v1"
 
 
+class Quantization(StrEnum):
+    sign_1bit = "sign-1bit"
+    int8 = "int8"
+
+
 _QUERY_FORMATS = {
     QueryFormatChoice.cpe_0_3_18: CPE_0_3_18,
     QueryFormatChoice.train_compat_v1: TRAIN_COMPAT_V1,
@@ -209,6 +214,56 @@ def index_build(
     )
     write_manifest(out_dir, manifest)
     typer.echo(f"{len(ids)} sayfa indekslendi -> {out_dir}")
+
+
+@index_app.command("derive")
+def index_derive(
+    from_dir: Path = typer.Option(..., "--from"),  # noqa: B008
+    quant: Quantization = typer.Option(..., "--quant"),  # noqa: B008
+    out: Path = typer.Option(..., "--out"),  # noqa: B008
+) -> None:
+    """f16 master'dan (T9 FloatIndex) sign-1bit veya int8 türetir (C1/C2 ablasyonu)."""
+    from belge_gozu.index.quantize import Int8Index, derive_packed
+
+    if not (from_dir / "embs.npy").exists():
+        raise typer.BadParameter(
+            f"--from bir float16 (FloatIndex) dizini olmalı: {from_dir / 'embs.npy'} bulunamadı"
+        )
+    findex = FloatIndex.load(from_dir, mmap=False)
+    if findex.manifest is None:
+        raise typer.BadParameter(f"--from indeksinde manifest.json yok: {from_dir}")
+    if findex.manifest.quantization != "float16":
+        raise typer.BadParameter(
+            f"--from float16 indeks olmalı, bulunan quantization={findex.manifest.quantization}"
+        )
+
+    derived: PackedIndex | Int8Index
+    derived = derive_packed(findex) if quant == Quantization.sign_1bit else Int8Index.derive(findex)
+
+    # R3 (manifest ordering): dosyalar tamamen yazılana kadar manifest.json
+    # yazılmaz. derive_packed/Int8Index.derive taşınan manifest'i quantization
+    # dışında değiştirmeden döner; save() içindeki erken (bayat checksum'lu)
+    # yazımı önlemek için burada geçici olarak None'lanır, tek doğru yazım en
+    # sonda checksum yeniden hesaplanarak yapılır.
+    source_manifest = derived.manifest
+    if source_manifest is None:
+        raise RuntimeError("beklenmedik: manifest türetilmiş indekse taşınmadı")
+    derived.manifest = None
+    derived.save(out)
+    shutil.copy(from_dir / "meta.parquet", out / "meta.parquet")
+
+    manifest = source_manifest.model_copy(
+        update={
+            "quantization": quant.value,
+            "corpus_checksum": corpus_checksum(out),
+            "n_pages": len(derived.page_ids),
+            "n_tokens": int(derived.offsets[-1]),
+            "built_at": datetime.now(UTC).isoformat(),
+            "git_commit": git_commit(),
+        }
+    )
+    write_manifest(out, manifest)
+    typer.echo(f"{len(derived.page_ids)} sayfa, {int(derived.offsets[-1])} token -> {out}")
 
 
 @index_app.command("write-manifest")

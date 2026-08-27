@@ -65,11 +65,14 @@ class FloatIndex:
         )
 
 
-def _chunk_bounds(offsets: np.ndarray) -> list[int]:
+def _chunk_bounds(offsets: np.ndarray, chunk_tokens: int = CHUNK_TOKENS) -> list[int]:
+    """`chunk_tokens` T12/Int8Index.score_all'ün küçük-chunk testleri için
+    override edilebilsin diye parametreleştirildi; varsayılan (bu modülün
+    global CHUNK_TOKENS'ı) native_float_scores'un davranışını değiştirmez."""
     bounds = [0]
     for i in range(1, len(offsets)):
         last = bounds[-1]
-        if offsets[i] - offsets[last] >= CHUNK_TOKENS:
+        if offsets[i] - offsets[last] >= chunk_tokens:
             bounds.append(i)
     if bounds[-1] != len(offsets) - 1:
         bounds.append(len(offsets) - 1)
