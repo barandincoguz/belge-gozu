@@ -13,6 +13,7 @@ def check_compatibility(
     model_name: str,
     model_revision: str | None,
     query_format_id: str,
+    doc_prompt_sha256: str | None = None,
     index_dir: Path,
 ) -> list[str]:
     if manifest is None:
@@ -25,6 +26,15 @@ def check_compatibility(
     if manifest.query_format.format_id != query_format_id:
         problems.append(
             f"query_format: indeks={manifest.query_format.format_id} serve={query_format_id}"
+        )
+    if (
+        doc_prompt_sha256
+        and doc_prompt_sha256 != "unknown"
+        and manifest.doc_prompt_sha256 != doc_prompt_sha256
+    ):
+        problems.append(
+            "doc_prompt_sha256: "
+            f"indeks={manifest.doc_prompt_sha256[:12]} serve={doc_prompt_sha256[:12]}"
         )
     if manifest.mask_policy != "drop-padding":
         problems.append(f"mask_policy: indeks={manifest.mask_policy} (drop-padding bekleniyor)")

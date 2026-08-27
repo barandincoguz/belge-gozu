@@ -76,6 +76,7 @@ def create_app(
         model_name=s.retriever_model,
         model_revision=getattr(encoder, "model_revision", None),
         query_format_id=getattr(encoder, "query_format", CPE_0_3_18).format_id,
+        doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", None),
         index_dir=s.index_dir,
     )
     if problems:
