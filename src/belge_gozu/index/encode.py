@@ -41,6 +41,18 @@ def resolve_device(pref: str) -> str:
     return "cpu"
 
 
+def apply_visual_prompt_override(processor, override: str | None) -> str:
+    """Doküman prompt'unu processor ÖRNEĞİNE yazar ve etkin prompt'u döner.
+
+    `visual_prompt_prefix` colpali-engine'de ClassVar; örnek üzerine atama onu
+    yalnız bu örnek için gölgeler (sınıf sabiti bozulmaz) ve `process_images`
+    `self.visual_prompt_prefix` okuduğu için override doğrudan text'e geçer.
+    override=None ise mevcut davranış aynen korunur."""
+    if override is not None:
+        processor.visual_prompt_prefix = override
+    return processor.visual_prompt_prefix
+
+
 def trim_by_mask(emb: np.ndarray, mask: np.ndarray) -> list[np.ndarray]:
     """(B, L, D) embedding + (B, L) attention mask -> padding'siz [(l_i, D)].
 
@@ -60,6 +72,7 @@ class ColSmolEncoder:
         model_name: str,
         device: str = "auto",
         query_format: QueryFormat | None = None,
+        visual_prompt_override: str | None = None,
     ):
         import torch  # type: ignore[import-not-found]
         from colpali_engine.models import (  # type: ignore[import-not-found]
@@ -83,7 +96,7 @@ class ColSmolEncoder:
         self.processor = ColIdefics3Processor.from_pretrained(model_name)
         self.query_format = query_format or CPE_0_3_18
         self.model_revision = getattr(model.config, "_commit_hash", None) or "unknown"
-        self.doc_prompt = self.processor.visual_prompt_prefix
+        self.doc_prompt = apply_visual_prompt_override(self.processor, visual_prompt_override)
         self.doc_prompt_sha256 = hashlib.sha256(self.doc_prompt.encode()).hexdigest()
 
     def _run(self, batch) -> list[np.ndarray]:

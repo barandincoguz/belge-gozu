@@ -23,10 +23,13 @@ CPE_0_3_18 = QueryFormat(
     n_suffix=10,
     trailing_newline=False,
 )
-# Model kartı: checkpoint "Query: " prefix + sondaki newline ile eğitildi
-# (newline 0.3.11'de, prefix 0.3.13'te düştü). Kesin şablon T11'de
-# config_sentence_transformers.json'a karşı doğrulanır; sapma varsa bu sabit
-# orada düzeltilir ve test_query_format_render güncellenir.
+# T11/Step 1'de birincil kaynaktan doğrulandı (sapma çıkmadı):
+# vidore/colSmol-500M @ 0aaa972 `additional_chat_templates/sentence_transformers.jinja`
+# task=='query' dalı: 'Query: ' + text + '<end_of_utterance>'*10 + '\n'
+# (model kartı: "The Sentence Transformers configuration in this repository
+# reproduces the original training-time format"). Aynı dizi colpali-engine
+# 0.3.8/0.3.9 `process_queries` gövdesinde de birebir var; newline 0.3.11'de,
+# "Query: " prefix'i 0.3.13'te düştü.
 TRAIN_COMPAT_V1 = QueryFormat(
     format_id="train-compat-v1",
     prefix="Query: ",
@@ -34,6 +37,15 @@ TRAIN_COMPAT_V1 = QueryFormat(
     n_suffix=10,
     trailing_newline=True,
 )
+
+# Doküman tarafı sorgudan farklı: burada sapma VAR.
+# Eğitim zamanı (colpali-engine 0.3.8 `process_images` -> repo chat_template.jinja,
+# messages=[text "Describe the image.", image], .strip()) ve ST jinja'sının image
+# dalı aynı diziyi üretiyor: metin ÖNCE, <image> SONRA, "\nAssistant:" kuyruğu yok.
+TRAIN_COMPAT_DOC_PROMPT = "<|im_start|>User: Describe the image.<image><end_of_utterance>"
+# Yüklü colpali-engine 0.3.18'in ColIdefics3Processor.visual_prompt_prefix ClassVar'ı
+# (0.3.11'de bu hale geldi): <image> metinden önce + "\nAssistant:" eklendi.
+CPE_0_3_18_DOC_PROMPT = "<|im_start|>User:<image>Describe the image.<end_of_utterance>\nAssistant:"
 
 
 class RenderConfig(BaseModel):

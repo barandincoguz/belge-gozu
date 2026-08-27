@@ -22,6 +22,7 @@ from belge_gozu.corpus.render import render_all
 from belge_gozu.index.encode import FakeEncoder
 from belge_gozu.index.manifest import (
     CPE_0_3_18,
+    TRAIN_COMPAT_DOC_PROMPT,
     TRAIN_COMPAT_V1,
     IndexManifest,
     RenderConfig,
@@ -61,6 +62,21 @@ class QueryFormatChoice(StrEnum):
 _QUERY_FORMATS = {
     QueryFormatChoice.cpe_0_3_18: CPE_0_3_18,
     QueryFormatChoice.train_compat_v1: TRAIN_COMPAT_V1,
+}
+
+
+class DocPromptChoice(StrEnum):
+    """Doküman prompt'u sorgu formatından bağımsız seçilir: T11 A/B'sinde iki
+    eksen ayrı ayrı denenebilsin diye. Varsayılan = processor'ın kendi ClassVar'ı
+    (mevcut davranış); `train-compat` T11/Step 1'de kilitlenen eğitim zamanı dizisi."""
+
+    processor_default = "processor-default"
+    train_compat = "train-compat"
+
+
+_DOC_PROMPTS: dict[DocPromptChoice, str | None] = {
+    DocPromptChoice.processor_default: None,
+    DocPromptChoice.train_compat: TRAIN_COMPAT_DOC_PROMPT,
 }
 
 
@@ -122,6 +138,9 @@ def index_build(
     query_format: QueryFormatChoice = typer.Option(  # noqa: B008
         QueryFormatChoice.cpe_0_3_18, "--query-format"
     ),
+    doc_prompt: DocPromptChoice = typer.Option(  # noqa: B008
+        DocPromptChoice.processor_default, "--doc-prompt"
+    ),
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
 ) -> None:
     s = _settings()
@@ -129,13 +148,19 @@ def index_build(
         raise typer.BadParameter("--precision f16 için --out zorunlu")
     out_dir = out or s.index_dir
     qf = _QUERY_FORMATS[query_format]
+    doc_prompt_override = _DOC_PROMPTS[doc_prompt]
     meta = pd.read_parquet(s.data_dir / "meta.parquet")
     if fake:
         encoder = FakeEncoder()
     else:
         from belge_gozu.index.encode import ColSmolEncoder
 
-        encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=qf)
+        encoder = ColSmolEncoder(
+            s.retriever_model,
+            s.device,
+            query_format=qf,
+            visual_prompt_override=doc_prompt_override,
+        )
     embs, ids = [], []
     batch_size = 1
     total = len(meta)

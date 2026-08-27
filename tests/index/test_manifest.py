@@ -3,6 +3,8 @@ from pathlib import Path
 
 from belge_gozu.index.manifest import (
     CPE_0_3_18,
+    CPE_0_3_18_DOC_PROMPT,
+    TRAIN_COMPAT_DOC_PROMPT,
     TRAIN_COMPAT_V1,
     IndexManifest,
     RenderConfig,
@@ -34,7 +36,21 @@ def make_manifest(**over) -> IndexManifest:
 
 def test_query_format_render():
     assert CPE_0_3_18.render("soru") == "soru" + "<end_of_utterance>" * 10
+    # T11/Step 1: sentence_transformers.jinja task=='query' dalıyla birebir
+    # ('Query: ' + text + augmentation*10 + '\n' — newline EN SONDA).
     assert TRAIN_COMPAT_V1.render("soru") == "Query: soru" + "<end_of_utterance>" * 10 + "\n"
+
+
+def test_doc_prompt_constants_are_verbatim():
+    """T11/Step 1'de kilitlenen iki doküman prompt'u (kaynak: model reposunun
+    sentence_transformers.jinja image dalı vs. colpali-engine 0.3.18 ClassVar)."""
+    assert TRAIN_COMPAT_DOC_PROMPT == (
+        "<|im_start|>User: Describe the image.<image><end_of_utterance>"
+    )
+    assert CPE_0_3_18_DOC_PROMPT == (
+        "<|im_start|>User:<image>Describe the image.<end_of_utterance>\nAssistant:"
+    )
+    assert TRAIN_COMPAT_DOC_PROMPT != CPE_0_3_18_DOC_PROMPT
 
 
 def test_roundtrip(tmp_path: Path):

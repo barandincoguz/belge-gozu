@@ -1,7 +1,11 @@
 import numpy as np
 import pytest
 
-from belge_gozu.index.manifest import TRAIN_COMPAT_V1
+from belge_gozu.index.manifest import (
+    CPE_0_3_18_DOC_PROMPT,
+    TRAIN_COMPAT_DOC_PROMPT,
+    TRAIN_COMPAT_V1,
+)
 
 
 class FakeTorchLike:
@@ -40,6 +44,51 @@ def test_query_format_render_used(monkeypatch):
     out = enc_mod.ColSmolEncoder.encode_query(StubSelf(), "yerleşim yeri")
     assert captured["texts"] == [TRAIN_COMPAT_V1.render("yerleşim yeri")]
     assert out.shape == (1, 128)
+
+
+class StubProcessor:
+    """colpali-engine ColIdefics3Processor'ın ilgili yüzeyi: ClassVar prompt +
+    onu okuyan process_images."""
+
+    visual_prompt_prefix = CPE_0_3_18_DOC_PROMPT
+
+    def __init__(self):
+        self.seen: list[str] = []
+
+    def process_images(self, images):
+        self.seen = [self.visual_prompt_prefix] * len(images)
+        return {"batch": True}
+
+
+class StubEncoderSelf:
+    def __init__(self, processor):
+        self.processor = processor
+
+    def _run(self, batch):
+        return [np.zeros((1, 128), dtype=np.float32)]
+
+
+def test_visual_prompt_override_reaches_process_images():
+    """override verilince process_images'a giden text değişmeli; ClassVar bozulmamalı."""
+    from belge_gozu.index.encode import ColSmolEncoder, apply_visual_prompt_override
+
+    proc = StubProcessor()
+    effective = apply_visual_prompt_override(proc, TRAIN_COMPAT_DOC_PROMPT)
+    assert effective == TRAIN_COMPAT_DOC_PROMPT
+
+    ColSmolEncoder.encode_pages(StubEncoderSelf(proc), [object()])
+    assert proc.seen == [TRAIN_COMPAT_DOC_PROMPT]
+    # örnek attr yalnız bu örneği gölgeler
+    assert StubProcessor.visual_prompt_prefix == CPE_0_3_18_DOC_PROMPT
+
+
+def test_visual_prompt_override_none_keeps_processor_default():
+    from belge_gozu.index.encode import ColSmolEncoder, apply_visual_prompt_override
+
+    proc = StubProcessor()
+    assert apply_visual_prompt_override(proc, None) == CPE_0_3_18_DOC_PROMPT
+    ColSmolEncoder.encode_pages(StubEncoderSelf(proc), [object()])
+    assert proc.seen == [CPE_0_3_18_DOC_PROMPT]
 
 
 @pytest.mark.slow
