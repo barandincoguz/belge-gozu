@@ -65,10 +65,13 @@ class FloatIndex:
         )
 
 
-def _chunk_bounds(offsets: np.ndarray, chunk_tokens: int = CHUNK_TOKENS) -> list[int]:
+def _chunk_bounds(offsets: np.ndarray, chunk_tokens: int | None = None) -> list[int]:
     """`chunk_tokens` T12/Int8Index.score_all'ün küçük-chunk testleri için
-    override edilebilsin diye parametreleştirildi; varsayılan (bu modülün
-    global CHUNK_TOKENS'ı) native_float_scores'un davranışını değiştirmez."""
+    override edilebilsin diye parametreleştirildi; varsayılan `None` -> bu
+    modülün global CHUNK_TOKENS'ı ÇAĞRI ANINDA okunur (import zamanında
+    bağlanmaz), böylece test'ler modül global'ini monkeypatch'leyebilir.
+    native_float_scores'un davranışı değişmez (hâlâ argümansız çağırıyor)."""
+    chunk_tokens = chunk_tokens or CHUNK_TOKENS
     bounds = [0]
     for i in range(1, len(offsets)):
         last = bounds[-1]

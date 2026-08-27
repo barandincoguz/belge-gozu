@@ -24,6 +24,16 @@ def test_derive_packed_matches_direct_binarize():
 def test_int8_scores_close_to_float():
     fi, embs = make_findex()
     i8 = Int8Index.derive(fi)
+    # review R1 IMPORTANT-1: rtol=0.05/atol=0.5 tek başına per-token ölçek
+    # sözleşmesini kanıtlamıyor (global ölçek, kesme, hatta 3-bit bir kuantizör
+    # de bu toleransı geçer). İki ek sözleşme testi:
+    # (a) her satır KENDİ max|x|'ine göre 127'ye satüre olmalı (per-token scale)
+    assert (np.abs(i8.codes).max(axis=1) == 127).all()
+    # (b) round-to-nearest dequant hatası satır başına scale/2'yi aşamaz
+    src = np.asarray(fi.embs, dtype=np.float32)
+    deq = i8.codes.astype(np.float32) * i8.scales[:, None]
+    assert np.all(np.abs(deq - src) <= i8.scales[:, None] / 2 + 1e-4)
+
     f = native_float_scores(fi, embs[1])
     q = i8.score_all(embs[1])
     assert np.argmax(q) == np.argmax(f) == 1
@@ -36,6 +46,24 @@ def test_int8_roundtrip(tmp_path):
     i8.save(tmp_path)
     i82 = Int8Index.load(tmp_path, mmap=False)
     np.testing.assert_array_equal(np.asarray(i82.codes), np.asarray(i8.codes))
+    # review R1 MINOR-7: yalnız codes'u doğrulamak scales/offsets/page_ids'teki
+    # sessiz bir regresyonu (her int8 skoru bozan türden) kaçırırdı.
+    np.testing.assert_array_equal(np.asarray(i82.scales), np.asarray(i8.scales))
+    np.testing.assert_array_equal(np.asarray(i82.offsets), np.asarray(i8.offsets))
+    assert i82.page_ids == i8.page_ids
+
+
+def test_int8_derive_chunked_matches_single_shot():
+    """review R1 IMPORTANT-2: `derive` chunk'lı yeniden yazıldı (bellek tepe
+    noktası tüm korpusu float32'ye açan ~4 kopya yerine chunk boyutuna
+    indirildi). Her satırın kuantizasyonu bağımsız olduğu için (score_all'daki
+    reduceat'in aksine satırlar arası indirgeme yok) chunk sınırı sonucu HİÇ
+    etkilememeli -- bit-birebir eşitlik bekleniyor."""
+    fi, _ = make_findex(n_pages=6, tokens=8)
+    single = Int8Index.derive(fi)
+    chunked = Int8Index.derive(fi, chunk_tokens=10)  # sayfa başına 8 token -> çoklu chunk
+    np.testing.assert_array_equal(chunked.codes, single.codes)
+    np.testing.assert_array_equal(chunked.scales, single.scales)
 
 
 def test_int8_score_all_multichunk_matches_single_chunk():

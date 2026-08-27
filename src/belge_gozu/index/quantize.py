@@ -46,17 +46,38 @@ class Int8Index:
     CHUNK_TOKENS: ClassVar[int] = CHUNK_TOKENS
 
     @classmethod
-    def derive(cls, findex: FloatIndex) -> "Int8Index":
-        embs = np.asarray(findex.embs, dtype=np.float32)
-        abs_max = np.abs(embs).max(axis=1)  # (toplam_token,)
-        scale = np.maximum(abs_max / np.float32(127.0), np.float32(1e-8)).astype(np.float32)
-        codes = np.clip(np.round(embs / scale[:, None]), -127, 127).astype(np.int8)
+    def derive(cls, findex: FloatIndex, chunk_tokens: int | None = None) -> "Int8Index":
+        """Sayfa-hizalı chunk'lar halinde işler (bkz. `_chunk_bounds`): her
+        chunk yalnız kendi float32 kopyasını (chunk_tokens*128*4 byte tepe)
+        tutar, tüm korpusu float32'ye açan ~4 tam kopya YERİNE (review R1
+        IMPORTANT-2 — 4222 sayfa x ~871 token'da bu tepe belleği 5.5-6.5 GB'a
+        çıkarıyordu). Her satırın kuantizasyonu kendi içinde bağımsız olduğu
+        için chunk sınırları sonucu etkilemez (score_all'daki reduceat'ten
+        farklı olarak burada satırlar arası indirgeme yok)."""
+        offsets = np.asarray(findex.offsets)
+        total_tokens = int(offsets[-1])
+        codes = np.empty((total_tokens, 128), dtype=np.int8)
+        scales = np.empty(total_tokens, dtype=np.float32)
+        resolved_chunk = chunk_tokens if chunk_tokens is not None else cls.CHUNK_TOKENS
+        bounds = _chunk_bounds(offsets, resolved_chunk)
+        for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
+            t0, t1 = int(offsets[b0]), int(offsets[b1])
+            chunk = np.asarray(findex.embs[t0:t1], dtype=np.float32)  # kopya, yalnız bu chunk
+            abs_max = np.abs(chunk).max(axis=1)
+            chunk_scale = np.maximum(abs_max / np.float32(127.0), np.float32(1e-8)).astype(
+                np.float32
+            )
+            np.divide(chunk, chunk_scale[:, None], out=chunk)
+            np.round(chunk, out=chunk)
+            np.clip(chunk, -127, 127, out=chunk)
+            codes[t0:t1] = chunk.astype(np.int8)
+            scales[t0:t1] = chunk_scale
         manifest = (
             findex.manifest.model_copy(update={"quantization": "int8"})
             if findex.manifest is not None
             else None
         )
-        return cls(codes, scale, np.asarray(findex.offsets), list(findex.page_ids), manifest)
+        return cls(codes, scales, offsets, list(findex.page_ids), manifest)
 
     def page_tokens(self, i: int) -> np.ndarray:
         return self.codes[self.offsets[i] : self.offsets[i + 1]]

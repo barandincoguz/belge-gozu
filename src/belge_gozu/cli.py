@@ -229,6 +229,10 @@ def index_derive(
         raise typer.BadParameter(
             f"--from bir float16 (FloatIndex) dizini olmalı: {from_dir / 'embs.npy'} bulunamadı"
         )
+    if not (from_dir / "meta.parquet").exists():
+        raise typer.BadParameter(f"--from dizininde meta.parquet yok: {from_dir}")
+    if out.resolve() == from_dir.resolve():
+        raise typer.BadParameter("--out --from ile aynı olamaz (f16 master'ın üstüne yazılır)")
     findex = FloatIndex.load(from_dir, mmap=False)
     if findex.manifest is None:
         raise typer.BadParameter(f"--from indeksinde manifest.json yok: {from_dir}")
@@ -416,11 +420,13 @@ def bench_oracle(
     bench: Path = typer.Option(..., "--bench"),  # noqa: B008
     packed_index: Path = typer.Option(..., "--packed-index"),  # noqa: B008
     float_index: Path = typer.Option(..., "--float-index"),  # noqa: B008
+    int8_index: Path | None = typer.Option(None, "--int8-index"),  # noqa: B008
     out: Path = typer.Option(..., "--out"),  # noqa: B008
 ) -> None:
     from belge_gozu.bench.dataset import load_bench
     from belge_gozu.bench.metrics import recall_at_k
     from belge_gozu.index.encode import ColSmolEncoder
+    from belge_gozu.index.quantize import Int8Index
     from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever
 
     s = _settings()
@@ -446,16 +452,45 @@ def bench_oracle(
             f"{idx.manifest.doc_prompt_sha256[:12]} float={findex.manifest.doc_prompt_sha256[:12]}"
         )
 
+    # T12/review R1 IMPORTANT-3: üçüncü (isteğe bağlı) int8 kolu — C2 ablasyonu
+    # bugüne kadar hiçbir şeyin Int8Index'i skorlayamaması yüzünden koşulamıyordu.
+    # Bayrak verilmezse davranış birebir eskisiyle aynı kalır (i8 None -> tüm
+    # int8_* dallar atlanır, çıktı şeması değişmez).
+    i8: Int8Index | None = None
+    i8_manifest: IndexManifest | None = None
+    if int8_index is not None:
+        if not (int8_index / "codes.npy").exists():
+            raise typer.BadParameter(
+                f"--int8-index bir Int8Index dizini olmalı: {int8_index / 'codes.npy'} bulunamadı"
+            )
+        i8 = Int8Index.load(int8_index)
+        if i8.manifest is None:
+            raise typer.BadParameter(f"--int8-index dizininde manifest.json yok: {int8_index}")
+        i8_manifest = i8.manifest
+        # diğer iki kolla aynı çapraz kontrol (query_format.format_id + doc_prompt_sha256).
+        if (
+            i8_manifest.query_format.format_id != idx.manifest.query_format.format_id
+            or i8_manifest.doc_prompt_sha256 != idx.manifest.doc_prompt_sha256
+        ):
+            raise typer.BadParameter(
+                "int8 indeksin query_format/doc_prompt'u packed/float ile uyuşmuyor: int8="
+                f"{i8_manifest.query_format.format_id}/{i8_manifest.doc_prompt_sha256[:12]} "
+                f"packed={idx.manifest.query_format.format_id}/"
+                f"{idx.manifest.doc_prompt_sha256[:12]}"
+            )
+
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=idx.manifest.query_format)
     retriever = ExhaustiveBinaryRetriever(idx, meta, None)
     known_binary_ids = set(idx.page_ids)
     known_float_ids = set(findex.page_ids)
+    known_int8_ids = set(i8.page_ids) if i8 is not None else set()
 
     questions = load_bench(bench)
     ks = (1, 5, 20, 50, 200)
     per_question: list[dict] = []
     binary_recalls: dict[int, list[float]] = {k: [] for k in ks}
     float_recalls: dict[int, list[float]] = {k: [] for k in ks}
+    int8_recalls: dict[int, list[float]] = {k: [] for k in ks}
     missing_gold_pages: set[str] = set()
 
     for q in questions:
@@ -464,9 +499,15 @@ def bench_oracle(
         q_emb = encoder.encode_query(q.question)
         binary_scores = retriever.score_all(q_emb)
         float_scores = native_float_scores(findex, q_emb)
+        int8_scores = i8.score_all(q_emb) if i8 is not None else None
 
         binary_order = [idx.page_ids[i] for i in np.argsort(-binary_scores, kind="stable")]
         float_order = [findex.page_ids[i] for i in np.argsort(-float_scores, kind="stable")]
+        int8_order = (
+            [i8.page_ids[i] for i in np.argsort(-int8_scores, kind="stable")]
+            if i8 is not None and int8_scores is not None
+            else None
+        )
 
         # Bir gold sayfa ilgili indekste yoksa rank_of ValueError fırlatır;
         # koşumu kaybetmemek için o girdiyi atla, sayfayı missing_gold_pages'e
@@ -483,19 +524,29 @@ def bench_oracle(
                 float_rank[g] = rank_of(float_scores, findex.page_ids, g)
             else:
                 missing_gold_pages.add(g)
+        int8_rank = {}
+        if i8 is not None and int8_scores is not None:
+            for g in q.gold_page_ids:
+                if g in known_int8_ids:
+                    int8_rank[g] = rank_of(int8_scores, i8.page_ids, g)
+                else:
+                    missing_gold_pages.add(g)
 
-        per_question.append(
-            {
-                "question_id": q.question_id,
-                "binary_rank": binary_rank,
-                "float_rank": float_rank,
-            }
-        )
+        row = {
+            "question_id": q.question_id,
+            "binary_rank": binary_rank,
+            "float_rank": float_rank,
+        }
+        if i8 is not None:
+            row["int8_rank"] = int8_rank
+        per_question.append(row)
 
         rel = set(q.gold_page_ids)
         for k in ks:
             binary_recalls[k].append(recall_at_k(rel, binary_order, k))
             float_recalls[k].append(recall_at_k(rel, float_order, k))
+            if int8_order is not None:
+                int8_recalls[k].append(recall_at_k(rel, int8_order, k))
 
     n = len(per_question)
     summary = {
@@ -503,6 +554,8 @@ def bench_oracle(
         "binary": {str(k): (sum(v) / n if n else 0.0) for k, v in binary_recalls.items()},
         "float": {str(k): (sum(v) / n if n else 0.0) for k, v in float_recalls.items()},
     }
+    if i8 is not None:
+        summary["int8"] = {str(k): (sum(v) / n if n else 0.0) for k, v in int8_recalls.items()}
     report = {
         "run_id": f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-oracle",
         "git_commit": git_commit(),
@@ -515,11 +568,17 @@ def bench_oracle(
         "summary": summary,
         "per_question": per_question,
     }
+    if i8 is not None and i8_manifest is not None:
+        report["int8_index"] = str(int8_index)
+        report["int8_manifest"] = i8_manifest.model_dump()
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
-    typer.echo(
+    echo_line = (
         f"n={n} recall@5 binary={summary['binary']['5']:.3f} float={summary['float']['5']:.3f}"
     )
+    if i8 is not None:
+        echo_line += f" int8={summary['int8']['5']:.3f}"
+    typer.echo(echo_line)
     typer.echo(f"oracle raporu -> {out}")
     if missing_gold_pages:
         typer.echo(f"missing_gold_pages={len(missing_gold_pages)}")
