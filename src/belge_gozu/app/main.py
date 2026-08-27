@@ -14,7 +14,13 @@ from pydantic import BaseModel
 from belge_gozu.answer.base import Answer, AskService
 from belge_gozu.config import Settings, get_settings
 from belge_gozu.index.compat import IndexCompatibilityError, check_compatibility
-from belge_gozu.index.manifest import CPE_0_3_18
+from belge_gozu.index.manifest import (
+    CPE_0_3_18,
+    DOC_PROMPTS,
+    QUERY_FORMATS,
+    DocPromptChoice,
+    QueryFormatChoice,
+)
 from belge_gozu.index.store import PackedIndex
 from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever, TwoStageRetriever
 from belge_gozu.retrieval.types import PageHit
@@ -46,10 +52,20 @@ def create_app(
     s = settings or get_settings()
     index = PackedIndex.load(s.index_dir)
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
+    # CLI'nin index build sırasında kullandığı QUERY_FORMATS/DOC_PROMPTS
+    # sözlükleriyle aynı kaynak (belge_gozu.index.manifest) — serve config'i
+    # (Settings.query_format_id/doc_prompt_id) buradan çözülür (T11/Step 6).
+    resolved_query_format = QUERY_FORMATS[QueryFormatChoice(s.query_format_id)]
+    resolved_doc_prompt = DOC_PROMPTS[DocPromptChoice(s.doc_prompt_id)]
     if encoder is None:
         from belge_gozu.index.encode import ColSmolEncoder
 
-        encoder = ColSmolEncoder(s.retriever_model, s.device)
+        encoder = ColSmolEncoder(
+            s.retriever_model,
+            s.device,
+            query_format=resolved_query_format,
+            visual_prompt_override=resolved_doc_prompt,
+        )
     if answerer is None:
         from belge_gozu.answer.gemini import GeminiAnswerer
 

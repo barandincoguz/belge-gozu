@@ -12,7 +12,10 @@ class Settings(BaseSettings):
     )
 
     data_dir: Path = Path("data")
-    index_dir: Path = Path("data/index")
+    # T11/Step 6 A/B ölçümü: float Recall@5 0.093->0.233, Recall@20 0.186->0.302
+    # (train-compat-v1 + eğitim zamanı doc prompt, cpe-0.3.18'e karşı kazandı;
+    # ölçüm tarihi 2026-08-27; ayrıntı p0-gate raporunda). Üretim indeksi artık bu.
+    index_dir: Path = Path("data/index-traincompat-1bit")
     retriever_model: str = "vidore/colSmol-500M"
     device: str = "auto"
     hf_dataset_repo: str = ""
@@ -23,6 +26,14 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("BG_GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"),
     )
+    # T11/Step 6 A/B ölçümü: train-compat-v1 sorgu formatı cpe-0.3.18'i her
+    # metrikte geçti (float R@5 0.093->0.233; ölçüm tarihi 2026-08-27; ayrıntı
+    # p0-gate raporunda). CLI'nin QueryFormatChoice değerleriyle birebir aynı.
+    query_format_id: str = "train-compat-v1"
+    # T11/Step 6 A/B ölçümü: kazanan indeks eğitim-zamanı doküman prompt'uyla
+    # (TRAIN_COMPAT_DOC_PROMPT) inşa edildi; ölçüm tarihi 2026-08-27, ayrıntı
+    # p0-gate raporunda. CLI'nin DocPromptChoice değerleriyle birebir aynı.
+    doc_prompt_id: Literal["processor-default", "train-compat"] = "train-compat"
     stage1_candidates: int = 200
     top_k: int = 5
     # exhaustive: her arama tüm korpusu tarar (kesin, varsayılan). two-stage:

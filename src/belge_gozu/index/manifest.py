@@ -1,4 +1,5 @@
 import hashlib
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -46,6 +47,34 @@ TRAIN_COMPAT_DOC_PROMPT = "<|im_start|>User: Describe the image.<image><end_of_u
 # Yüklü colpali-engine 0.3.18'in ColIdefics3Processor.visual_prompt_prefix ClassVar'ı
 # (0.3.11'de bu hale geldi): <image> metinden önce + "\nAssistant:" eklendi.
 CPE_0_3_18_DOC_PROMPT = "<|im_start|>User:<image>Describe the image.<end_of_utterance>\nAssistant:"
+
+
+class QueryFormatChoice(StrEnum):
+    cpe_0_3_18 = "cpe-0.3.18"
+    train_compat_v1 = "train-compat-v1"
+
+
+# CLI (--query-format) ve serve config'i (Settings.query_format_id) TEK bir
+# sözlükten okur (T11/Step 6): iki kopya literal'in sürüklenmesini önler.
+QUERY_FORMATS: dict[QueryFormatChoice, QueryFormat] = {
+    QueryFormatChoice.cpe_0_3_18: CPE_0_3_18,
+    QueryFormatChoice.train_compat_v1: TRAIN_COMPAT_V1,
+}
+
+
+class DocPromptChoice(StrEnum):
+    """Doküman prompt'u sorgu formatından bağımsız seçilir: T11 A/B'sinde iki
+    eksen ayrı ayrı denenebilsin diye. Varsayılan = processor'ın kendi ClassVar'ı
+    (mevcut davranış); `train-compat` T11/Step 1'de kilitlenen eğitim zamanı dizisi."""
+
+    processor_default = "processor-default"
+    train_compat = "train-compat"
+
+
+DOC_PROMPTS: dict[DocPromptChoice, str | None] = {
+    DocPromptChoice.processor_default: None,
+    DocPromptChoice.train_compat: TRAIN_COMPAT_DOC_PROMPT,
+}
 
 
 class RenderConfig(BaseModel):
