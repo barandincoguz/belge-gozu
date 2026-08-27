@@ -437,6 +437,14 @@ def bench_oracle(
             "query_format uyuşmuyor: packed="
             f"{idx.manifest.query_format.format_id} float={findex.manifest.query_format.format_id}"
         )
+    # T11'den beri doküman prompt'u sorgu formatından bağımsız bir eksen (bkz.
+    # cli --doc-prompt): yalnız doc prompt'u farklı iki indeks aynı format_id'yi
+    # taşıyabiliyor ve bu guard olmadan sessizce karşılaştırılırdı.
+    if idx.manifest.doc_prompt_sha256 != findex.manifest.doc_prompt_sha256:
+        raise typer.BadParameter(
+            "doc_prompt uyuşmuyor: packed="
+            f"{idx.manifest.doc_prompt_sha256[:12]} float={findex.manifest.doc_prompt_sha256[:12]}"
+        )
 
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=idx.manifest.query_format)
     retriever = ExhaustiveBinaryRetriever(idx, meta, None)

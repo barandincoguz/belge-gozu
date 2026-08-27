@@ -41,13 +41,22 @@ def resolve_device(pref: str) -> str:
     return "cpu"
 
 
-def apply_visual_prompt_override(processor, override: str | None) -> str:
+class _VisualPromptProcessor(Protocol):
+    """`apply_visual_prompt_override`'ın dokunduğu tek yüzey.
+
+    colpali-engine'de `visual_prompt_prefix` bir ClassVar; burada onu okunur-yazılır
+    bir örnek niteliği olarak tanımlamak, aşağıdaki atamanın kasıtlı bir ClassVar
+    gölgelemesi olduğunu tip düzeyinde belgeliyor (`type: ignore` gerekmeden)."""
+
+    visual_prompt_prefix: str
+
+
+def apply_visual_prompt_override(processor: _VisualPromptProcessor, override: str | None) -> str:
     """Doküman prompt'unu processor ÖRNEĞİNE yazar ve etkin prompt'u döner.
 
-    `visual_prompt_prefix` colpali-engine'de ClassVar; örnek üzerine atama onu
-    yalnız bu örnek için gölgeler (sınıf sabiti bozulmaz) ve `process_images`
-    `self.visual_prompt_prefix` okuduğu için override doğrudan text'e geçer.
-    override=None ise mevcut davranış aynen korunur."""
+    Örnek üzerine atama ClassVar'ı yalnız bu örnek için gölgeler (sınıf sabiti
+    bozulmaz) ve `process_images` `self.visual_prompt_prefix` okuduğu için override
+    doğrudan text'e geçer. override=None ise mevcut davranış aynen korunur."""
     if override is not None:
         processor.visual_prompt_prefix = override
     return processor.visual_prompt_prefix
@@ -96,7 +105,12 @@ class ColSmolEncoder:
         self.processor = ColIdefics3Processor.from_pretrained(model_name)
         self.query_format = query_format or CPE_0_3_18
         self.model_revision = getattr(model.config, "_commit_hash", None) or "unknown"
-        self.doc_prompt = apply_visual_prompt_override(self.processor, visual_prompt_override)
+        # pyright ClassVar ilan edilmiş bir üyeyi yazılabilir protokol üyesine denk
+        # saymıyor; gölgeleme burada KASITLI (aşağıdaki protokolün docstring'i).
+        self.doc_prompt = apply_visual_prompt_override(
+            self.processor,  # type: ignore[reportArgumentType]
+            visual_prompt_override,
+        )
         self.doc_prompt_sha256 = hashlib.sha256(self.doc_prompt.encode()).hexdigest()
 
     def _run(self, batch) -> list[np.ndarray]:
