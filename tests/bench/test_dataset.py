@@ -113,6 +113,16 @@ def test_verified_requires_verified_by():
         BenchQuestion(**q_dict(verified_by=""))
 
 
+def test_verification_note_defaults_to_empty_string():
+    q = BenchQuestion(**q_dict())
+    assert q.verification_note == ""
+
+
+def test_verification_note_roundtrips_when_set():
+    q = BenchQuestion(**q_dict(verification_note="h yanlış sayfa"))
+    assert q.verification_note == "h yanlış sayfa"
+
+
 def test_bench_stats_counts_all_slices_with_zero_default():
     qs = [BenchQuestion(**q_dict()), BenchQuestion(**q_dict(question_id="q2"))]
     stats = bench_stats(qs)

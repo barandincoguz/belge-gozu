@@ -43,6 +43,9 @@ class BenchQuestion(BaseModel):
     unanswerable_reason: UnansReason | None
     verified_by: str
     verification_status: Literal["draft", "verified", "rejected"]
+    # insan doğrulama notu (ör. "h yanlış sayfa"); geriye dönük uyumlu (varsayılan "")
+    # — scripts/verify_canary.py --review tarafından yazılır.
+    verification_note: str = ""
 
     @model_validator(mode="after")
     def _check_answerability(self) -> "BenchQuestion":
