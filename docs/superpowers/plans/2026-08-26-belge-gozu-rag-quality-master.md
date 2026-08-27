@@ -200,3 +200,23 @@ Space hedefi (free CPU, 16 GB RAM, 2 vCPU): indeks + metin + dense artefaktları
 < 2 GB disk / < 4 GB RAM; sorgu encode + retrieval + rerank p95 raporda gerekçeli
 hedefle (G1.7'de sayı verilecek; şimdiden taahhüt edilmez — ölçüm önce). Cold-start:
 model + indeks yükleme süresi p1-gate raporunda ölçülür.
+
+---
+
+## 11. P0 sonrası devir notları (2026-08-27, ölçümle güncellendi)
+
+P0 tamamlandı; kapı raporu `docs/research/findings/2026-08-27-p0-gate.md` (KOŞULLU GEÇTİ,
+8/9). Aşağıdakiler P1'e devredilmiştir — her biri ölçülmüş bir gerekçeyle:
+
+| # | Devredilen iş | Ölçülmüş gerekçe | Ruling |
+|---|---|---|---|
+| D1 | **int8 indeksin üretim yoluna bağlanması** (P1'in İLK işi olmalı) | int8, float16 ile her k'da birebir aynı; 1-bit'in R@20 kaybı 7.0 puan VE 1-bit 4.5× daha yavaş (1.08 s vs 0.24 s). Üretim hâlâ 1-bit çünkü `ExhaustiveBinaryRetriever` yalnız `PackedIndex` tüketiyor. | R16 |
+| D2 | **Eşik/abstain kalibrasyonu** — P2'nin konusu ama P1'in kanal seçimini de etkiler | Eşik 60.0 ARTIK AYIRMIYOR: cevaplanamaz sorular 59.65-71.95, cevaplanabilirler 59.85-78.50 — dağılımlar örtüşüyor. `tests/retrieval/test_semantic_canary.py`'de xfail(strict=True) ile kilitli. | — |
+| D3 | **Uzun sorgu (c001) hâlâ 1221. sırada** — G1.4'ün hedefi | Format düzeltmesi 3127→1221 getirdi ama top-5 için hibrit metin kanalı şart. | — |
+| D4 | `FloatIndex`'in `bench/` paketinden `index/`e taşınması (layering) | `index/quantize.py` hâlâ `bench.oracle`'dan import ediyor; `chunk_bounds`/`git_commit` taşındı, bu kaldı. | — |
+| D5 | Benchmark insan doğrulaması (canary 48 satır hâlâ `draft`) | Bütün kapı sayıları bu nedenle geçicidir; mekanizma kapıları (G0.1/G0.4/G0.5/G0.6) etkilenmez, recall tabanlı olanlar yeniden hesaplanmalı. | — |
+| D6 | colpali-engine ↔ Sentence Transformers arası ~%0.8 sign farkı | CPU/fp32'de de sürüyor (dtype değil implementasyon kaynaklı); mean cosine ≥ 0.9995. Binary indeksin referans-sadakati açık soru. | — |
+
+**P1 giriş koşulu güncellemesi:** P1'in F1 kanal ablasyonu, görsel kanalı **int8 üzerinde**
+ölçmelidir (1-bit değil) — aksi halde görsel kanal kendi tavanının 7 puan altında
+raporlanır ve hibrit füzyon kararı çarpıtılır.
