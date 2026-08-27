@@ -67,8 +67,10 @@ to be discarding good candidates (see [v0 limitations](#v0-limitations)) and was
 removed from the production path — it survives only as an ablation option
 (`BG_RETRIEVAL_PIPELINE=two-stage`). MaxSim over the binarized codes is exact *within
 that binary code space*, but relative to native float ColPali scoring it is an
-approximation; the size of that loss is being quantified in an ongoing quantization
-ablation. The resulting score is itself an **uncalibrated similarity**
+approximation; the size of that loss is meant to be measured by the P0 plan's
+quantization ablation (C1/C2: float16 oracle vs. int8 vs. 1-bit), which has not been
+run yet — no results exist for it as of this writing. The resulting score is itself
+an **uncalibrated similarity**
 (`128 − 2×Hamming`, averaged per query token) — not a confidence or probability — and
 if it doesn't clear a threshold (a rough v0 cut-off, not a tuned operating point), the
 service returns "I couldn't find grounds for this in the corpus" *before* ever calling

@@ -232,10 +232,9 @@
   <section id="pipeline" class="pipeline" hidden aria-label="İşlem aşamaları">
     <ol>
       <li class="stage" data-st="0"><span class="dot"></span><span>sorgu kodlanıyor</span></li>
-      <li class="stage" data-st="1"><span class="dot"></span><span id="st-scan">4.222 sayfada Hamming taraması</span></li>
-      <li class="stage" data-st="2"><span class="dot"></span><span>200 aday → MaxSim ilk 5</span></li>
-      <li class="stage" data-st="3"><span class="dot"></span><span id="st-th">eşik kontrolü</span></li>
-      <li class="stage" data-st="4"><span class="dot"></span><span id="st-llm">Gemini sayfaları okuyor</span></li>
+      <li class="stage" data-st="1"><span class="dot"></span><span id="st-scan">4.222 sayfada exhaustive MaxSim → ilk 5</span></li>
+      <li class="stage" data-st="2"><span class="dot"></span><span id="st-th">eşik kontrolü</span></li>
+      <li class="stage" data-st="3"><span class="dot"></span><span id="st-llm">Gemini sayfaları okuyor</span></li>
       <li class="elapsed" id="elapsed" aria-hidden="true"></li>
     </ol>
   </section>
@@ -263,7 +262,7 @@
 </main>
 
 <footer>
-  <p class="inner">ColSmol-500M görsel dizin · Hamming eleme + MaxSim geç-etkileşim ·
+  <p class="inner">ColSmol-500M görsel dizin · bütün korpusta exhaustive binary MaxSim (geç-etkileşim) ·
      Gemini Flash yanıtlayıcı · kaynaklar sayfa kartlarında</p>
 </footer>
 
@@ -283,7 +282,7 @@ let THRESHOLD = 60.0;
 fetch("/healthz").then(r => r.json()).then(h => {
   THRESHOLD = h.threshold ?? THRESHOLD;
   $("page-count").textContent = h.pages.toLocaleString("tr-TR");
-  $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada Hamming taraması`;
+  $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada exhaustive MaxSim → ilk 5`;
   $("st-th").textContent = `eşik kontrolü (${fmt(THRESHOLD)})`;
 }).catch(() => {});
 
@@ -297,7 +296,7 @@ function pipelineStart() {
   $("elapsed").textContent = "";
   if (reduced) { stages.forEach(s => s.classList.add("active")); return; }
   // gerçek aşama süreleri istemciden görünmez; sıra gerçeği, tempo tahmindir
-  const pacing = [0, 900, 1700, 2100, 2600];
+  const pacing = [0, 900, 2100, 2600];
   pacing.forEach((t, i) => stageTimers.push(setTimeout(() => {
     stages.forEach((s, j) => {
       if (j < i) { s.className = "stage done"; }
@@ -309,8 +308,8 @@ function pipelineFinish(abstained, ms) {
   stageTimers.forEach(clearTimeout);
   document.querySelectorAll(".stage").forEach((s, j) => {
     s.className = "stage done";
-    if (j === 4 && abstained) { s.className = "stage skipped"; $("st-llm").textContent = "Gemini çağrılmadı — eşik altı"; }
-    else if (j === 4) { $("st-llm").textContent = "Gemini sayfaları okudu"; }
+    if (j === 3 && abstained) { s.className = "stage skipped"; $("st-llm").textContent = "Gemini çağrılmadı — eşik altı"; }
+    else if (j === 3) { $("st-llm").textContent = "Gemini sayfaları okudu"; }
   });
   $("elapsed").textContent = `${fmt(ms / 1000)} sn`;
 }
