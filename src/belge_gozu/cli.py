@@ -1,15 +1,20 @@
+import json
 import math
 import shutil
 import sqlite3
-import subprocess
 from datetime import UTC, datetime
 from enum import StrEnum
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import typer
 from PIL import Image
 
+from belge_gozu.bench.harness import git_commit
+from belge_gozu.bench.oracle import FloatIndex, native_float_scores, rank_of
 from belge_gozu.config import Settings
 from belge_gozu.corpus.download import download_all
 from belge_gozu.corpus.manifest import build_http_client, load_manifest, probe
@@ -17,6 +22,7 @@ from belge_gozu.corpus.render import render_all
 from belge_gozu.index.encode import FakeEncoder
 from belge_gozu.index.manifest import (
     CPE_0_3_18,
+    TRAIN_COMPAT_V1,
     IndexManifest,
     RenderConfig,
     corpus_checksum,
@@ -42,8 +48,39 @@ class Pipeline(StrEnum):
     two_stage = "two-stage"
 
 
+class Precision(StrEnum):
+    packed = "packed"
+    f16 = "f16"
+
+
+class QueryFormatChoice(StrEnum):
+    cpe_0_3_18 = "cpe-0.3.18"
+    train_compat_v1 = "train-compat-v1"
+
+
+_QUERY_FORMATS = {
+    QueryFormatChoice.cpe_0_3_18: CPE_0_3_18,
+    QueryFormatChoice.train_compat_v1: TRAIN_COMPAT_V1,
+}
+
+
 def _settings() -> Settings:
     return Settings()
+
+
+def _pkg_version(name: str) -> str:
+    try:
+        return pkg_version(name)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _engine_versions() -> dict[str, str]:
+    return {
+        "colpali-engine": _pkg_version("colpali-engine"),
+        "transformers": _pkg_version("transformers"),
+        "torch": _pkg_version("torch"),
+    }
 
 
 def _manifest_path(s: Settings, manifest: Path | None) -> Path:
@@ -79,15 +116,26 @@ def corpus_render(dpi: int = typer.Option(150)) -> None:  # noqa: B008
 
 
 @index_app.command("build")
-def index_build(fake: bool = typer.Option(False, "--fake")) -> None:  # noqa: B008
+def index_build(
+    fake: bool = typer.Option(False, "--fake"),  # noqa: B008
+    precision: Precision = typer.Option(Precision.packed, "--precision"),  # noqa: B008
+    query_format: QueryFormatChoice = typer.Option(  # noqa: B008
+        QueryFormatChoice.cpe_0_3_18, "--query-format"
+    ),
+    out: Path | None = typer.Option(None, "--out"),  # noqa: B008
+) -> None:
     s = _settings()
+    if precision == Precision.f16 and out is None:
+        raise typer.BadParameter("--precision f16 için --out zorunlu")
+    out_dir = out or s.index_dir
+    qf = _QUERY_FORMATS[query_format]
     meta = pd.read_parquet(s.data_dir / "meta.parquet")
     if fake:
         encoder = FakeEncoder()
     else:
         from belge_gozu.index.encode import ColSmolEncoder
 
-        encoder = ColSmolEncoder(s.retriever_model, s.device)
+        encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=qf)
     embs, ids = [], []
     batch_size = 1
     total = len(meta)
@@ -105,9 +153,37 @@ def index_build(fake: bool = typer.Option(False, "--fake")) -> None:  # noqa: B0
         done = min(start + batch_size, total)
         if chunk_no % 10 == 0 or done == total:
             print(f"{done}/{total} sayfa", flush=True)
-    PackedIndex.build(ids, embs).save(s.index_dir)
-    shutil.copy(s.data_dir / "meta.parquet", s.index_dir / "meta.parquet")
-    typer.echo(f"{len(ids)} sayfa indekslendi -> {s.index_dir}")
+
+    # R3 (manifest ordering): dosyalar tamamen yazılana kadar manifest.json
+    # yazılmaz — indeks kaydet -> meta.parquet kopyala -> checksum hesapla ->
+    # manifest oluştur -> yaz. PackedIndex.build/FloatIndex.build'e manifest
+    # verilmez (write_manifest ile ayrıca yazılır).
+    if precision == Precision.f16:
+        index = FloatIndex.build(ids, embs)
+        quantization = "float16"
+    else:
+        index = PackedIndex.build(ids, embs)
+        quantization = "sign-1bit"
+    index.save(out_dir)
+    shutil.copy(s.data_dir / "meta.parquet", out_dir / "meta.parquet")
+
+    manifest = IndexManifest(
+        model_name=s.retriever_model,
+        model_revision=getattr(encoder, "model_revision", "unknown"),
+        engine_versions=_engine_versions(),
+        query_format=qf,
+        doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", "unknown"),
+        quantization=quantization,
+        mask_policy="drop-padding",
+        render=RenderConfig(),
+        corpus_checksum=corpus_checksum(out_dir),
+        n_pages=len(index.page_ids),
+        n_tokens=int(index.offsets[-1]),
+        built_at=datetime.now(UTC).isoformat(),
+        git_commit=git_commit(),
+    )
+    write_manifest(out_dir, manifest)
+    typer.echo(f"{len(ids)} sayfa indekslendi -> {out_dir}")
 
 
 @index_app.command("write-manifest")
@@ -121,36 +197,10 @@ def index_write_manifest(
     n_pages = len(index.page_ids)
     n_tokens = int(index.offsets[-1])
 
-    def _pkg_version(name: str) -> str:
-        from importlib.metadata import PackageNotFoundError
-        from importlib.metadata import version as pkg_version
-
-        try:
-            return pkg_version(name)
-        except PackageNotFoundError:
-            return "unknown"
-
-    try:
-        git_commit = (
-            subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.strip()
-            or "unknown"
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        git_commit = "unknown"
-
     manifest = IndexManifest(
         model_name=s.retriever_model,
         model_revision="unknown",
-        engine_versions={
-            "colpali-engine": _pkg_version("colpali-engine"),
-            "transformers": _pkg_version("transformers"),
-            "torch": _pkg_version("torch"),
-        },
+        engine_versions=_engine_versions(),
         query_format=CPE_0_3_18,
         doc_prompt_sha256="unknown",
         quantization="sign-1bit",
@@ -160,7 +210,7 @@ def index_write_manifest(
         n_pages=n_pages,
         n_tokens=n_tokens,
         built_at=datetime.now(UTC).isoformat(),
-        git_commit=git_commit,
+        git_commit=git_commit(),
     )
     write_manifest(s.index_dir, manifest)
     typer.echo(f"manifest yazıldı -> {s.index_dir / 'manifest.json'}")
@@ -279,6 +329,92 @@ def bench_run(
     typer.echo(f"rapor -> {out_path}")
     if report.missing_gold_pages:
         typer.echo(f"missing_gold_pages={len(report.missing_gold_pages)}")
+
+
+@bench_app.command("oracle")
+def bench_oracle(
+    bench: Path = typer.Option(..., "--bench"),  # noqa: B008
+    packed_index: Path = typer.Option(..., "--packed-index"),  # noqa: B008
+    float_index: Path = typer.Option(..., "--float-index"),  # noqa: B008
+    out: Path = typer.Option(..., "--out"),  # noqa: B008
+) -> None:
+    from belge_gozu.bench.dataset import load_bench
+    from belge_gozu.bench.metrics import recall_at_k
+    from belge_gozu.index.encode import ColSmolEncoder
+    from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever
+
+    s = _settings()
+    idx = PackedIndex.load(packed_index)
+    findex = FloatIndex.load(float_index)
+    meta = pd.read_parquet(packed_index / "meta.parquet")
+
+    if idx.manifest is None or findex.manifest is None:
+        raise typer.BadParameter(
+            "her iki indeksin de manifest.json'ı olmalı (--packed-index/--float-index)"
+        )
+    if idx.manifest.query_format.format_id != findex.manifest.query_format.format_id:
+        raise typer.BadParameter(
+            "query_format uyuşmuyor: packed="
+            f"{idx.manifest.query_format.format_id} float={findex.manifest.query_format.format_id}"
+        )
+
+    encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=idx.manifest.query_format)
+    retriever = ExhaustiveBinaryRetriever(idx, meta, None)
+
+    questions = load_bench(bench)
+    ks = (1, 5, 20, 50, 200)
+    per_question: list[dict] = []
+    binary_recalls: dict[int, list[float]] = {k: [] for k in ks}
+    float_recalls: dict[int, list[float]] = {k: [] for k in ks}
+
+    for q in questions:
+        if not q.answerable:
+            continue
+        q_emb = encoder.encode_query(q.question)
+        binary_scores = retriever.score_all(q_emb)
+        float_scores = native_float_scores(findex, q_emb)
+
+        binary_order = [idx.page_ids[i] for i in np.argsort(-binary_scores, kind="stable")]
+        float_order = [findex.page_ids[i] for i in np.argsort(-float_scores, kind="stable")]
+
+        binary_rank = {g: rank_of(binary_scores, idx.page_ids, g) for g in q.gold_page_ids}
+        float_rank = {g: rank_of(float_scores, findex.page_ids, g) for g in q.gold_page_ids}
+        per_question.append(
+            {
+                "question_id": q.question_id,
+                "binary_rank": binary_rank,
+                "float_rank": float_rank,
+            }
+        )
+
+        rel = set(q.gold_page_ids)
+        for k in ks:
+            binary_recalls[k].append(recall_at_k(rel, binary_order, k))
+            float_recalls[k].append(recall_at_k(rel, float_order, k))
+
+    n = len(per_question)
+    summary = {
+        "n": n,
+        "binary": {str(k): (sum(v) / n if n else 0.0) for k, v in binary_recalls.items()},
+        "float": {str(k): (sum(v) / n if n else 0.0) for k, v in float_recalls.items()},
+    }
+    report = {
+        "run_id": f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-oracle",
+        "git_commit": git_commit(),
+        "bench": str(bench),
+        "packed_index": str(packed_index),
+        "float_index": str(float_index),
+        "packed_manifest": idx.manifest.model_dump(),
+        "float_manifest": findex.manifest.model_dump(),
+        "summary": summary,
+        "per_question": per_question,
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
+    typer.echo(
+        f"n={n} recall@5 binary={summary['binary']['5']:.3f} float={summary['float']['5']:.3f}"
+    )
+    typer.echo(f"oracle raporu -> {out}")
 
 
 @app.command("serve")

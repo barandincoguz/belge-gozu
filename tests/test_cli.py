@@ -36,6 +36,38 @@ def test_render_and_fake_build(tmp_path: Path, monkeypatch):
     assert (tmp_path / "index" / "meta.parquet").exists()
 
 
+def test_index_build_manifest_passes_compat_check(tmp_path: Path, monkeypatch):
+    from belge_gozu.config import Settings
+    from belge_gozu.index.compat import check_compatibility
+    from belge_gozu.index.manifest import read_manifest
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BG_INDEX_DIR", str(tmp_path / "index"))
+    (tmp_path / "manifest").mkdir(parents=True)
+    (tmp_path / "manifest" / "v0_manifest.csv").write_text(CSV, encoding="utf-8")
+    (tmp_path / "pdf").mkdir()
+    make_pdf(tmp_path / "pdf" / "d1.pdf", pages=2)
+
+    r1 = runner.invoke(app, ["corpus", "render", "--dpi", "72"])
+    assert r1.exit_code == 0, r1.output
+    r2 = runner.invoke(app, ["index", "build", "--fake"])
+    assert r2.exit_code == 0, r2.output
+
+    index_dir = tmp_path / "index"
+    manifest = read_manifest(index_dir)
+    assert manifest is not None
+
+    s = Settings()
+    problems = check_compatibility(
+        manifest,
+        model_name=s.retriever_model,
+        model_revision=None,
+        query_format_id="cpe-0.3.18",
+        index_dir=index_dir,
+    )
+    assert problems == []
+
+
 def test_metrics_export_cli(tmp_path, monkeypatch):
     from belge_gozu.telemetry.recorder import EventRecorder
     from belge_gozu.telemetry.schema import RequestEvent
