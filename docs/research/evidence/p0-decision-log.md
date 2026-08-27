@@ -253,3 +253,16 @@ B2 EKSİK ABLASYON TAMAMLANDI (2026-08-27 19:53-19:56, kazanan train-compat inde
      bile MaxSim sıralamasını exhaustive'e yetiştirmiyor (MRR 0.051 vs 0.068).
      Stage-1'i üretim dışında tutma kararının en güçlü sayısal kanıtı budur.
   Ham: data/bench/results/b2-traincompat-twostage-c{200,500,1000}.json + -exhaustive-ref.json
+
+FINAL REVIEW FIX DALGASI (commit 6a7be48) — 1 Critical + 6 Important + 7 minor kapatıldı.
+KRİTİK BULGU (yeni, makale için): EŞİK (min_score_threshold=60.0) ARTIK AYIRMIYOR.
+  Kazanan (train-compat) indekste canary skor dağılımları:
+    cevaplanabilir  n=43: min 59.85 / medyan 63.40 / maks 78.50
+    cevaplanamaz    n=5 : min 59.65 / medyan 67.88 / maks 71.95
+    korpus-disi 3 soru: 66.28 / 71.95 / 67.88  -> HEPSİ eşiğin ÜSTÜNDE
+  Dağılımlar örtüşüyor; hiçbir tek eşik ikisini ayırmıyor. Eşiği yükseltmek gerçek
+  soruları da reddeder. Yani "halüsinasyon freni" v0'da ölçülmüş 70.6/52.4 ayrımına
+  dayanıyordu ve o ölçüm ESKİ format/indeksle yapılmıştı — format değişimi ayrımı yok etti.
+  Kilit: tests/retrieval/test_semantic_canary.py'de xfail(strict=True) olarak sabitlendi;
+  P2 kalibrasyonu doğru davranışı getirdiğinde test KIRMIZIYA döner ve fark edilir.
+  Bu, P2'nin (kalibre selective answering) neden zorunlu olduğunun doğrudan kanıtıdır.

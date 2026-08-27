@@ -95,21 +95,29 @@ the LLM — the abstain path costs nothing and can't hallucinate.
 
 ## Example queries
 
-Real runs against the local server — the same code, model, and public index the Space
-would run once deployed:
+> **Stale — these rows describe the v0 pipeline and are kept for the record only.**
+> They were logged before the P0 work replaced the retrieval path (Stage-1 removed,
+> training-compatible prompt format adopted, index rebuilt). Both the ranks and the
+> abstain outcomes below have since changed, and the "clean abstain" reading in
+> particular no longer holds — see the measured threshold behaviour in
+> [v0 limitations](#v0-limitations). They will be re-measured against the current
+> pipeline before any public claim is made.
 
-| Question | Result |
+Runs against the local server, v0 pipeline, before the P0 changes:
+
+| Question | Result (v0, superseded) |
 |---|---|
 | *"Kişisel Verilerin Korunması Kanunu'na göre açık rızanın geçerlilik şartları nelerdir?"* (KVKK: conditions for valid explicit consent) | **Substantive, correctly cited.** Retrieval put the actual KVKK pages at rank 1-2; the answer states the three real statutory conditions (specific to a matter, based on being informed, freely given) with citations. |
-| *"Katma Değer Vergisi Kanunu'na göre KDV oranını belirlemeye kim yetkilidir?"* (who sets the VAT rate) | **Clean abstain.** Top retrieval score fell under the threshold, so the service returned "no grounds found" without calling the LLM at all — the hallucination brake, working as intended, rather than a guess. |
-| *"Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"* (definition of legal domicile) | **Clean abstain**, same mechanism. |
+| *"Katma Değer Vergisi Kanunu'na göre KDV oranını belirlemeye kim yetkilidir?"* (who sets the VAT rate) | **Abstained** — the top score fell under the 60.0 threshold. Read at the time as the hallucination brake working; the P0 measurements show the threshold does not actually separate answerable from unanswerable questions, so this outcome cannot be credited to a working brake. |
+| *"Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"* (definition of legal domicile) | **Abstained**, same mechanism — and this is the query P0 used as its root-cause probe: the correct page (`k4721:4`) was ranked 3127/4222 by the old Stage-1. It is now at rank 1221 under the current pipeline; still not in the top-5, which is P1's target. |
 
-Those are honestly representative, not the best 3 out of hundreds: across 17 varied
-legal questions tried in this session (see [v0 limitations](#v0-limitations)), 1 produced
-a fully substantive correct answer and 3 abstained cleanly; the rest got an honest "not
+Those were honestly representative of v0, not the best 3 out of hundreds: across 17 varied
+legal questions tried in that session (see [v0 limitations](#v0-limitations)), 1 produced
+a fully substantive correct answer and 3 abstained; the rest got an honest "not
 found in the given pages" from the answerer despite retrieval clearing the score gate.
 Explicitly naming the statute in the question measurably helped ("KVKK'na göre..." beat
-"KVKK ne der?"-style phrasing every time it was tried).
+"KVKK ne der?"-style phrasing every time it was tried) — a hint, in hindsight, of the
+query-format problem P0 later found and fixed.
 
 ## Quickstart
 
