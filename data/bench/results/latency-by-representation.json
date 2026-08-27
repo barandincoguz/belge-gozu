@@ -1,0 +1,32 @@
+{
+ "künye": {
+  "tarih": "2026-08-27",
+  "makine": "arm64",
+  "platform": "macOS-26.2-arm64-arm-64bit",
+  "git_commit": "11d0fdf",
+  "korpus": "4222 sayfa",
+  "sorgu": "sentetik 40 token (seed=0)",
+  "cihaz": "cpu",
+  "not": "yalnız SKORLAMA süresi; sorgu encode dahil değil. Format: train-compat-v1."
+ },
+ "ölçümler": [
+  {
+   "temsil": "sign-1bit",
+   "s_per_query": 1.0827,
+   "index_mb": 58,
+   "tekrar": 5
+  },
+  {
+   "temsil": "int8",
+   "s_per_query": 0.2435,
+   "index_mb": 476,
+   "tekrar": 5
+  },
+  {
+   "temsil": "float16",
+   "s_per_query": 0.0789,
+   "index_mb": 918,
+   "tekrar": 5
+  }
+ ]
+}

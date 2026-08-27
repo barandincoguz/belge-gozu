@@ -212,7 +212,7 @@ A/B KARARI (canary n=43): train-compat-v1 sorgu formatı + train-compat doküman
 KAZANDI, her metrikte:
   float  R@5 0.093->0.233 (+14.0 puan, 2.5x) | R@20 0.186->0.302 | R@200 0.349->0.535
   1-bit  R@5 0.070->0.116 (+4.7)             | R@20 0.070->0.233 (+16.3)
-  Hedef sorgular (A2): c001 uzun 1bit=1221 float/int8=661 (v0: 3127 Stage-1 / 1576 exh.)
+  Hedef sorgular (A2): c001 uzun 1bit=1221 float=661 int8=664 (v0: 3127 Stage-1 / 1576 exh.)
                        c002 kısa 1bit=4 float/int8=4  -> G0.8 (top-5) SAĞLANDI
 C2 KARARI (A2 formatında): int8 = float16 ile BİREBİR aynı (kayıp 0.0 her k'da);
   1-bit'in R@20 kaybı 7.0 puan (eşik <=2) -> 1-bit "tek production truth" DEĞİL.
@@ -234,3 +234,22 @@ T11 Step 6: complete (commit 6dd7099, review Approved) — üretim varsayılanla
 Ruling R17: inceleme boşluk buldu — check_compatibility doc_prompt_sha256'yı KARŞILAŞTIRMIYOR
 (bench oracle'a eklendi ama serve'e eklenmedi). Doc prompt artık bağımsız kalite ekseni
 (A/B'de 14 puan). G0.5 "uyumsuzluk fail-fast" bunu kapsamalı -> compat.py'ye eklenecek.
+
+DÜZELTME (gate incelemesi, 2026-08-27): A2 c001 int8 sırası 664'tür (661 değil; 661 float'ın
+sırasıdır). Kaynak: data/bench/results/a2-traincompat-oracle.json.
+LATENCY ham artefaktı üretildi: data/bench/results/latency-by-representation.json — kazanan
+formatta (train-compat), makine BOŞTA: 1-bit 1.083 s / int8 0.243 s / float16 0.079 s.
+Ledger'daki önceki değerler (2.34/0.51/0.15) MPS build'i koşarken alınmıştı; oranlar aynı
+(int8 1-bit'ten 4.5x, float16 13.7x hızlı), mutlak değerler makine yükü nedeniyle ~2x yüksekti.
+
+B2 EKSİK ABLASYON TAMAMLANDI (2026-08-27 19:53-19:56, kazanan train-compat indeks, MPS):
+  aday        R@5    R@20   MRR    nDCG@5  gold candidate survival
+  200         0.023  0.047  0.013  0.012   9.3%
+  500         0.047  0.093  0.018  0.022   20.9%
+  1000        0.116  0.163  0.051  0.064   34.9%
+  exhaustive  0.116  0.233  0.068  0.067   44.2% (record_top=200 içinde)
+  -> G0.3'ün ASIL ölçümü: Stage-1'in gold candidate survival'ı hiçbir aday sayısında
+     %98'e yaklaşmıyor (c=200'de %9.3). Aday havuzunu korpusun %24'üne (1000) çıkarmak
+     bile MaxSim sıralamasını exhaustive'e yetiştirmiyor (MRR 0.051 vs 0.068).
+     Stage-1'i üretim dışında tutma kararının en güçlü sayısal kanıtı budur.
+  Ham: data/bench/results/b2-traincompat-twostage-c{200,500,1000}.json + -exhaustive-ref.json
