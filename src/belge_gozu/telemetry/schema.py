@@ -17,6 +17,8 @@ EVENTS_DDL = """CREATE TABLE IF NOT EXISTS events (
   answer_len INTEGER, citations_n INTEGER,
   tokens_in INTEGER, tokens_out INTEGER, tokens_per_s REAL, est_cost_usd REAL,
   error_type TEXT,
+  pipeline TEXT,
+  index_revision TEXT,
   detail TEXT NOT NULL DEFAULT '{}'
 )"""
 
@@ -54,4 +56,6 @@ class RequestEvent(BaseModel):
     tokens_per_s: float | None = None
     est_cost_usd: float | None = None
     error_type: str | None = None
+    pipeline: str | None = None
+    index_revision: str | None = None
     detail: dict = Field(default_factory=dict)

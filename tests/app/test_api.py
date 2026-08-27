@@ -130,6 +130,26 @@ def test_search_detail_records_exhaustive_stage_timing(tiny_corpus):
     assert "exhaustive_maxsim" in detail["stages"]
 
 
+def test_search_records_pipeline_and_index_revision(tiny_corpus):
+    """T13: pipeline + index_revision doldurulur; detail.retrieval kimlik alanlarını taşır."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post("/search", json={"query": "deneme sorgusu"})
+    row = (
+        sqlite3.connect(data_dir / "requests.sqlite")
+        .execute(
+            "SELECT pipeline, index_revision, detail FROM events "
+            "WHERE endpoint='/search' ORDER BY id DESC"
+        )
+        .fetchone()
+    )
+    assert row[0] == "exhaustive"
+    assert row[1] is not None and "cpe-0.3.18" in row[1]
+    detail = json.loads(row[2])
+    assert detail["retrieval"] == {"query_format": "cpe-0.3.18", "quantization": "sign-1bit"}
+    assert "candidates" not in detail["retrieval"]
+
+
 def test_query_text_flag_off_hashes_only(tiny_corpus):
     data_dir, enc, _ = tiny_corpus
     settings = Settings(

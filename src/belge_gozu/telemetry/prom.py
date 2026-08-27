@@ -76,6 +76,8 @@ class PromMetrics:
         device: str,
         version: str,
         threshold: float,
+        index_revision: str,
+        query_format: str,
     ) -> None:
         self.pages.set(pages)
         self.info.info(
@@ -85,6 +87,8 @@ class PromMetrics:
                 "device": device,
                 "version": version,
                 "threshold": str(threshold),
+                "index_revision": index_revision,
+                "query_format": query_format,
             }
         )
 
@@ -104,6 +108,10 @@ class PromMetrics:
             v = getattr(ev, col)
             if v is not None:
                 self.stage.labels(stage=stage_name).observe(v / 1000.0)
+        # _STAGE_COLS'ta kolonu olmayan aşamalar (ör. exhaustive_maxsim) detail'den gelir.
+        for stage_name, ms in ev.detail.get("stages", {}).items():
+            if stage_name not in _STAGE_COLS and ms is not None:
+                self.stage.labels(stage=stage_name).observe(ms / 1000.0)
         if ev.top_score is not None:
             self.top_score.observe(ev.top_score)
         if ev.margin_1_2 is not None:

@@ -58,4 +58,21 @@ def test_ddl_creates_table_and_indexes():
         "tokens_out",
         "query_sha256",
         "detail",
+        "pipeline",
+        "index_revision",
     } <= cols
+
+
+def test_request_event_accepts_pipeline_and_index_revision():
+    ev = RequestEvent(
+        ts="t",
+        endpoint="/search",
+        status="ok",
+        http_status=200,
+        total_ms=1.0,
+        query_sha256="e" * 64,
+        pipeline="exhaustive",
+        index_revision="abc123456789/cpe-0.3.18/sign-1bit",
+    )
+    assert ev.pipeline == "exhaustive"
+    assert ev.index_revision == "abc123456789/cpe-0.3.18/sign-1bit"

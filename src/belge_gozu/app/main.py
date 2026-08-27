@@ -75,6 +75,19 @@ def create_app(
         retriever = ExhaustiveBinaryRetriever(index, meta, encoder)
     else:
         retriever = TwoStageRetriever(index, meta, encoder)
+
+    manifest = index.manifest
+    if manifest is not None:
+        index_revision = (
+            f"{manifest.corpus_checksum[:12]}/{manifest.query_format.format_id}/"
+            f"{manifest.quantization}"
+        )
+        query_format_id = manifest.query_format.format_id
+        quantization = manifest.quantization
+    else:
+        index_revision = None
+        query_format_id = None
+        quantization = None
     service = AskService(retriever, answerer, s.min_score_threshold, load_image)
 
     rec = recorder or EventRecorder(s.data_dir / "requests.sqlite")
@@ -100,6 +113,8 @@ def create_app(
         device=s.device,
         version=app_version,
         threshold=s.min_score_threshold,
+        index_revision=index_revision or "unknown",
+        query_format=query_format_id or "unknown",
     )
 
     app = FastAPI(title="Belge-Gözü")
@@ -160,6 +175,8 @@ def create_app(
             tokens_per_s=tps,
             est_cost_usd=cost,
             error_type=error_type,
+            pipeline=s.retrieval_pipeline,
+            index_revision=index_revision,
             detail={
                 "hits": [{"page_id": h.page_id, "score": h.score} for h in hits],
                 "threshold": s.min_score_threshold,
@@ -168,6 +185,7 @@ def create_app(
                 "device": s.device,
                 "app_version": app_version,
                 "stages": dict(col.stages),
+                "retrieval": {"query_format": query_format_id, "quantization": quantization},
             },
         )
 

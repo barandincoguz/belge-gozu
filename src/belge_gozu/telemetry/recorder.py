@@ -34,6 +34,8 @@ _COLUMNS = [
     "tokens_per_s",
     "est_cost_usd",
     "error_type",
+    "pipeline",
+    "index_revision",
     "detail",
 ]
 _INSERT = (
@@ -57,6 +59,14 @@ class EventRecorder:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA busy_timeout=5000")
         self._db.execute(EVENTS_DDL)
+        # Migrasyon: eski events tablolarına eksik kolonları ekle (best-effort —
+        # kolon zaten varsa sqlite hata fırlatır, bunu yutuyoruz; telemetri
+        # hiçbir koşulda isteği düşürmez).
+        for col in ("pipeline", "index_revision"):
+            try:
+                self._db.execute(f"ALTER TABLE events ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass
         for idx in EVENTS_INDEXES:
             self._db.execute(idx)
         self._db.commit()
