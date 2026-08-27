@@ -129,7 +129,7 @@ To reproduce the corpus from scratch instead of pulling the published index:
 ```bash
 uv run belge-gozu corpus download   # ~50 statutes + historical RG scans -> data/pdf/
 uv run belge-gozu corpus render     # PDF -> WebP page images + data/meta.parquet
-uv run belge-gozu index build       # ColSmol-500M embeddings -> data/index/ (packed, binary)
+uv run belge-gozu index build       # ColSmol-500M embeddings -> data/index-traincompat-1bit/ (packed, binary)
 uv run belge-gozu index push        # optional: publish index/ + images/ to your own HF dataset repo
 uv run belge-gozu serve
 ```
@@ -140,12 +140,16 @@ uv run belge-gozu serve
 ## Telemetri
 
 Every `/ask` and `/search` request is logged to `data/requests.sqlite` (stage-by-stage
-latency — encode, Hamming pre-filter, MaxSim rerank, answerer — plus token counts,
-estimated USD cost, and whether the request abstained) and mirrored as Prometheus
+latency — query encode, exhaustive MaxSim, answerer — plus token counts, estimated USD
+cost, and whether the request abstained) and mirrored as Prometheus
 metrics on `GET /metrics` (`bg_*` series: request/stage duration histograms, abstain
 and token counters, in-flight gauge, `bg_app_info`). `make obs-up` starts a local
 Prometheus + Grafana (`http://localhost:3001`, anonymous access, dashboard `belge-gozu`
 pre-provisioned) reading that endpoint; `make obs-down` tears it down.
+The event table's `stage1_ms`/`stage2_ms` columns are a leftover of the removed
+two-stage pipeline and stay `NULL` under the default (`exhaustive`) one — the
+exhaustive stage's latency is recorded in the event's `detail.stages` map (as
+`exhaustive_maxsim`) and exported to Prometheus in `bg_stage_duration_seconds`.
 `uv run belge-gozu metrics summary` prints a quick p95/abstain/cost readout from the
 SQLite log; `uv run belge-gozu metrics export --out <path>.parquet` dumps the raw event
 table for offline analysis. See `docs/research/` for a real baseline measurement session
@@ -165,7 +169,16 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
   next, along with a proper retrieval benchmark (v0 has none — the numbers above are a
   qualitative session log, not a scored eval).
 - **The score threshold (`BG_MIN_SCORE_THRESHOLD=60.0`) is a rough calibration** from a
-  handful of observed scores, not a tuned operating point.
+  handful of observed scores, not a tuned operating point — and after the T11 query/
+  document format change it no longer separates answerable from unanswerable questions
+  at all. Measured on the draft canary set (2026-08-27, current production index):
+  answerable top-1 scores run min 59.85 / median 63.40 / max 78.50, unanswerable ones
+  min 59.65 / median 67.88 / max 71.95 — overlapping distributions, so no single
+  cut-off splits them, and all three out-of-corpus questions currently clear 60.0.
+  Raising the threshold would just abstain on real questions instead. Proper
+  calibration (and probably score normalization) is P2 work; the current state is
+  pinned by an `xfail(strict=True)` canary test so it can neither rot further nor be
+  quietly declared fixed.
 - **P0 root-cause investigation found the old two-stage Stage-1 filter was discarding
   good candidates, not just approximating the ranking.** For the query *"Türk Medeni
   Kanunu'na göre yerleşim yeri nasıl tanımlanır?"*, the correct page (`k4721:4`) ranked

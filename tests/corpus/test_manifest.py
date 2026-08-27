@@ -5,6 +5,8 @@ import pytest
 
 from belge_gozu.corpus.manifest import load_manifest, load_manifest_from_text, probe
 
+REPO_ROOT = Path(__file__).resolve().parents[2]  # veri yolları CWD'ye değil repo köküne göre
+
 CSV = """doc_id,doc_name,doc_type,url
 k6098,Türk Borçlar Kanunu,kanun,https://example.org/1.5.6098.pdf
 rg1930,RG 1930 örneği,rg_tarihi,https://example.org/arsiv/1519.pdf
@@ -36,7 +38,7 @@ def test_probe():
 
 
 def test_shipped_manifest_parses_and_ids_unique():
-    rows = load_manifest(Path("data/manifest/v0_manifest.csv"))
+    rows = load_manifest(REPO_ROOT / "data" / "manifest" / "v0_manifest.csv")
     ids = [r.doc_id for r in rows]
     assert len(ids) == len(set(ids))
     assert len(rows) >= 56

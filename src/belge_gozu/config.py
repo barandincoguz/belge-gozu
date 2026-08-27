@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # kaba v0 kalıntısı (Task 13 smoke test: gerçek soru top_score~70.6, saçma soru
     # top_score~52.4 -- 20.0 hiçbir zaman tetiklemiyordu). Bu skor bir güven/olasılık
     # ölçüsü DEĞİLDİR (bkz. README "v0 limitations"); gerçek kalibrasyon P2'nin işi.
+    # DİKKAT: yukarıdaki 70.6/52.4 rakamları T11 format değişikliğinden (train-compat-v1
+    # + train-compat doküman prompt'u, yeni indeks data/index-traincompat-1bit) ÖNCE
+    # ölçüldü; bugünkü skor dağılımını TEMSİL ETMİYORLAR. 2026-08-27 canary ölçümü:
+    # cevaplanabilir n=43 min 59.85 / medyan 63.40 / maks 78.50, cevaplanamaz n=5
+    # min 59.65 / medyan 67.88 / maks 71.95 -> dağılımlar iç içe, 60.0 (ya da başka
+    # herhangi bir tek eşik) bu ikisini AYIRMIYOR; korpus-dışı üç soru da eşiği geçiyor.
+    # Bu durum tests/retrieval/test_semantic_canary.py::
+    # test_out_of_corpus_canary_scores_below_threshold ile xfail(strict) olarak
+    # kilitlidir. Kalibrasyon (ve muhtemelen skor normalizasyonu) P2'nin işi.
     min_score_threshold: float = 60.0
     request_delay_s: float = 1.0
     # Tahmini birim fiyatlar (USD / 1M token). Kesin değildir; runbook'taki

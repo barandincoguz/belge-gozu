@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,14 +14,25 @@ from belge_gozu.index.manifest import (
     write_manifest,
 )
 
+TRAIN_COMPAT_DOC_PROMPT_SHA256 = hashlib.sha256(TRAIN_COMPAT_DOC_PROMPT.encode()).hexdigest()
+
 
 def make_manifest(**over) -> IndexManifest:
+    """Fikstür manifest'i — varsayılanları ÜRETİM değerleridir.
+
+    Final review IMPORTANT-2: eskiden burada `CPE_0_3_18` + uydurma bir
+    doc_prompt sha'sı vardı. `create_app`'ın uyumluluk kontrolü artık
+    config'ten çözülen değerlere düştüğü için (enjekte edilen encoder'ın
+    `query_format`/`doc_prompt_sha256`'i yoksa), fikstürün de üretimin
+    kullandığı formatı taşıması gerekiyor — aksi halde kontrol ya ölü kalır
+    ya da her testte sahte bir uyumsuzluk üretir.
+    """
     base = dict(
         model_name="vidore/colSmol-500M",
         model_revision="abc123",
         engine_versions={"colpali-engine": "0.3.18", "transformers": "5.15.1", "torch": "2.13.0"},
-        query_format=CPE_0_3_18,
-        doc_prompt_sha256="d" * 64,
+        query_format=TRAIN_COMPAT_V1,
+        doc_prompt_sha256=TRAIN_COMPAT_DOC_PROMPT_SHA256,
         quantization="sign-1bit",
         mask_policy="drop-padding",
         render=RenderConfig(),
@@ -32,6 +44,21 @@ def make_manifest(**over) -> IndexManifest:
     )
     base.update(over)
     return IndexManifest(**base)
+
+
+def test_make_manifest_defaults_track_production_config():
+    """Fikstür ile serve config'i birlikte sürüklenmeli (final review IMPORTANT-2).
+
+    Bu kilit olmadan `Settings` varsayılanı değişince fikstür sessizce eski
+    formatta kalır ve `create_app`'ın uyumluluk kontrolü ya ölür ya da tüm
+    app testlerini kopyala-yapıştır bir literal'e mahkûm eder."""
+    from belge_gozu.config import Settings
+
+    s = Settings()
+    m = make_manifest()
+    assert m.query_format.format_id == s.query_format_id
+    assert m.doc_prompt_sha256 == TRAIN_COMPAT_DOC_PROMPT_SHA256
+    assert s.doc_prompt_id == "train-compat"
 
 
 def test_query_format_render():

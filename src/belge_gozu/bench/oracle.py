@@ -4,9 +4,16 @@ from pathlib import Path
 
 import numpy as np
 
+from belge_gozu.index.chunking import CHUNK_TOKENS, chunk_bounds
 from belge_gozu.index.manifest import IndexManifest, read_manifest, write_manifest
 
-CHUNK_TOKENS = 500_000
+__all__ = [
+    "CHUNK_TOKENS",  # geriye dönük: eskiden bu modülün global'iydi (bkz. index/chunking.py)
+    "FloatIndex",
+    "chunk_bounds",
+    "native_float_scores",
+    "rank_of",
+]
 
 
 @dataclass
@@ -65,23 +72,6 @@ class FloatIndex:
         )
 
 
-def _chunk_bounds(offsets: np.ndarray, chunk_tokens: int | None = None) -> list[int]:
-    """`chunk_tokens` T12/Int8Index.score_all'ün küçük-chunk testleri için
-    override edilebilsin diye parametreleştirildi; varsayılan `None` -> bu
-    modülün global CHUNK_TOKENS'ı ÇAĞRI ANINDA okunur (import zamanında
-    bağlanmaz), böylece test'ler modül global'ini monkeypatch'leyebilir.
-    native_float_scores'un davranışı değişmez (hâlâ argümansız çağırıyor)."""
-    chunk_tokens = chunk_tokens or CHUNK_TOKENS
-    bounds = [0]
-    for i in range(1, len(offsets)):
-        last = bounds[-1]
-        if offsets[i] - offsets[last] >= chunk_tokens:
-            bounds.append(i)
-    if bounds[-1] != len(offsets) - 1:
-        bounds.append(len(offsets) - 1)
-    return bounds
-
-
 def native_float_scores(findex: FloatIndex, q_emb: np.ndarray) -> np.ndarray:
     """(n_pages,) — float MaxSim (per-query-token ortalama), sayfa-hizalı chunk'lı.
 
@@ -92,7 +82,7 @@ def native_float_scores(findex: FloatIndex, q_emb: np.ndarray) -> np.ndarray:
     offsets = np.asarray(findex.offsets)
     n_pages = len(findex.page_ids)
     out = np.empty(n_pages, dtype=np.float64)
-    bounds = _chunk_bounds(offsets)
+    bounds = chunk_bounds(offsets)
     for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
         t0, t1 = int(offsets[b0]), int(offsets[b1])
         chunk = np.asarray(findex.embs[t0:t1], dtype=np.float32)

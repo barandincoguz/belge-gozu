@@ -139,7 +139,11 @@ def test_split_assignment(tmp_path: Path):
             unanswerable_reason="anlamsiz",
         )
     )
-    assert question_split(ood, splits) in ("dev", "test")  # deterministik hash ataması
+    # gold_doc_ids boş -> sha256(question_id) tabanlı deterministik atama.
+    # sha256("ood1") = f27f8a54...e398, int(...,16) % 2 == 0 -> "dev".
+    # (Eski hali `in ("dev","test")` idi: dönüş tipi zaten bu ikisi olduğu için
+    # kuralın kendisini değil, hiçbir şeyi doğrulamıyordu.)
+    assert question_split(ood, splits) == "dev"
 
 
 def test_split_assignment_unknown_doc_defaults_to_dev(tmp_path: Path):

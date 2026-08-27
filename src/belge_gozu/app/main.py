@@ -15,7 +15,6 @@ from belge_gozu.answer.base import Answer, AskService
 from belge_gozu.config import Settings, get_settings
 from belge_gozu.index.compat import IndexCompatibilityError, check_compatibility
 from belge_gozu.index.manifest import (
-    CPE_0_3_18,
     DOC_PROMPTS,
     QUERY_FORMATS,
     DocPromptChoice,
@@ -71,12 +70,22 @@ def create_app(
 
         answerer = GeminiAnswerer(s.gemini_model, s.gemini_api_key)
 
+    # Final review IMPORTANT-2: fallback'ler ESKİ varsayılan literal'i (CPE_0_3_18)
+    # ve None değil, config'ten çözülen ÜRETİM değerleridir. Aksi halde
+    # `query_format`/`doc_prompt_sha256` taşımayan bir encoder enjekte edildiğinde
+    # (testler, gömme/uzak encoder'lar) kontrol sessizce ölü hale geliyordu:
+    # indeks train-compat, karşılaştırma cpe-0.3.18'e karşı yapılıyordu.
+    resolved_doc_prompt_sha256 = (
+        hashlib.sha256(resolved_doc_prompt.encode()).hexdigest()
+        if resolved_doc_prompt is not None
+        else None  # processor-default: etkin prompt yalnız processor'dan bilinir
+    )
     problems = check_compatibility(
         index.manifest,
         model_name=s.retriever_model,
         model_revision=getattr(encoder, "model_revision", None),
-        query_format_id=getattr(encoder, "query_format", CPE_0_3_18).format_id,
-        doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", None),
+        query_format_id=getattr(encoder, "query_format", resolved_query_format).format_id,
+        doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", resolved_doc_prompt_sha256),
         index_dir=s.index_dir,
     )
     if problems:

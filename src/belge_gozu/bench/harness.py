@@ -1,4 +1,3 @@
-import subprocess
 import time
 from pathlib import Path
 from typing import Protocol
@@ -10,6 +9,7 @@ from belge_gozu.bench.dataset import BenchQuestion
 from belge_gozu.bench.metrics import bootstrap_ci, mrr, ndcg_at_k, recall_at_k
 from belge_gozu.index.manifest import IndexManifest
 from belge_gozu.index.store import binarize_pack
+from belge_gozu.provenance import git_commit  # geriye dönük re-export (eski ev buradaydı)
 from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever, TwoStageRetriever, hamming_matrix
 
 
@@ -157,19 +157,6 @@ class TwoStageDiagnosticAdapter:
 
         ranked = stage2_ids
         return ranked, [stage1, stage2]
-
-
-def git_commit() -> str:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout.strip() or "unknown"
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return "unknown"
 
 
 def run_retrieval_eval(

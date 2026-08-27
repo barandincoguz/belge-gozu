@@ -18,7 +18,7 @@ dokunmaz).
 
 Çalıştırma (model ağırlıkları HF önbelleğinden gelir):
 
-    uv run python scripts/d1_augmentation.py --index data/index
+    uv run python scripts/d1_augmentation.py --index data/index-traincompat-1bit
 
 CI'da koşmaz: model dokunan her şey runbook betiklerinde ya da `-m slow`'da.
 """

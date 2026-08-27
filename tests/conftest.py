@@ -13,7 +13,15 @@ from tests.index.test_manifest import make_manifest
 
 @pytest.fixture
 def tiny_corpus(tmp_path: Path):
-    """3 sayfalık sahte korpus: görüntüler + meta.parquet + FakeEncoder indeksi."""
+    """3 sayfalık sahte korpus: görüntüler + meta.parquet + FakeEncoder indeksi.
+
+    Manifest `make_manifest()` varsayılanlarıyla yazılır; bunlar artık ÜRETİM
+    değerleridir (train-compat-v1 + train-compat doküman prompt'u sha'sı).
+    `FakeEncoder`ın `query_format`/`doc_prompt_sha256` niteliği yok, bu yüzden
+    `create_app` uyumluluk kontrolü config'ten çözülen üretim değerlerine düşer
+    (final review IMPORTANT-2) — yani bu fikstürle kurulan her app testi artık
+    kontrolü gerçekten çalıştırır.
+    """
     enc = FakeEncoder()
     images, ids, records = [], [], []
     for i in range(3):

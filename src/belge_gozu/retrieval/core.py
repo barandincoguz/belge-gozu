@@ -1,6 +1,9 @@
+from typing import ClassVar
+
 import numpy as np
 import pandas as pd
 
+from belge_gozu.index.chunking import CHUNK_TOKENS, chunk_bounds
 from belge_gozu.index.encode import Encoder
 from belge_gozu.index.store import PackedIndex, binarize_pack
 from belge_gozu.retrieval.types import PageHit
@@ -77,7 +80,10 @@ class ExhaustiveBinaryRetriever:
     sonucu 1768'e atma karşı-örneği (spec §1.1). TwoStageRetriever yalnız
     ablasyon için durur (config: retrieval_pipeline="two-stage")."""
 
-    CHUNK_TOKENS = 500_000
+    # Ortak sabit (belge_gozu.index.chunking) — eskiden bu sınıfın kendi üçüncü
+    # kopyasıydı; test override'ı için instance üstünde değiştirilebilir
+    # (bkz. index/quantize.py'deki aynı desen).
+    CHUNK_TOKENS: ClassVar[int] = CHUNK_TOKENS
 
     def __init__(self, index: PackedIndex, meta: pd.DataFrame, encoder: Encoder | None):
         self.index = index
@@ -86,23 +92,13 @@ class ExhaustiveBinaryRetriever:
         self.tokens = np.ascontiguousarray(np.asarray(index.tokens))
         self.offsets = np.asarray(index.offsets)
 
-    def _chunk_bounds(self) -> list[int]:
-        bounds = [0]
-        for i in range(1, len(self.offsets)):
-            last = bounds[-1]
-            if self.offsets[i] - self.offsets[last] >= self.CHUNK_TOKENS:
-                bounds.append(i)
-        if bounds[-1] != len(self.offsets) - 1:
-            bounds.append(len(self.offsets) - 1)
-        return bounds
-
     def score_all(self, q_emb: np.ndarray) -> np.ndarray:
         q_packed = binarize_pack(q_emb)
         qa = _as_u64(q_packed)
         ta = _as_u64(self.tokens)
         n_pages = len(self.index.page_ids)
         out = np.empty(n_pages, dtype=np.float64)
-        bounds = self._chunk_bounds()
+        bounds = chunk_bounds(self.offsets, self.CHUNK_TOKENS)
         for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
             t0, t1 = int(self.offsets[b0]), int(self.offsets[b1])
             ham = np.bitwise_count(qa[:, None, :] ^ ta[None, t0:t1, :]).sum(axis=2, dtype=np.int32)

@@ -5,7 +5,8 @@ from typing import ClassVar
 
 import numpy as np
 
-from belge_gozu.bench.oracle import CHUNK_TOKENS, FloatIndex, _chunk_bounds
+from belge_gozu.bench.oracle import FloatIndex
+from belge_gozu.index.chunking import CHUNK_TOKENS, chunk_bounds
 from belge_gozu.index.manifest import IndexManifest, read_manifest, write_manifest
 from belge_gozu.index.store import PackedIndex
 
@@ -41,13 +42,13 @@ class Int8Index:
     page_ids: list[str]
     manifest: IndexManifest | None = None
 
-    # oracle.CHUNK_TOKENS ile aynı varsayılan; test override'ı için instance
-    # üstünde değiştirilebilir (bkz. retrieval/core.py'deki aynı desen).
+    # index.chunking.CHUNK_TOKENS ile aynı varsayılan; test override'ı için
+    # instance üstünde değiştirilebilir (bkz. retrieval/core.py'deki aynı desen).
     CHUNK_TOKENS: ClassVar[int] = CHUNK_TOKENS
 
     @classmethod
     def derive(cls, findex: FloatIndex, chunk_tokens: int | None = None) -> "Int8Index":
-        """Sayfa-hizalı chunk'lar halinde işler (bkz. `_chunk_bounds`): her
+        """Sayfa-hizalı chunk'lar halinde işler (bkz. `chunk_bounds`): her
         chunk yalnız kendi float32 kopyasını (chunk_tokens*128*4 byte tepe)
         tutar, tüm korpusu float32'ye açan ~4 tam kopya YERİNE (review R1
         IMPORTANT-2 — 4222 sayfa x ~871 token'da bu tepe belleği 5.5-6.5 GB'a
@@ -59,7 +60,7 @@ class Int8Index:
         codes = np.empty((total_tokens, 128), dtype=np.int8)
         scales = np.empty(total_tokens, dtype=np.float32)
         resolved_chunk = chunk_tokens if chunk_tokens is not None else cls.CHUNK_TOKENS
-        bounds = _chunk_bounds(offsets, resolved_chunk)
+        bounds = chunk_bounds(offsets, resolved_chunk)
         for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
             t0, t1 = int(offsets[b0]), int(offsets[b1])
             chunk = np.asarray(findex.embs[t0:t1], dtype=np.float32)  # kopya, yalnız bu chunk
@@ -89,7 +90,7 @@ class Int8Index:
         offsets = np.asarray(self.offsets)
         n_pages = len(self.page_ids)
         out = np.empty(n_pages, dtype=np.float64)
-        bounds = _chunk_bounds(offsets, self.CHUNK_TOKENS)
+        bounds = chunk_bounds(offsets, self.CHUNK_TOKENS)
         for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
             t0, t1 = int(offsets[b0]), int(offsets[b1])
             chunk = self.codes[t0:t1].astype(np.float32) * self.scales[t0:t1, None]

@@ -3,12 +3,18 @@
 Tamamı `-m slow`: gerçek `ColSmolEncoder` (MPS/CUDA/CPU) ve gerçek üretim
 indeksini yükler; `pytest -m "not slow"` bu dosyaya hiç değmez.
 
-Üç kilit:
+Dört kilit:
   * G0.1 — canary'deki her gold sayfa üretim indeksinde var (korpus kapsamı).
   * G0.8 — kısa sorgunun gold'u top-5'te (P0'ın ana davranış düzelmesi; bu
     kırılırsa P0 sessizce regresse olmuş demektir).
   * rank cırcırı — uzun sorgunun tam-korpus sırası yalnız SIKILAŞTIRILABİLİR
     (düşürülebilir), asla sessizce gevşetilemez (yükseltilemez).
+  * abstain kilidi — korpus-dışı sorularda top-1 skoru yapılandırılmış eşiğin
+    ALTINDA kalır (yoksa "halüsinasyon freni" iddiası ölçülmemiş bir yorum).
+
+Dosya yolları CWD'ye değil repo köküne göre çözülür ve hiçbir veri dosyası
+import/collection anında OKUNMAZ (`-m "not slow"` koşumları bu dosyaya
+dokunduğunda veri gerektirmesin diye).
 """
 
 import json
@@ -34,8 +40,14 @@ pytestmark = pytest.mark.slow
 Q_SHORT = "Yerleşim yeri nedir?"
 Q_LONG = "Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"
 GOLD = "k4721:4"
-CANARY_PATH = Path("data/bench/canary_v1.jsonl")
-EXPECT = json.loads(Path("tests/retrieval/canary_expectations.json").read_text(encoding="utf-8"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CANARY_PATH = REPO_ROOT / "data" / "bench" / "canary_v1.jsonl"
+EXPECT_PATH = Path(__file__).resolve().parent / "canary_expectations.json"
+
+
+def _expectations() -> dict:
+    """Cırcır eşikleri — import anında değil, kullanıldığı testte okunur."""
+    return json.loads(EXPECT_PATH.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -122,9 +134,62 @@ def test_long_query_rank_ratchet(prod_retriever):
     q_emb = prod_retriever.encoder.encode_query(Q_LONG)
     scores = prod_retriever.score_all(q_emb)
     rank = rank_of(scores, prod_retriever.index.page_ids, GOLD)
-    max_allowed = EXPECT["long_query_gold_rank_max"]
+    max_allowed = _expectations()["long_query_gold_rank_max"]
     assert rank <= max_allowed, (
         f"uzun sorgu için gold {GOLD} tam-korpus sırası {rank} > cırcır {max_allowed}. "
         "Bu cırcır yalnızca BİLİNÇLİ bir commit'le (tests/retrieval/canary_expectations.json) "
         "DÜŞÜRÜLEBİLİR; asla sessizce YÜKSELTİLMEMELİDİR."
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "ÖLÇÜLDÜ (2026-08-27, data/index-traincompat-1bit, exhaustive): eşik 60.0 "
+        "T11 formatı altında ARTIK AYIRMIYOR — korpus-dışı c003/c004/c005 top-1 "
+        "skorları 66.28/71.95/67.88, yani hepsi eşiğin ÜSTÜNDE. Tüm canary'de "
+        "cevaplanabilir n=43 (min 59.85 / medyan 63.40 / maks 78.50) ile "
+        "cevaplanamaz n=5 (min 59.65 / medyan 67.88 / maks 71.95) dağılımları "
+        "iç içe geçmiş durumda: hiçbir tek eşik bu ikisini ayırmıyor. Kalibrasyon "
+        "P2'nin işi (spec). strict=True: eşik gerçekten kalibre edilip bu iddia "
+        "tuttuğunda test KIRMIZI olur ve xfail'in kaldırılmasını zorlar — "
+        "abstain sözü sessizce ne bozulabilir ne de düzelmiş sayılabilir."
+    ),
+)
+def test_out_of_corpus_canary_scores_below_threshold(prod_retriever):
+    """Abstain sözü BUGÜNKÜ pipeline'a karşı kilitlenir (final review IMPORTANT-6).
+
+    `Settings.min_score_threshold=60.0`'ın gerekçe yorumundaki skorlar
+    (70.6 / 52.4) T11 format değişikliğinden ÖNCE, eski indeks+formatla
+    ölçüldü — yani eşiğin hâlâ ayırdığına dair hiçbir canlı kanıt yoktu.
+    Burada canary'nin `korpus-disi` (cevaplanamaz, konusu korpusta olmayan)
+    satırları üretim yolundan geçirilir ve top-1 skorunun eşiğin ALTINDA
+    kaldığı doğrulanır: yani bu sorular LLM'e hiç gitmeden abstain'e düşmeli.
+
+    İddia BİLEREK gevşetilmedi: ölçüm bugün tutmuyor (bkz. xfail reason), bu
+    yüzden `xfail(strict=True)` ile MEVCUT GERÇEK kilitlenir. Eşiği yükseltmek
+    çözüm değil — cevaplanabilir dağılım da aynı bantta (63.40 medyan), yani
+    eşik yükseltmek gerçek soruları abstain'e düşürür. Gerçek düzeltme
+    kalibrasyon + skor normalizasyonudur (P2).
+    """
+    if not CANARY_PATH.exists():
+        pytest.skip(f"canary seti yok: {CANARY_PATH}")
+    threshold = get_settings().min_score_threshold
+    # İnsan doğrulaması sürüyor -> taslak satırlar da dahil (only_verified=False).
+    ood = [
+        q
+        for q in load_bench(CANARY_PATH, only_verified=False)
+        if q.slice == "korpus-disi" and not q.answerable
+    ]
+    assert ood, "canary'de 'korpus-disi' satırı yok — abstain kilidi anlamsızlaşır"
+
+    over = []
+    for q in ood:
+        hits = prod_retriever.search(q.question, k=1)
+        top = hits[0].score if hits else float("-inf")
+        if top >= threshold:
+            over.append((q.question_id, round(top, 2)))
+    assert not over, (
+        f"korpus-dışı soru(lar) eşiği ({threshold}) geçti -> abstain yerine LLM çağrılırdı: "
+        f"{over}. Eşik T11 formatı altında yeniden kalibre edilmeli (P2); bu testi gevşetmeyin."
     )

@@ -8,11 +8,6 @@ from belge_gozu.index.manifest import (
 )
 
 
-class FakeTorchLike:
-    """_run'ın maske kırpma sözleşmesini gerçek model olmadan sınamak için
-    ColSmolEncoder._trim_by_mask saf fonksiyonu test edilir."""
-
-
 def test_trim_by_mask_drops_padding_rows():
     from belge_gozu.index.encode import trim_by_mask
 
@@ -105,10 +100,16 @@ def test_batch_vs_single_sign_determinism():
 
     from belge_gozu.index.encode import ColSmolEncoder
 
-    enc = ColSmolEncoder("vidore/colSmol-500M", "auto")
-    root = Path("data")
+    # Veri yolları CWD'ye değil repo köküne göre çözülür ve eksikse atlanır
+    # (fresh clone / veri indirilmemiş) — test_semantic_canary.py'deki desen.
+    root = Path(__file__).resolve().parents[2] / "data"
     # k6098:134 v0 indeksinde padding satırı olan sayfalardan biri (bulgu 20)
     paths = ["images/k6098/0134.webp", "images/k4721/0004.webp", "images/rg1965a/0001.webp"]
+    missing = [p for p in paths if not (root / p).exists()]
+    if missing:
+        pytest.skip(f"sayfa görüntüleri yok: {missing} (fresh clone / veri indirilmemiş)")
+
+    enc = ColSmolEncoder("vidore/colSmol-500M", "auto")
     imgs = [Image.open(root / p).convert("RGB") for p in paths]
     batch_out = enc.encode_pages(imgs)  # tek batch (karışık boyut)
     single_out = [enc.encode_pages([im])[0] for im in imgs]

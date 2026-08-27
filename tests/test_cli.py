@@ -91,14 +91,49 @@ def test_index_build_manifest_passes_compat_check(tmp_path: Path, monkeypatch):
     assert manifest is not None
 
     s = Settings()
+    # Final review CRITICAL-1: beklenen format LITERAL değil config'ten okunur.
+    # Sabit "cpe-0.3.18" yazılıydı ve CLI varsayılanı da sabitti; ikisi birlikte
+    # Settings'ten sürüklendiği için bu test sürüklenmeyi göremiyordu.
     problems = check_compatibility(
         manifest,
         model_name=s.retriever_model,
         model_revision=None,
-        query_format_id="cpe-0.3.18",
+        query_format_id=s.query_format_id,
         index_dir=index_dir,
     )
     assert problems == []
+    assert manifest.query_format.format_id == s.query_format_id
+
+
+def test_index_build_option_defaults_come_from_settings():
+    """Final review CRITICAL-1: `--query-format`/`--doc-prompt` varsayılanları
+    Settings'ten gelmeli. Sabit literal'ken serve config'i train-compat'e
+    geçtiğinde sürüklendiler ve belgelenmiş `index build` çağrısı üretim
+    indeksini KAYBEDEN formatla ezecek hale geldi."""
+    from belge_gozu.cli import DEFAULT_DOC_PROMPT, DEFAULT_QUERY_FORMAT
+    from belge_gozu.config import Settings
+
+    s = Settings()
+    assert DEFAULT_QUERY_FORMAT.value == s.query_format_id
+    assert DEFAULT_DOC_PROMPT.value == s.doc_prompt_id
+
+    result = runner.invoke(app, ["index", "build", "--help"])
+    assert result.exit_code == 0, result.output
+    unwrapped = "".join(result.output.split())  # help metni sarmalanabilir
+    assert s.query_format_id in unwrapped and s.doc_prompt_id in unwrapped
+
+
+def test_index_build_refuses_to_overwrite_prod_index_with_other_format(tmp_path, monkeypatch):
+    """--out verilmediğinde hedef üretim indeksidir; serve config'inden sapan
+    bir format/prompt ile o dizin ezilemez (CRITICAL-1 veri kaybı yolu)."""
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BG_INDEX_DIR", str(tmp_path / "index"))
+
+    result = runner.invoke(app, ["index", "build", "--fake", "--query-format", "cpe-0.3.18"])
+
+    assert result.exit_code != 0
+    assert "--out" in result.output
+    assert not (tmp_path / "index").exists()
 
 
 def test_metrics_export_cli(tmp_path, monkeypatch):

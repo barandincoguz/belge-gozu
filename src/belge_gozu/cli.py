@@ -13,7 +13,6 @@ import pandas as pd
 import typer
 from PIL import Image
 
-from belge_gozu.bench.harness import git_commit
 from belge_gozu.bench.oracle import FloatIndex, native_float_scores, rank_of
 from belge_gozu.config import Settings
 from belge_gozu.corpus.download import download_all
@@ -32,6 +31,7 @@ from belge_gozu.index.manifest import (
     write_manifest,
 )
 from belge_gozu.index.store import PackedIndex
+from belge_gozu.provenance import git_commit
 
 app = typer.Typer(help="Belge-Gözü: Türkçe mevzuat için görsel belge RAG")
 corpus_app = typer.Typer()
@@ -64,6 +64,18 @@ class Quantization(StrEnum):
 # QueryFormatChoice/DocPromptChoice ve QUERY_FORMATS/DOC_PROMPTS sözlükleri
 # belge_gozu.index.manifest'te tanımlı (T11/Step 6): serve config'i (Settings)
 # ile CLI aynı tek sözlükten okur, iki kopya literal sürüklenmez.
+#
+# Final review CRITICAL-1: `index build`ın --query-format/--doc-prompt
+# VARSAYILANLARI da config'ten (Settings) gelir. Daha önce burada sabit literal
+# duruyordu (cpe-0.3.18 / processor-default) ve Settings train-compat'e geçince
+# sessizce sürüklendi: `out_dir = out or s.index_dir` olduğu için belgelenmiş
+# `uv run belge-gozu index build` çağrısı ÜRETİM indeksini (data/index-traincompat-1bit)
+# A/B'yi KAYBEDEN formatla ezip serve'ü fail-fast'e düşürüyordu. Typer varsayılanları
+# dekorasyon (import) anında bağlandığı için tek Settings örneği burada okunur;
+# bayraklar hâlâ elle geçersiz kılınabilir.
+_CLI_DEFAULTS = Settings()
+DEFAULT_QUERY_FORMAT = QueryFormatChoice(_CLI_DEFAULTS.query_format_id)
+DEFAULT_DOC_PROMPT = DocPromptChoice(_CLI_DEFAULTS.doc_prompt_id)
 
 
 def _settings() -> Settings:
@@ -122,16 +134,26 @@ def index_build(
     fake: bool = typer.Option(False, "--fake"),  # noqa: B008
     precision: Precision = typer.Option(Precision.packed, "--precision"),  # noqa: B008
     query_format: QueryFormatChoice = typer.Option(  # noqa: B008
-        QueryFormatChoice.cpe_0_3_18, "--query-format"
+        DEFAULT_QUERY_FORMAT, "--query-format"
     ),
-    doc_prompt: DocPromptChoice = typer.Option(  # noqa: B008
-        DocPromptChoice.processor_default, "--doc-prompt"
-    ),
+    doc_prompt: DocPromptChoice = typer.Option(DEFAULT_DOC_PROMPT, "--doc-prompt"),  # noqa: B008
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
 ) -> None:
     s = _settings()
     if precision == Precision.f16 and out is None:
         raise typer.BadParameter("--precision f16 için --out zorunlu")
+    # CRITICAL-1 emniyeti: --out verilmediğinde hedef ÜRETİM indeksidir
+    # (s.index_dir). Serve'ün beklediği formattan sapan bir build o dizini
+    # kullanılamaz hale getireceği için, sapma varsa açık bir --out istenir.
+    if out is None and (
+        query_format.value != s.query_format_id or doc_prompt.value != s.doc_prompt_id
+    ):
+        raise typer.BadParameter(
+            "--query-format/--doc-prompt serve config'inden sapıyor "
+            f"(build={query_format.value}/{doc_prompt.value} "
+            f"config={s.query_format_id}/{s.doc_prompt_id}); üretim indeksini "
+            f"({s.index_dir}) ezmemek için --out ile ayrı bir dizin verin"
+        )
     out_dir = out or s.index_dir
     qf = QUERY_FORMATS[query_format]
     doc_prompt_override = DOC_PROMPTS[doc_prompt]
@@ -148,6 +170,10 @@ def index_build(
             visual_prompt_override=doc_prompt_override,
         )
     embs, ids = [], []
+    # batch_size=1 KASITLI: MPS'te batch içinde (padding'li) vs. tek başına encode
+    # edilen sayfa bit-birebir aynı çıkmıyor (ölçüm 2026-08-26, sign uyuşması
+    # 0.9990/0.9989 — bkz. tests/index/test_encode_mask.py::
+    # test_batch_vs_single_sign_determinism). "Optimize" edip büyütmeyin.
     batch_size = 1
     total = len(meta)
     for start in range(0, total, batch_size):
@@ -436,6 +462,27 @@ def bench_oracle(
         raise typer.BadParameter(
             "her iki indeksin de manifest.json'ı olmalı (--packed-index/--float-index)"
         )
+
+    # Final review IMPORTANT-4: kollar AYNI korpusu kapsamalı. Aksi halde
+    # recall@k'lar farklı sayfa kümeleri üzerinde hesaplanır ve README'nin
+    # kuantizasyon iddiaları (int8 == float16, 1-bit -7 puan) sessizce
+    # elmayla armut karşılaştırmasına döner.
+    def _require_same_corpus(name: str, other_ids: list[str]) -> None:
+        if other_ids == idx.page_ids:
+            return
+        missing = sorted(set(idx.page_ids) - set(other_ids))
+        extra = sorted(set(other_ids) - set(idx.page_ids))
+        detail = (
+            f"packed'de olup {name}'de olmayan={len(missing)} {missing[:3]}; "
+            f"{name}'de olup packed'de olmayan={len(extra)} {extra[:3]}"
+            if (missing or extra)
+            else "aynı küme, farklı SIRA (page_ids listeleri birebir eşleşmeli)"
+        )
+        raise typer.BadParameter(
+            f"page_ids uyuşmuyor: packed n={len(idx.page_ids)} {name} n={len(other_ids)} — {detail}"
+        )
+
+    _require_same_corpus("float", findex.page_ids)
     if idx.manifest.query_format.format_id != findex.manifest.query_format.format_id:
         raise typer.BadParameter(
             "query_format uyuşmuyor: packed="
@@ -476,6 +523,7 @@ def bench_oracle(
                 f"packed={idx.manifest.query_format.format_id}/"
                 f"{idx.manifest.doc_prompt_sha256[:12]}"
             )
+        _require_same_corpus("int8", i8.page_ids)
 
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=idx.manifest.query_format)
     retriever = ExhaustiveBinaryRetriever(idx, meta, None)

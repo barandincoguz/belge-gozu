@@ -144,9 +144,9 @@ def test_search_records_pipeline_and_index_revision(tiny_corpus):
         .fetchone()
     )
     assert row[0] == "exhaustive"
-    assert row[1] is not None and "cpe-0.3.18" in row[1]
+    assert row[1] is not None and "train-compat-v1" in row[1]
     detail = json.loads(row[2])
-    assert detail["retrieval"] == {"query_format": "cpe-0.3.18", "quantization": "sign-1bit"}
+    assert detail["retrieval"] == {"query_format": "train-compat-v1", "quantization": "sign-1bit"}
     assert "candidates" not in detail["retrieval"]
 
 

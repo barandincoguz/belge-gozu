@@ -17,7 +17,16 @@ def check_compatibility(
     index_dir: Path,
 ) -> list[str]:
     if manifest is None:
-        return ["indekste manifest yok (v0 legacy?) — `belge-gozu index write-manifest --legacy`"]
+        # Final review IMPORTANT-3: eski metin `index write-manifest --legacy`
+        # öneriyordu, ama o komut mask_policy="none" + query_format=cpe-0.3.18
+        # yazar; aşağıdaki mask_policy kontrolü onu yine reddeder — çıkmaz sokak.
+        # Gerçek çözüm indeksi yeniden inşa etmektir.
+        return [
+            "indekste manifest yok (v0 legacy?) — çözüm: `belge-gozu index build` ile "
+            "indeksi yeniden inşa edin (manifest'i doğru değerlerle yazar). "
+            "`belge-gozu index write-manifest --legacy` YALNIZCA teşhis içindir: "
+            'mask_policy="none" + cpe-0.3.18 yazdığı için bu kontrolden geçmez.'
+        ]
     problems: list[str] = []
     if manifest.model_name != model_name:
         problems.append(f"model_name: indeks={manifest.model_name} serve={model_name}")
