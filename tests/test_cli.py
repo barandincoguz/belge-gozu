@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
 
 import pymupdf as fitz
 from typer.testing import CliRunner
 
-from belge_gozu.cli import app
+from belge_gozu.cli import _load_bench_mode, app
 
 runner = CliRunner()
 
@@ -221,3 +222,86 @@ def test_metrics_export_no_events_table(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "0 olay — tablo yok" in result.output
     assert not out.exists()
+
+
+# --- R15: bench run/oracle --only-verified/--all -----------------------------
+
+
+def _bench_q(**over) -> dict:
+    base = dict(
+        question_id="q1",
+        question="Yerleşim yeri nedir?",
+        query_style="dogal",
+        answerable=True,
+        gold_doc_ids=["k4721"],
+        gold_page_ids=["k4721:4"],
+        gold_article_ids=["k4721:m19"],
+        minimal_evidence_spans=[
+            "Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
+        ],
+        reference_answer="Sürekli kalma niyetiyle oturulan yerdir (TMK m.19).",
+        slice="paraphrase",
+        difficulty="orta",
+        source_type="insan",
+        requires_visual=False,
+        requires_multi_hop=False,
+        unanswerable_reason=None,
+        verified_by="baran",
+        verification_status="verified",
+    )
+    base.update(over)
+    return base
+
+
+def _write_bench_jsonl(path: Path, rows: list[dict]) -> None:
+    path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+
+
+def test_load_bench_mode_only_verified(tmp_path: Path, capsys):
+    p = tmp_path / "bench.jsonl"
+    _write_bench_jsonl(
+        p,
+        [
+            _bench_q(question_id="verified1", verification_status="verified"),
+            _bench_q(question_id="draft1", verification_status="draft"),
+        ],
+    )
+
+    questions, only_verified = _load_bench_mode(p, only_verified=True)
+
+    assert only_verified is True
+    assert [q.question_id for q in questions] == ["verified1"]
+    out = capsys.readouterr().out
+    assert "bench modu: yalnız doğrulanmış (n=1)" in out
+
+
+def test_load_bench_mode_all(tmp_path: Path, capsys):
+    p = tmp_path / "bench.jsonl"
+    _write_bench_jsonl(
+        p,
+        [
+            _bench_q(question_id="verified1", verification_status="verified"),
+            _bench_q(question_id="draft1", verification_status="draft"),
+        ],
+    )
+
+    questions, only_verified = _load_bench_mode(p, only_verified=False)
+
+    assert only_verified is False
+    assert {q.question_id for q in questions} == {"verified1", "draft1"}
+    out = capsys.readouterr().out
+    assert "bench modu: TÜMÜ (taslak dahil, n=2)" in out
+
+
+def test_bench_run_help_lists_only_verified_and_all():
+    result = runner.invoke(app, ["bench", "run", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--only-verified" in result.output
+    assert "--all" in result.output
+
+
+def test_bench_oracle_help_lists_only_verified_and_all():
+    result = runner.invoke(app, ["bench", "oracle", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--only-verified" in result.output
+    assert "--all" in result.output

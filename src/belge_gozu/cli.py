@@ -361,13 +361,30 @@ def metrics_summary() -> None:
     typer.echo(f"token in/out={tok[0]}/{tok[1]} maliyet≈${tok[2]:.4f}")
 
 
+def _load_bench_mode(bench: Path, only_verified: bool) -> tuple[list, bool]:
+    """Bench JSONL'i `only_verified` moduna göre yükler, aktif modu yazdırır.
+
+    `load_bench` saf JSONL okur — model/indekse dokunmaz, bu yüzden birim
+    testte gerçek encoder olmadan doğrudan test edilebilir. R15: canary_v1
+    insan doğrulaması tamamlanana kadar taslak dahil TÜMÜ (--all) varsayılan
+    olmalı, aksi halde `bench run`/`bench oracle` hiç koşamaz."""
+    from belge_gozu.bench.dataset import load_bench
+
+    questions = load_bench(bench, only_verified=only_verified)
+    if only_verified:
+        typer.echo(f"bench modu: yalnız doğrulanmış (n={len(questions)})")
+    else:
+        typer.echo(f"bench modu: TÜMÜ (taslak dahil, n={len(questions)})")
+    return questions, only_verified
+
+
 @bench_app.command("run")
 def bench_run(
     bench: Path = typer.Option(Path("data/bench/canary_v1.jsonl")),  # noqa: B008
     pipeline: Pipeline = typer.Option(Pipeline.exhaustive, "--pipeline"),  # noqa: B008
+    only_verified: bool = typer.Option(False, "--only-verified/--all"),  # noqa: B008
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
 ) -> None:
-    from belge_gozu.bench.dataset import load_bench
     from belge_gozu.bench.harness import (
         ExhaustiveDiagnosticAdapter,
         TwoStageDiagnosticAdapter,
@@ -392,7 +409,7 @@ def bench_run(
     else:
         adapter = ExhaustiveDiagnosticAdapter(ExhaustiveBinaryRetriever(idx, meta, encoder))
 
-    questions = load_bench(bench)
+    questions, only_verified = _load_bench_mode(bench, only_verified)
     run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-{pipeline.value}"
     out_path = out or Path("data/bench/results") / f"{run_id}.json"
 
@@ -402,7 +419,7 @@ def bench_run(
         known_page_ids=set(idx.page_ids),
         run_id=run_id,
         index_manifest=idx.manifest,
-        config={"pipeline": pipeline.value, "bench": str(bench)},
+        config={"pipeline": pipeline.value, "bench": str(bench), "only_verified": only_verified},
     )
     report.to_json(out_path)
     o = report.overall
@@ -421,9 +438,9 @@ def bench_oracle(
     packed_index: Path = typer.Option(..., "--packed-index"),  # noqa: B008
     float_index: Path = typer.Option(..., "--float-index"),  # noqa: B008
     int8_index: Path | None = typer.Option(None, "--int8-index"),  # noqa: B008
+    only_verified: bool = typer.Option(False, "--only-verified/--all"),  # noqa: B008
     out: Path = typer.Option(..., "--out"),  # noqa: B008
 ) -> None:
-    from belge_gozu.bench.dataset import load_bench
     from belge_gozu.bench.metrics import recall_at_k
     from belge_gozu.index.encode import ColSmolEncoder
     from belge_gozu.index.quantize import Int8Index
@@ -485,7 +502,7 @@ def bench_oracle(
     known_float_ids = set(findex.page_ids)
     known_int8_ids = set(i8.page_ids) if i8 is not None else set()
 
-    questions = load_bench(bench)
+    questions, only_verified = _load_bench_mode(bench, only_verified)
     ks = (1, 5, 20, 50, 200)
     per_question: list[dict] = []
     binary_recalls: dict[int, list[float]] = {k: [] for k in ks}
@@ -560,6 +577,7 @@ def bench_oracle(
         "run_id": f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-oracle",
         "git_commit": git_commit(),
         "bench": str(bench),
+        "only_verified": only_verified,
         "packed_index": str(packed_index),
         "float_index": str(float_index),
         "packed_manifest": idx.manifest.model_dump(),
