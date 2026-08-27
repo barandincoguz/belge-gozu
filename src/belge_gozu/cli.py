@@ -287,7 +287,6 @@ def bench_run(
     from belge_gozu.bench.harness import (
         ExhaustiveDiagnosticAdapter,
         TwoStageDiagnosticAdapter,
-        git_commit,
         run_retrieval_eval,
     )
     from belge_gozu.index.encode import ColSmolEncoder
@@ -296,7 +295,8 @@ def bench_run(
     s = _settings()
     idx = PackedIndex.load(s.index_dir)
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
-    encoder = ColSmolEncoder(s.retriever_model, s.device)
+    query_format = idx.manifest.query_format if idx.manifest else CPE_0_3_18
+    encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=query_format)
 
     adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter
     if pipeline == Pipeline.two_stage:
@@ -360,12 +360,15 @@ def bench_oracle(
 
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=idx.manifest.query_format)
     retriever = ExhaustiveBinaryRetriever(idx, meta, None)
+    known_binary_ids = set(idx.page_ids)
+    known_float_ids = set(findex.page_ids)
 
     questions = load_bench(bench)
     ks = (1, 5, 20, 50, 200)
     per_question: list[dict] = []
     binary_recalls: dict[int, list[float]] = {k: [] for k in ks}
     float_recalls: dict[int, list[float]] = {k: [] for k in ks}
+    missing_gold_pages: set[str] = set()
 
     for q in questions:
         if not q.answerable:
@@ -377,8 +380,22 @@ def bench_oracle(
         binary_order = [idx.page_ids[i] for i in np.argsort(-binary_scores, kind="stable")]
         float_order = [findex.page_ids[i] for i in np.argsort(-float_scores, kind="stable")]
 
-        binary_rank = {g: rank_of(binary_scores, idx.page_ids, g) for g in q.gold_page_ids}
-        float_rank = {g: rank_of(float_scores, findex.page_ids, g) for g in q.gold_page_ids}
+        # Bir gold sayfa ilgili indekste yoksa rank_of ValueError fırlatır;
+        # koşumu kaybetmemek için o girdiyi atla, sayfayı missing_gold_pages'e
+        # ekle (bench run'daki known_page_ids desenine paralel).
+        binary_rank = {}
+        for g in q.gold_page_ids:
+            if g in known_binary_ids:
+                binary_rank[g] = rank_of(binary_scores, idx.page_ids, g)
+            else:
+                missing_gold_pages.add(g)
+        float_rank = {}
+        for g in q.gold_page_ids:
+            if g in known_float_ids:
+                float_rank[g] = rank_of(float_scores, findex.page_ids, g)
+            else:
+                missing_gold_pages.add(g)
+
         per_question.append(
             {
                 "question_id": q.question_id,
@@ -406,6 +423,7 @@ def bench_oracle(
         "float_index": str(float_index),
         "packed_manifest": idx.manifest.model_dump(),
         "float_manifest": findex.manifest.model_dump(),
+        "missing_gold_pages": sorted(missing_gold_pages),
         "summary": summary,
         "per_question": per_question,
     }
@@ -415,6 +433,8 @@ def bench_oracle(
         f"n={n} recall@5 binary={summary['binary']['5']:.3f} float={summary['float']['5']:.3f}"
     )
     typer.echo(f"oracle raporu -> {out}")
+    if missing_gold_pages:
+        typer.echo(f"missing_gold_pages={len(missing_gold_pages)}")
 
 
 @app.command("serve")

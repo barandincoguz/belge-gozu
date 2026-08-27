@@ -16,6 +16,7 @@ def test_roundtrip(tmp_path: Path):
     fi.save(tmp_path)
     fi2 = FloatIndex.load(tmp_path, mmap=False)
     assert fi2.page_ids == fi.page_ids
+    # seed-0 fikstürde ölçülen max f16 hata 9.7e-4; R4 gereği gerekirse 2e-3'e genişletilebilir
     np.testing.assert_allclose(
         np.asarray(fi2.embs, dtype=np.float32), np.asarray(fi.embs, dtype=np.float32), atol=1e-3
     )
