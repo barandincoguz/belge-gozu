@@ -29,8 +29,9 @@ class Settings(BaseSettings):
     # mean-sign Hamming ile aday eleme + kesin MaxSim (ablasyon-only; spec §1.1
     # karşı-örneği nedeniyle üretimde kullanılmaz).
     retrieval_pipeline: Literal["exhaustive", "two-stage"] = "exhaustive"
-    # kaba v0 ayarı; gerçek kalibrasyon Plan 2 (Task 13 smoke test: gerçek soru
-    # top_score~70.6, saçma soru top_score~52.4 -- 20.0 hiçbir zaman tetiklemiyordu)
+    # kaba v0 kalıntısı (Task 13 smoke test: gerçek soru top_score~70.6, saçma soru
+    # top_score~52.4 -- 20.0 hiçbir zaman tetiklemiyordu). Bu skor bir güven/olasılık
+    # ölçüsü DEĞİLDİR (bkz. README "v0 limitations"); gerçek kalibrasyon P2'nin işi.
     min_score_threshold: float = 60.0
     request_delay_s: float = 1.0
     # Tahmini birim fiyatlar (USD / 1M token). Kesin değildir; runbook'taki

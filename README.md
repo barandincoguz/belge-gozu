@@ -44,9 +44,8 @@ flowchart TD
     IDX["In-memory index<br/>binary, mmap"]
     U["User<br/>single-page web UI"] -->|"question"| API["FastAPI (app/main.py)"]
     API --> QE["Query encoder<br/>same VLM, on CPU"]
-    QE --> S1["STAGE 1 - Elimination<br/>page-summary vector, Hamming (XOR+popcount)<br/>whole corpus -> top-200 candidates (milliseconds)"]
-    IDX --> S1
-    S1 --> S2["STAGE 2 - MaxSim (late interaction)<br/>exact ranking: top-200 -> top-5 pages"]
+    QE --> S2["Exhaustive binary MaxSim (late interaction)<br/>Hamming XOR+popcount in place of float dot-product<br/>whole corpus -> top-5 pages (~1.2s/query, 4,222 pages)"]
+    IDX --> S2
     S2 --> G{"score >= threshold?"}
     G -->|"no"| AB["Says 'not found'<br/>hallucination brake"]
     G -->|"yes"| ANS["Answerer (pluggable)<br/>Gemini Flash: top-5 page IMAGES + question<br/>-> Turkish answer with page citations"]
@@ -59,12 +58,21 @@ flowchart TD
   HUB -->|"pull + mmap at startup"| IDX
 ```
 
-Retrieval is two-stage: a cheap Hamming-distance pass over binarized page-summary
-vectors narrows the whole corpus to ~200 candidates in milliseconds, then exact
-late-interaction MaxSim (real ColPali-style scoring, not an approximation) re-ranks
-those candidates to the top 5. If the best score doesn't clear a threshold, the service
-returns "I couldn't find grounds for this in the corpus" *before* ever calling the LLM —
-the abstain path costs nothing and can't hallucinate.
+Retrieval is exhaustive: every query is scored against the whole corpus with binary
+late-interaction MaxSim (Hamming distance standing in for the float dot-product) — no
+elimination pass — which takes ~1.2 s/query over the current 4,222-page index on an
+M4 Pro. An earlier two-stage design first narrowed the corpus to ~200 candidates with
+a cheap mean-sign Hamming filter before re-ranking with MaxSim; that filter turned out
+to be discarding good candidates (see [v0 limitations](#v0-limitations)) and was
+removed from the production path — it survives only as an ablation option
+(`BG_RETRIEVAL_PIPELINE=two-stage`). MaxSim over the binarized codes is exact *within
+that binary code space*, but relative to native float ColPali scoring it is an
+approximation; the size of that loss is being quantified in an ongoing quantization
+ablation. The resulting score is itself an **uncalibrated similarity**
+(`128 − 2×Hamming`, averaged per query token) — not a confidence or probability — and
+if it doesn't clear a threshold (a rough v0 cut-off, not a tuned operating point), the
+service returns "I couldn't find grounds for this in the corpus" *before* ever calling
+the LLM — the abstain path costs nothing and can't hallucinate.
 
 ## Example queries
 
@@ -139,6 +147,19 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
   qualitative session log, not a scored eval).
 - **The score threshold (`BG_MIN_SCORE_THRESHOLD=60.0`) is a rough calibration** from a
   handful of observed scores, not a tuned operating point.
+- **P0 root-cause investigation found the old two-stage Stage-1 filter was discarding
+  good candidates, not just approximating the ranking.** For the query *"Türk Medeni
+  Kanunu'na göre yerleşim yeri nasıl tanımlanır?"*, the correct page (`k4721:4`) ranked
+  3127/4222 under the old mean-sign Hamming Stage-1 filter but 1576/4222 under
+  exhaustive binary MaxSim; for *"Yerleşim yeri nedir?"* it ranked 1768 under Stage-1
+  but **2** under exhaustive. Stage-1's top-200 candidate set overlapped the exhaustive
+  top-200 by only 11.5-19% across the queries checked — it was picking a mostly
+  different set of pages, not a faster version of the same ranking. Separately, the
+  index was found to contain 3,960 all-zero padding-token rows across 15 pages (now
+  rejected at build time), and the encoder's retrieval training data is English-only,
+  which is the likely reason Turkish paraphrase queries score weaker than queries that
+  name the statute explicitly. A hybrid text+visual retrieval path is the planned fix
+  (P1); a full retrieval benchmark is in progress to quantify where things stand today.
 - **Single retrieval mode, single answerer.** No query rewriting, no agentic
   multi-step retrieval, no local-VLM fallback — Gemini Flash is the only answerer
   implemented, behind a pluggable `Answerer` protocol.

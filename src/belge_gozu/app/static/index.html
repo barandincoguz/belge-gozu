@@ -251,9 +251,10 @@
 
   <section id="retrieval-sec" hidden aria-label="Retrieval sonuçları">
     <h2 class="sec-title">Sistem hangi sayfalara baktı?</h2>
-    <p class="sec-sub">İki aşamalı retrieval’ın seçtiği en yakın 5 sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
-      en iyi skor çizgiyi geçemezse sistem, yanıt uydurmak yerine “dayanak bulunamadı” der ve
-      Gemini hiç çağrılmaz.</p>
+    <p class="sec-sub">Retrieval’ın seçtiği en yakın 5 sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
+      kaba, kalibre edilmemiş bir kesme noktasıdır (güven ölçüsü değil) — en iyi skor bu
+      çizgiyi geçemezse sistem, yanıt uydurmak yerine “dayanak bulunamadı” der ve Gemini
+      hiç çağrılmaz.</p>
     <div class="chart" id="chart"></div>
     <div id="hits" class="hits"></div>
   </section>
@@ -348,7 +349,7 @@ function renderChart(hits) {
   c.appendChild(rows);
   const foot = document.createElement("p");
   foot.className = "chart-foot";
-  foot.textContent = "skor: sorgu jetonu başına ortalama MaxSim benzerliği (yüksek = daha yakın)";
+  foot.textContent = "skor: kalibre edilmemiş benzerlik (MaxSim, sorgu jetonu başına ortalama) — güven ya da doğruluk yüzdesi DEĞİLDİR";
   c.appendChild(foot);
 }
 function hl(pid, on) {
