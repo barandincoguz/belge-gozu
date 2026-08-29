@@ -356,8 +356,28 @@ def create_app(
 
     @app.get("/pages/{image_path:path}")
     def page_image(image_path: str) -> FileResponse:
+        # /pages YALNIZCA sayfa görüntülerini sunar: data_dir/images altındaki
+        # .webp dosyaları. Daha önce tüm data_dir ağacı servis ediliyordu, yani
+        # telemetri veritabanı (requests.sqlite — ham sorgu metinleri), korpus
+        # PDF'leri ve meta.parquet indirilebiliyordu.
+        #
+        # images_root kontrolü aynı zamanda yol aşımı (traversal) korumasıdır:
+        # data_dir'in kendisinden daha dar bir köktür, ".." ile dışarı çıkan ya
+        # da images/ dışına işaret eden her yol elenir. resolve() sembolik
+        # bağları da çözdüğü için images/ içinden dışarı gösteren bir link de
+        # reddedilir.
+        #
+        # Reddedilen her yol 404 döner (403/500 değil): uç nokta neyin var olup
+        # olmadığını sızdırmaz. is_file() kontrolü exists() yerine kullanılır —
+        # bir dizin yolu aksi hâlde FileResponse'ta IsADirectoryError'a, yani
+        # 500'e düşerdi.
+        images_root = (s.data_dir / "images").resolve()
         full = (s.data_dir / image_path).resolve()
-        if not full.is_relative_to(s.data_dir.resolve()) or not full.exists():
+        if (
+            not full.is_relative_to(images_root)
+            or full.suffix.lower() != ".webp"
+            or not full.is_file()
+        ):
             raise HTTPException(404)
         return FileResponse(full, media_type="image/webp")
 

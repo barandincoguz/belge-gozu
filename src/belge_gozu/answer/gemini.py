@@ -77,7 +77,8 @@ class GeminiAnswerer:
         if gen.tokens_out is not None:
             annotate("tokens_out", gen.tokens_out)
         idxs = {int(m) for m in re.findall(r"\[S(\d+)\]", text)}
+        # Atıf YOKSA atıf yok. Eskiden burada top-1 sayfayı otomatik atıf olarak
+        # ekleyen bir fallback vardı; model doğru biçimde "verilen sayfalarda
+        # bulamadım" dediğinde bile uydurma bir "dayanak" üretiyordu (P2 / G2.7).
         citations = [pages[i - 1].page_id for i in sorted(idxs) if 0 < i <= len(pages)]
-        if not citations and pages:
-            citations = [pages[0].page_id]
         return Answer(text=text, citations=citations)

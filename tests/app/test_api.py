@@ -76,6 +76,53 @@ def test_page_image_served(tiny_corpus):
     assert r.status_code == 200 and r.headers["content-type"] == "image/webp"
 
 
+def test_pages_does_not_serve_telemetry_db(tiny_corpus):
+    """/pages telemetri veritabanını sunmaz — içinde ham kullanıcı sorguları var."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)  # EventRecorder gerçek DB'yi data_dir'de açar
+    c.post("/ask", json={"question": "gizli kalması gereken sorgu"})
+    assert (data_dir / "requests.sqlite").is_file()  # dosya gerçekten orada
+    r = c.get("/pages/requests.sqlite")
+    assert r.status_code == 404
+    assert b"SQLite format 3" not in r.content
+
+
+def test_pages_rejects_paths_outside_images_dir(tiny_corpus):
+    """images/ dışındaki her şey — korpus PDF'leri, meta.parquet — 404."""
+    data_dir, _, _ = tiny_corpus
+    (data_dir / "pdf").mkdir(exist_ok=True)
+    (data_dir / "pdf" / "whatever.pdf").write_bytes(b"%PDF-1.7 korpus")
+    c = make_client(tiny_corpus)
+    for path in ("pdf/whatever.pdf", "meta.parquet", "index/meta.parquet"):
+        assert c.get(f"/pages/{path}").status_code == 404, path
+
+
+def test_pages_rejects_non_webp_inside_images(tiny_corpus):
+    """images/ altında olmak yetmez: uzantı .webp değilse 404."""
+    data_dir, _, _ = tiny_corpus
+    (data_dir / "images" / "notlar.txt").write_text("gizli", encoding="utf-8")
+    c = make_client(tiny_corpus)
+    assert c.get("/pages/images/notlar.txt").status_code == 404
+
+
+def test_pages_directory_is_404_not_500(tiny_corpus):
+    """Dizin yolu 404 döner; FileResponse'a düşüp IsADirectoryError ile 500 olmaz."""
+    c = make_client(tiny_corpus)
+    assert c.get("/pages/images").status_code == 404
+    assert c.get("/pages/images/d0").status_code == 404
+
+
+def test_pages_blocks_traversal(tiny_corpus):
+    """Yol aşımı hâlâ engelli — '..' yüzde-kodlu gönderilir ki istemci sadeleştirmesin."""
+    data_dir, _, _ = tiny_corpus
+    (data_dir.parent / "disarida.webp").write_bytes(b"RIFF----WEBPVP8 ")
+    c = make_client(tiny_corpus)
+    # data_dir'in tamamen dışına çıkan yol
+    assert c.get("/pages/%2e%2e/disarida.webp").status_code == 404
+    # data_dir içinde kalıp images/ dışına çıkan yol
+    assert c.get("/pages/images/%2e%2e/meta.parquet").status_code == 404
+
+
 def test_root_serves_ui(tiny_corpus):
     c = make_client(tiny_corpus)
     r = c.get("/")

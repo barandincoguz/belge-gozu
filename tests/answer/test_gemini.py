@@ -32,12 +32,15 @@ def test_citations_parsed_from_response():
     assert a.citations == ["k6098:13"] and not a.abstained
 
 
-def test_citation_fallback_top1():
+def test_no_marker_means_no_citation():
+    # Metinde [Sn] işareti yoksa atıf da yoktur. Eskiden burada top-1 sayfayı
+    # otomatik atıf yapan bir fallback vardı: model "verilen sayfalarda
+    # bulamadım" dediğinde bile UI'da uydurma bir "dayanak" çipi çıkıyordu.
     client = MagicMock()
-    client.generate.return_value = GenResult(text="Atıfsız bir yanıt.")
+    client.generate.return_value = GenResult(text="Verilen sayfalarda bulamadım.")
     ans = GeminiAnswerer("gemini-2.0-flash", "key", client=client)
     a = ans.answer("soru", [hit("k6098:12")], image_loader=lambda p: b"img")
-    assert a.citations == ["k6098:12"]
+    assert a.citations == []
 
 
 def test_answerer_constructs_without_key_no_sdk_touch():
