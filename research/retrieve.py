@@ -3,14 +3,9 @@
 Sözleşme (research/program.md): rank_pages(q) -> sıralı page_id listesi.
 q: query_text, page_ids, visual_scores (float32[n]), page_texts.
 
-EXP-7 (docroute-window20): exp5 + PENCERE-İÇİ doküman-adı yönlendirmesi.
-exp6'nın mutlak bölümlemesi guardrail'i deldi (aday kümesini değiştiriyordu);
-bu sürüm yalnız BM25 top-20 penceresinin İÇİNİ yeniden sıralar: pencere kümesi
-yapısal olarak aynı kalır (R@20 tanım gereği korunur), adı sorguda tam geçen
-doküman(lar)ın sayfaları pencere içinde öne alınır. Ad çıkarımı exp6 ile aynı
-(1. sayfa büyük-harfli başlık satırı; jenerik: kanun/türk/türki/cumhu).
-Pencere = 20, R@20 guardrail'iyle eşleşsin diye seçildi (veriye ayar değil).
-Tek değişken: pencere-içi yönlendirme katmanı.
+EXP-8 (window50): exp7 + pencere 20→50. Sağlamlık taraması w30/50'de +1 soru
+gösterdi (c214 txt rank 27 pencereye giriyor). w50'de top-20 KÜMESİ artık yapısal
+olarak korunmaz — R@20 guardrail'i ölçümle karar verir. Tek değişken: pencere.
 """
 
 from __future__ import annotations
@@ -78,7 +73,7 @@ def _bm25(page_texts: list[str]) -> BM25:
     return _BM25
 
 
-WINDOW = 20  # R@20 guardrail'iyle bilinçli hizalı: pencere kümesi değişmez
+WINDOW = 50  # exp8: guardrail artık yapısal değil ölçülü (bkz. docstring)
 
 _GENERIC = frozenset({"kanun", "türk", "türki", "cumhu"})
 _TITLE_LINE = re.compile(r"^[A-ZÇĞİÖŞÜÂÎÛ0-9 ()'’.,;:-]{8,}$")

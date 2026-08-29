@@ -120,3 +120,13 @@ Atılanlar: eşit-RRF (0.395 — zayıf kanal gürültüsü), bigram (0.628), mu
   aynı koşumun farklı metrik tanımı). Canlı: chip'ler gerçek cevap + doğru atıf; anlamsız → abstain.
 - research/ lint temizliği: retrieve.py reformatlandı (mantık AYNEN; sağlama koşumu "lint-sanity"
   results.jsonl'da — R@5 0.814, chip 2/2 birebir). retrieve_sha bundan sonra 32dd8055670b tabanlı.
+
+## #8 — exp8-window50 → KEPT
+
+- **Hipotez:** sağlamlık taraması w≥30'da +1 gösterdi (c214 txt 27); pencere 50'ye
+  çıkınca yapısal R@20 garantisi kalkar ama ölçüm karar verir.
+- **Sayılar:** R@5 **0.8372** (+1: c214) · R@20 **0.9302** (yükseldi!) · MRR 0.655
+  · visual 1.0 · chip'ler 2/2
+- **Karar:** KEPT — guardrail gerilemedi, aksine yönlendirme bir gold'u top-20'ye çekti.
+- **Öğrenilen:** pencere büyümesi bu korpusta güvenli çıktı; üretim portu (WINDOW=20)
+  için güncelleme adayı — rapor devrine not.
