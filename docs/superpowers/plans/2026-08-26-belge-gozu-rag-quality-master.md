@@ -228,6 +228,16 @@ kanal gereksinimi değişmedi. D5 güncellendi: 48/48 satır doğrulandı (3 ins
 model-cross-check — insan-doğrulanmış SAYILMAZ, künye `canary_v1.README.md`). Eşlik eden
 bağlaşım denetimi: `docs/research/findings/2026-08-29-config-coupling-audit.md`.
 
+**Güncelleme 2 (2026-08-29 akşam):** Autoresearch döngüsü (Karpathy metodolojisi,
+`research/`) metin kanalını ÖLÇTÜ: BM25+F5+stoplist+pencere-yönlendirme reçetesi canary
+R@5 0.2326→**0.8140**; eşit-RRF ölçümle reddedildi (0.395); görselin @5 benzersiz katkısı
+F5 sonrası 0 soru. Bulgular: `docs/research/findings/2026-08-29-autoresearch-text-channel.md`.
+Ruling R23: P1 kapsamı "ölçülmüş reçetenin üretimleştirilmesi" olarak daraltıldı
+(T1kısmi+T6+T8-revize; kalanı backlog — P1 planındaki durum notuna bakınız). Hibrit eşik
+mekanik taşıma: BM25 ölçeğinde **10.6** (band (10.528,10.712], 42/43+4/5 birebir; ayrım
+yine yok — kalibrasyon P2). D3 (uzun sorgu) reçetede KAPANDI: gold 664→2 (üretim teyidi
+entegrasyon koşumunda).
+
 **P1 giriş koşulu güncellemesi:** P1'in F1 kanal ablasyonu, görsel kanalı **int8 üzerinde**
 ölçmelidir (1-bit değil) — aksi halde görsel kanal kendi tavanının 7 puan altında
 raporlanır ve hibrit füzyon kararı çarpıtılır.

@@ -2,6 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **DURUM GÜNCELLEMESİ (2026-08-29, Ruling R23 — bu plan yazıldıktan SONRA yapılan
+> autoresearch ölçümleri kapsamı değiştirdi; eski metin silinmez, supersession şudur):**
+> Ölçüm kaynağı: `docs/research/findings/2026-08-29-autoresearch-text-channel.md`
+> (canary R@5 görsel-only 0.2326 → BM25+F5+stoplist+pencere-yönlendirme 0.8140).
+> - **T6 (BM25) + T8 (füzyon) + T1'in metin-çıkarım çekirdeği ÜRETİMLEŞTİRİLDİ** —
+>   ama T8'in eşit-RRF tasarımı ÖLÇÜMLE REDDEDİLDİ (0.674→0.395); yerine BM25-birincil
+>   + doküman-adı pencere-içi (top-20) yönlendirme girdi. Yönlendirme hard-FILTER
+>   değildir (aday kümesi değişmez, yalnız pencere içi sıra) → soft-boost ilkesiyle uyumlu.
+> - **Sapma:** metin artefaktı `data/text/page_texts.parquet` yerine
+>   `<index_dir>/page_texts.parquet` (o indeksin page_id sırasına hizalama + fail-fast
+>   eşitlik kontrolü; ayrı checksum tesisatı gerekmez).
+> - **F1 kanal ölçümü fiilen yapıldı** (autoresearch #0/#1); görsel kanalın F5 sonrası
+>   @5 benzersiz katkısı SIFIR — T7 (dense) ve T10 (reranker) ancak YENİ ölçüm
+>   gerekçesiyle açılır (R@20 0.907 → reranker havuzu recall-kapısını geçer, aday).
+> - **Backlog'da kalanlar:** T2 (OCR fallback — korpus %99.98 metin katmanlı çıktı),
+>   T3 (madde segmentasyonu), T4-T5 (alias/facet/varyant — alias'ın kural-tabanlı
+>   çekirdeği autoresearch round-2 adayı), T7, T9 (kısmen harness'ta var), T10, T11,
+>   T12 (İNSAN kapılı), T13.
+
 **Goal:** Aday havuzunu hibrit kanallarla (BM25 + dense + visual, çok-varyantlı sorgu,
 RRF füzyonu) candidate-union Recall@50 ≥ %95'e çıkarmak; kanun→madde→sayfa yapısını
 kurmak; recall-kapılı cross-encoder reranker ile top-5 kaliteyi kanıtlamak; visual-only
