@@ -72,3 +72,24 @@ hiçbir guardrail gerilemiyorsa KEPT. Art arda 5 verimsiz deney → dur, raporla
 - KEPT deneyler: `exp(<ad>): R@5 <eski>-><yeni> KEPT — <tek cümle>` commit'i.
 - Döngü çıktıları üretime OTOMATİK GEÇMEZ: kazanan reçete P1 planının F1/F2
   görevlerine ölçümüyle birlikte devredilir (SDD kapı düzeni orada işler).
+
+## Round 2 (2026-08-29, P1 üretim entegrasyonu SONRASI) — derin dalış
+
+Round 1 exp7'de hedefi aşarak durdu; kullanıcı talimatıyla round 2 açıldı.
+Kurallar aynen geçerli; ek çerçeve:
+
+- **Taban:** exp7 reçetesi (R@5 0.8140). retrieve.py üretim portu tamamlanana
+  kadar DONDURULDU; round 2 deneyleri port bitince başlar.
+- **Hedef:** kalan 8 ıskadan kural-tabanlı, ayarsız kazanımlar + reçetenin
+  sağlamlık kanıtı. Sayısal hedef yok (açık uçlu derin dalış); karar kuralı ve
+  art-arda-5 durması aynen geçerli.
+- **Deney adayları (kanıt sırasına göre):** exp8 madde-numarası kanalı
+  (sorguda "madde N" → "Madde N" başlıklı sayfalar pencere içinde öne; c214);
+  exp9 başlıktan türetilmiş kısaltma alias'ı (baş harfler → "kvkk"; c206);
+  exp10 ayırt-edici-tek-token yönlendirmesi (ad token'ı korpus çapında tek
+  dokümana özgüyse tek eşleşmeyle yönlendir; c209 "Anayasa"); exp11 pencere içi
+  BM25-eşitlik kırıcı olarak görsel skor (yalnız beraberliklerde).
+- **Sağlamlık raporu (deney değil, ölçüm):** k1/b ve F5/pencere duyarlılık
+  taraması (KEPT edilmez, yalnız rapora — reçete bıçak sırtında mı?);
+  dilim-bazlı kırılım; 43 soruda bootstrap %95 GA (taban vs final);
+  aşırı-uyum uyarısı (aynı 43 soruya yinelenen iterasyon) raporda açık.

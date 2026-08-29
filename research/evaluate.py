@@ -19,7 +19,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
 import retrieve  # tek değiştirilebilir dosya (research/retrieve.py)
 
 DATA = Path("data/research")
@@ -45,7 +44,7 @@ def main() -> None:
     meta = json.loads((DATA / "queries.json").read_text())
     scores = np.load(DATA / "visual_scores.npz")["scores"]
     texts_df = pd.read_parquet(DATA / "page_texts.parquet")
-    df_map = dict(zip(texts_df.page_id, texts_df.text))
+    df_map = dict(zip(texts_df.page_id, texts_df.text, strict=True))
     # page_ids sırası: skor matrisi prepare'daki idx.page_ids sırasıyla üretildi;
     # parquet de aynı sırayla yazıldı — yine de kimliği parquet sırasından alıyoruz.
     page_ids = texts_df.page_id.tolist()
@@ -69,9 +68,13 @@ def main() -> None:
 
     vis = [r for r in canary if r["requires_visual"]]
     metrics = {
-        "R@1": r_at(1), "R@5": r_at(5), "R@20": r_at(20),
+        "R@1": r_at(1),
+        "R@5": r_at(5),
+        "R@20": r_at(20),
         "MRR": round(float(np.mean([1.0 / r["rank"] for r in canary])), 4),
-        "visual_R@5": r_at(5, vis), "n": n, "n_visual": len(vis),
+        "visual_R@5": r_at(5, vis),
+        "n": n,
+        "n_visual": len(vis),
     }
     case_ranks = {c["qid"]: c["rank"] for c in cases}
 
@@ -79,17 +82,24 @@ def main() -> None:
     row = {
         "exp": exp,
         "retrieve_sha": hashlib.sha256(code).hexdigest()[:12],
-        "git": subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip(),
-        "index": meta["index_dir"], "quantization": meta["quantization"],
-        **metrics, "case_ranks": case_ranks,
+        "git": subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
+        ).stdout.strip(),
+        "index": meta["index_dir"],
+        "quantization": meta["quantization"],
+        **metrics,
+        "case_ranks": case_ranks,
     }
     RESULTS.parent.mkdir(exist_ok=True)
     with RESULTS.open("a") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    print(f"[{exp}] R@5={metrics['R@5']}  R@1={metrics['R@1']}  R@20={metrics['R@20']}  "
-          f"MRR={metrics['MRR']}  visual_R@5={metrics['visual_R@5']} (n={n}, görsel {len(vis)})")
-    print(f"  vaka: chip1-uzun rank={case_ranks.get('chip1-uzun')}  chip2-izin rank={case_ranks.get('chip2-izin')}")
+    print(
+        f"[{exp}] R@5={metrics['R@5']}  R@1={metrics['R@1']}  R@20={metrics['R@20']}  "
+        f"MRR={metrics['MRR']}  visual_R@5={metrics['visual_R@5']} (n={n}, görsel {len(vis)})"
+    )
+    c1, c2 = case_ranks.get("chip1-uzun"), case_ranks.get("chip2-izin")
+    print(f"  vaka: chip1-uzun rank={c1}  chip2-izin rank={c2}")
     print(f"  -> {RESULTS} (retrieve_sha {row['retrieve_sha']})")
 
 

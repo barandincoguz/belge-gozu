@@ -63,7 +63,8 @@ class BM25:
                 f = freqs.get(tok)
                 if f:
                     dl = self.doc_lens[i]
-                    out[i] += idf * f * (self.k1 + 1) / (f + self.k1 * (1 - self.b + self.b * dl / self.avgdl))
+                    norm = 1 - self.b + self.b * dl / self.avgdl
+                    out[i] += idf * f * (self.k1 + 1) / (f + self.k1 * norm)
         return out
 
 
@@ -90,7 +91,7 @@ def _doc_name_tokens(page_ids: list[str], page_texts: list[str]) -> dict[str, fr
     if _DOC_NAMES is not None:
         return _DOC_NAMES
     names: dict[str, frozenset[str]] = {}
-    for pid, text in zip(page_ids, page_texts):
+    for pid, text in zip(page_ids, page_texts, strict=True):
         doc, _, page = pid.partition(":")
         if page != "1":
             continue

@@ -31,8 +31,16 @@ PDF_DIR = Path("data/pdf")
 
 # Vitrin (chip) sorguları — birincil metriğe GİRMEZ (program.md: 2 soruya overfit yasak)
 CASE_STUDIES = [
-    {"qid": "chip1-uzun", "question": "Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?", "gold": ["k4721:4"]},
-    {"qid": "chip2-izin", "question": "İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?", "gold": ["k4857:28", "k4857:27"]},
+    {
+        "qid": "chip1-uzun",
+        "question": "Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?",
+        "gold": ["k4721:4"],
+    },
+    {
+        "qid": "chip2-izin",
+        "question": "İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?",
+        "gold": ["k4857:28", "k4857:27"],
+    },
 ]
 
 
@@ -65,8 +73,13 @@ def main() -> None:
     bench = load_bench(CANARY, only_verified=False)
     answerable = [q for q in bench if q.answerable]
     queries = [
-        {"qid": q.question_id, "question": q.question, "gold": list(q.gold_page_ids),
-         "requires_visual": q.requires_visual, "role": "canary"}
+        {
+            "qid": q.question_id,
+            "question": q.question,
+            "gold": list(q.gold_page_ids),
+            "requires_visual": q.requires_visual,
+            "role": "canary",
+        }
         for q in answerable
     ] + [{**c, "requires_visual": False, "role": "case_study"} for c in CASE_STUDIES]
 

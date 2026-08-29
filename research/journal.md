@@ -110,3 +110,13 @@ Taban 0.2326 → **0.8140** (3.5×). Hedef 0.30, esnek 0.40 — ikisi de aşıld
 Seyir: +BM25 0.674 → +F5 0.767 → +stoplist (R@20/MRR/chip1) → +pencere-yönlendirme 0.814.
 Atılanlar: eşit-RRF (0.395 — zayıf kanal gürültüsü), bigram (0.628), mutlak yönlendirme
 (guardrail vetosu). Görsel kanalın füzyon katkısı bu bench'te SIFIR benzersiz @5 sorusu.
+
+---
+
+## Round 2 hazırlık notu (2026-08-29)
+
+- P1 üretim entegrasyonu tamam (commit ded732b): reçete `src/belge_gozu/retrieval/{text,hybrid}.py`
+  olarak portlandı; üretim bench teyidi R@5 **35/43 = 0.8140** (binary tanım; fractional recall 0.8023
+  aynı koşumun farklı metrik tanımı). Canlı: chip'ler gerçek cevap + doğru atıf; anlamsız → abstain.
+- research/ lint temizliği: retrieve.py reformatlandı (mantık AYNEN; sağlama koşumu "lint-sanity"
+  results.jsonl'da — R@5 0.814, chip 2/2 birebir). retrieve_sha bundan sonra 32dd8055670b tabanlı.
