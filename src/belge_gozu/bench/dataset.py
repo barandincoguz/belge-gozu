@@ -46,6 +46,14 @@ class BenchQuestion(BaseModel):
     # insan doğrulama notu (ör. "h yanlış sayfa"); geriye dönük uyumlu (varsayılan "")
     # — scripts/verify_canary.py --review tarafından yazılır.
     verification_note: str = ""
+    # Doğrulamayı KİMİN yaptığı değil, NE TÜR bir doğrulama olduğu: insan
+    # doğrulaması ile model çapraz-doğrulaması ayrı şeylerdir ve kapı
+    # raporlarında ayrı sayılır. Model çapraz-kontrolü sayfa görüntülerini
+    # yeniden okuyan bağımsız bir model turudur — insan onayı YERİNE GEÇMEZ;
+    # bu alan olmadan iki tür `verified` satır birbirine karışır ve birleşik
+    # sayı yanlışlıkla "insan doğrulanmış" diye okunabilir.
+    # Varsayılan "human": alan eklenmeden önce yazılmış satırlar geçerli kalır.
+    verification_kind: Literal["human", "model-cross-check"] = "human"
 
     @model_validator(mode="after")
     def _check_answerability(self) -> "BenchQuestion":

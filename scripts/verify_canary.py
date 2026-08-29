@@ -23,9 +23,12 @@ birini elle onaylaması gerekir. Bu betik üç modda çalışır:
              uv run python scripts/verify_canary.py --review --by baran
              uv run python scripts/verify_canary.py --review --by baran --only ŞÜPHELİ
 
-  --status   verification_status / dilim (slice) dağılımını ve plan hedefinin
-             (>=25 doğrulanmış cevaplanabilir + >=5 doğrulanmış cevaplanamaz)
-             karşılanıp karşılanmadığını basar.
+  --status   verification_status / dilim (slice) / doğrulama TÜRÜ (insan vs.
+             model çapraz-kontrolü) dağılımını ve plan hedefinin (>=25
+             doğrulanmış cevaplanabilir + >=5 doğrulanmış cevaplanamaz)
+             karşılanıp karşılanmadığını basar. Hedef satırı hem birleşik hem
+             yalnız-insan sayısını gösterir; birleşik sayı insan doğrulaması
+             DEĞİLDİR (bkz. data/bench/canary_v1.README.md).
 
              uv run python scripts/verify_canary.py --status
 
@@ -281,11 +284,23 @@ def gold_image_paths(q: BenchQuestion, images_dir: Path) -> list[Path]:
 
 
 def compute_status(questions: list[BenchQuestion]) -> dict:
-    """verification_status/dilim dağılımı + plan hedefinin (>=25+>=5) durumu."""
+    """verification_status/dilim dağılımı + plan hedefinin (>=25+>=5) durumu.
+
+    Hedef İKİ KEZ hesaplanır: `target_met` doğrulanmış tüm satırları (insan +
+    model çapraz-kontrolü) sayar, `target_met_human_only` yalnız insan
+    doğrulamalı satırları. İkisi ayrı raporlanır ki birleşik sayı yanlışlıkla
+    "insan doğrulanmış" diye okunmasın — model çapraz-kontrolü insan onayının
+    yerine geçmez (bkz. data/bench/canary_v1.README.md).
+    """
     by_status = Counter(q.verification_status for q in questions)
     verified = [q for q in questions if q.verification_status == "verified"]
     verified_answerable = sum(1 for q in verified if q.answerable)
     verified_unanswerable = len(verified) - verified_answerable
+
+    human = [q for q in verified if q.verification_kind == "human"]
+    human_answerable = sum(1 for q in human if q.answerable)
+    human_unanswerable = len(human) - human_answerable
+
     return {
         "by_status": dict(by_status),
         "by_slice_total": bench_stats(questions),
@@ -293,7 +308,12 @@ def compute_status(questions: list[BenchQuestion]) -> dict:
         "verified_total": len(verified),
         "verified_answerable": verified_answerable,
         "verified_unanswerable": verified_unanswerable,
+        "verified_by_kind": dict(Counter(q.verification_kind for q in verified)),
+        "human_total": len(human),
+        "human_answerable": human_answerable,
+        "human_unanswerable": human_unanswerable,
         "target_met": verified_answerable >= 25 and verified_unanswerable >= 5,
+        "target_met_human_only": human_answerable >= 25 and human_unanswerable >= 5,
     }
 
 
@@ -446,11 +466,38 @@ def print_status(status: dict) -> None:
         if total:
             print(f"  {s:<28} {verified}/{total}")
 
-    print(f"\ndoğrulanmış cevaplanabilir : {status['verified_answerable']} (hedef >= 25)")
-    print(f"doğrulanmış cevaplanamaz   : {status['verified_unanswerable']} (hedef >= 5)")
-    print(f"doğrulanmış toplam         : {status['verified_total']}")
-    verdict = "EVET" if status["target_met"] else "HAYIR"
-    print(f"\nHEDEF KARŞILANDI MI (>=25 cevaplanabilir + >=5 cevaplanamaz doğrulanmış): {verdict}")
+    print("\ndoğrulama TÜRÜ dağılımı (yalnız verified satırlar):")
+    kinds = status["verified_by_kind"]
+    print(f"  {'human':<18} {kinds.get('human', 0):<4} (proje sahibi sayfayı kendisi okudu)")
+    print(
+        f"  {'model-cross-check':<18} {kinds.get('model-cross-check', 0):<4} "
+        "(bağımsız model turu; insan onayı YERİNE GEÇMEZ)"
+    )
+
+    print(
+        f"\ndoğrulanmış cevaplanabilir : {status['verified_answerable']} "
+        f"(hedef >= 25) — yalnız insan: {status['human_answerable']}"
+    )
+    print(
+        f"doğrulanmış cevaplanamaz   : {status['verified_unanswerable']} "
+        f"(hedef >= 5) — yalnız insan: {status['human_unanswerable']}"
+    )
+    print(
+        f"doğrulanmış toplam         : {status['verified_total']} "
+        f"— yalnız insan: {status['human_total']}"
+    )
+    combined = "EVET" if status["target_met"] else "HAYIR"
+    human_only = "EVET" if status["target_met_human_only"] else "HAYIR"
+    print(
+        "\nHEDEF (>=25 cevaplanabilir + >=5 cevaplanamaz): "
+        f"{combined} (toplam) / {human_only} (yalnız insan: {status['human_total']})"
+    )
+    if status["target_met"] and not status["target_met_human_only"]:
+        print(
+            "  UYARI: 'toplam' rakamı model çapraz-kontrolünü içerir ve İNSAN DOĞRULAMASI\n"
+            "  DEĞİLDİR. Bu set insan-doğrulanmış olarak alıntılanamaz; gerekçe ve bilinen\n"
+            "  kısıtlar için bkz. data/bench/canary_v1.README.md"
+        )
 
 
 # --------------------------------------------------------------------------

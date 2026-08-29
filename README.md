@@ -69,7 +69,7 @@ removed from the production path — it survives only as an ablation option
 that binary code space*, but relative to native float ColPali scoring it is an
 approximation, and the P0 plan's quantization ablation (C1/C2: float16 oracle vs.
 int8 vs. 1-bit) has now been run on the 48-question canary benchmark (43 answerable;
-the canary set is **draft, pending human verification**, so treat these numbers as
+**not a human-validated set** — see the caveat below, so treat these numbers as
 provisional), in the production query/document format: **int8 matches float16 exactly
 at every k** (Recall@1/5/20/50/200 all identical); **1-bit loses 7.0 points of
 Recall@20** relative to float16 (0.233 vs. 0.302). 1-bit is also **slower, not
@@ -85,8 +85,20 @@ and
 [`docs/research/findings/2026-08-27-p0-gate.md`](docs/research/findings/2026-08-27-p0-gate.md).
 Separately, the single biggest P0 result to date: switching the document encoder to
 the checkpoint's training-time prompt (instead of the format `colpali-engine==0.3.18`
-emits by default) raised float16 Recall@5 from 0.093 to 0.233 on that same draft
-canary set. The resulting score is itself
+emits by default) raised float16 Recall@5 from 0.093 to 0.233 on that same
+canary set.
+
+**Benchmark provenance caveat (applies to every canary number on this page).** The
+canary questions were drafted by model agents reading the page images; of the 48 rows,
+only **3 were verified by a human** — the other 45 were checked by an independent model
+pass that re-read the same images (`verification_kind: "model-cross-check"`). That pass
+was not a rubber stamp (it found 5 label/evidence corrections and one real page-span
+error, `c213`), but a model-verified benchmark **cannot be cited as human-validated**,
+and because the verifying model is the same family that drafted the questions,
+correlated blind spots are possible. Full provenance, limitations and the list of
+defects found: [`data/bench/canary_v1.README.md`](data/bench/canary_v1.README.md).
+
+The resulting score is itself
 an **uncalibrated similarity**
 (`128 − 2×Hamming`, averaged per query token) — not a confidence or probability — and
 if it doesn't clear a threshold (a rough v0 cut-off, not a tuned operating point), the
@@ -179,7 +191,8 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
 - **The score threshold (`BG_MIN_SCORE_THRESHOLD=60.0`) is a rough calibration** from a
   handful of observed scores, not a tuned operating point — and after the T11 query/
   document format change it no longer separates answerable from unanswerable questions
-  at all. Measured on the draft canary set (2026-08-27, current production index):
+  at all. Measured on the canary set (2026-08-27, current production index; 3/48 rows
+  human-verified, 45 model-cross-checked — see the provenance caveat above):
   answerable top-1 scores run min 59.85 / median 63.40 / max 78.50, unanswerable ones
   min 59.65 / median 67.88 / max 71.95 — overlapping distributions, so no single
   cut-off splits them, and all three out-of-corpus questions currently clear 60.0.
@@ -201,7 +214,8 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
   `PackedIndex.build` rejects all-zero rows at build time, and the rebuilt index has
   0 such rows and 3,776,882 tokens — exactly 3,960 fewer than the old index's
   3,780,842. It was **not**, however, one of the causes of today's poor retrieval
-  numbers: measured on the canary benchmark (draft, pending human verification), an
+  numbers: measured on the canary benchmark (3/48 rows human-verified, 45
+  model-cross-checked — see the provenance caveat above), an
   index rebuilt in the same format without the padding rows produced byte-identical
   Recall at every k and an identical top-20 list for 42 of the 43 questions versus the
   old, padded index. Independently, the encoder's retrieval training data is

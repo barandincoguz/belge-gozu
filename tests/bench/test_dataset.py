@@ -123,6 +123,24 @@ def test_verification_note_roundtrips_when_set():
     assert q.verification_note == "h yanlış sayfa"
 
 
+def test_verification_kind_defaults_to_human():
+    # Alan eklenmeden önce yazılmış satırlar (verification_kind anahtarı yok)
+    # insan doğrulaması sayılmaya devam etmeli.
+    q = BenchQuestion(**q_dict())
+    assert q.verification_kind == "human"
+
+
+@pytest.mark.parametrize("kind", ["human", "model-cross-check"])
+def test_verification_kind_accepts_both_values(kind: str):
+    q = BenchQuestion(**q_dict(verification_kind=kind))
+    assert q.verification_kind == kind
+
+
+def test_verification_kind_rejects_unknown_value():
+    with pytest.raises(ValueError):
+        BenchQuestion(**q_dict(verification_kind="model"))
+
+
 def test_bench_stats_counts_all_slices_with_zero_default():
     qs = [BenchQuestion(**q_dict()), BenchQuestion(**q_dict(question_id="q2"))]
     stats = bench_stats(qs)
