@@ -1,0 +1,353 @@
+{
+ "index": "data/index-traincompat-int8",
+ "quantization": "int8",
+ "cases": [
+  {
+   "name": "chip1-uzun",
+   "query": "Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?",
+   "gold_ranks": {
+    "k4721:4": 664
+   },
+   "first_doc_page_rank": 1,
+   "first_doc_page": "k4721:1",
+   "gold_scores": {
+    "k4721:4": 0.5831049098524936
+   },
+   "top1_score": 0.6681974100512128,
+   "top20": [
+    [
+     "k4721:1",
+     0.6681974100512128,
+     "Türk Medeni Kanunu"
+    ],
+    [
+     "k6098:133",
+     0.6567885376686273,
+     "Türk Borçlar Kanunu"
+    ],
+    [
+     "k2547:115",
+     0.6464593576830487,
+     "Yükseköğretim Kanunu"
+    ],
+    [
+     "k5411:28",
+     0.6434216610220975,
+     "Bankacılık Kanunu"
+    ],
+    [
+     "k5237:6",
+     0.642275521921557,
+     "Türk Ceza Kanunu"
+    ],
+    [
+     "k6362:103",
+     0.640480307645576,
+     "Sermaye Piyasası Kanunu"
+    ],
+    [
+     "k2547:38",
+     0.6381477533384811,
+     "Yükseköğretim Kanunu"
+    ],
+    [
+     "k6102:37",
+     0.637319520462391,
+     "Türk Ticaret Kanunu"
+    ],
+    [
+     "k6102:271",
+     0.637056217637173,
+     "Türk Ticaret Kanunu"
+    ],
+    [
+     "k2709:1",
+     0.6369697215945221,
+     "Türkiye Cumhuriyeti Anayasası"
+    ],
+    [
+     "k2709:56",
+     0.6359493787898574,
+     "Türkiye Cumhuriyeti Anayasası"
+    ],
+    [
+     "k5510:135",
+     0.6358501966609511,
+     "Sosyal Sigortalar ve GSS Kanunu"
+    ],
+    [
+     "k6102:264",
+     0.6357086980065634,
+     "Türk Ticaret Kanunu"
+    ],
+    [
+     "k2577:31",
+     0.6341567815736283,
+     "İdari Yargılama Usulü Kanunu"
+    ],
+    [
+     "k6102:254",
+     0.6340411430181458,
+     "Türk Ticaret Kanunu"
+    ],
+    [
+     "k5490:29",
+     0.6329766650532567,
+     "Nüfus Hizmetleri Kanunu"
+    ],
+    [
+     "k6100:18",
+     0.6329749351324037,
+     "Hukuk Muhakemeleri Kanunu"
+    ],
+    [
+     "k6102:251",
+     0.6328855115313863,
+     "Türk Ticaret Kanunu"
+    ],
+    [
+     "k5411:7",
+     0.6322133707445722,
+     "Bankacılık Kanunu"
+    ],
+    [
+     "k2004:111",
+     0.6315007320670194,
+     "İcra ve İflas Kanunu"
+    ]
+   ]
+  },
+  {
+   "name": "chip2-izin",
+   "query": "İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?",
+   "gold_ranks": {
+    "k4857:28": 137,
+    "k4857:27": 3774
+   },
+   "first_doc_page_rank": 17,
+   "first_doc_page": "k4857:4",
+   "gold_scores": {
+    "k4857:28": 0.5809891477544257,
+    "k4857:27": 0.5218964028865734
+   },
+   "top1_score": 0.6080058889186128,
+   "top20": [
+    [
+     "k5510:149",
+     0.6080058889186128,
+     "Sosyal Sigortalar ve GSS Kanunu"
+    ],
+    [
+     "k6362:53",
+     0.6031565158925158,
+     "Sermaye Piyasası Kanunu"
+    ],
+    [
+     "k5846:46",
+     0.5996489423386594,
+     "Fikir ve Sanat Eserleri Kanunu"
+    ],
+    [
+     "k1136:13",
+     0.5994147442756815,
+     "Avukatlık Kanunu"
+    ],
+    [
+     "k5510:64",
+     0.5993959142806682,
+     "Sosyal Sigortalar ve GSS Kanunu"
+    ],
+    [
+     "k2547:74",
+     0.597553293755714,
+     "Yükseköğretim Kanunu"
+    ],
+    [
+     "k5411:89",
+     0.5952645565601106,
+     "Bankacılık Kanunu"
+    ],
+    [
+     "k193:130",
+     0.5935113379295837,
+     "Gelir Vergisi Kanunu"
+    ],
+    [
+     "k6356:2",
+     0.5928954672306141,
+     "Sendikalar ve Toplu İş Sözleşmesi Ka"
+    ],
+    [
+     "k5510:201",
+     0.5925387930362782,
+     "Sosyal Sigortalar ve GSS Kanunu"
+    ],
+    [
+     "k5510:16",
+     0.5917286162680768,
+     "Sosyal Sigortalar ve GSS Kanunu"
+    ],
+    [
+     "k657:11",
+     0.5914407283701795,
+     "Devlet Memurları Kanunu"
+    ],
+    [
+     "k5411:50",
+     0.5914388616034325,
+     "Bankacılık Kanunu"
+    ],
+    [
+     "k5411:5",
+     0.5912402538543052,
+     "Bankacılık Kanunu"
+    ],
+    [
+     "k2577:17",
+     0.5909212396499959,
+     "İdari Yargılama Usulü Kanunu"
+    ],
+    [
+     "k2547:19",
+     0.5907570859219166,
+     "Yükseköğretim Kanunu"
+    ],
+    [
+     "k4857:4",
+     0.5907255132147606,
+     "İş Kanunu"
+    ],
+    [
+     "k6362:50",
+     0.5906503961441365,
+     "Sermaye Piyasası Kanunu"
+    ],
+    [
+     "k5411:48",
+     0.5906199597297831,
+     "Bankacılık Kanunu"
+    ],
+    [
+     "k5510:135",
+     0.5905519444891747,
+     "Sosyal Sigortalar ve GSS Kanunu"
+    ]
+   ]
+  },
+  {
+   "name": "chip1-kisa-ref",
+   "query": "Yerleşim yeri nedir?",
+   "gold_ranks": {
+    "k4721:4": 4
+   },
+   "first_doc_page_rank": 2,
+   "first_doc_page": "k4721:80",
+   "gold_scores": {
+    "k4721:4": 0.7307135264078776
+   },
+   "top1_score": 0.7450144290924072,
+   "top20": [
+    [
+     "k4734:53",
+     0.7450144290924072,
+     "Kamu İhale Kanunu"
+    ],
+    [
+     "k4721:80",
+     0.7403762340545654,
+     "Türk Medeni Kanunu"
+    ],
+    [
+     "k4721:10",
+     0.7318881352742513,
+     "Türk Medeni Kanunu"
+    ],
+    [
+     "k4721:4",
+     0.7307135264078776,
+     "Türk Medeni Kanunu"
+    ],
+    [
+     "k2918:53",
+     0.7301127910614014,
+     "Karayolları Trafik Kanunu"
+    ],
+    [
+     "k4734:62",
+     0.725761890411377,
+     "Kamu İhale Kanunu"
+    ],
+    [
+     "k4734:7",
+     0.7243239084879557,
+     "Kamu İhale Kanunu"
+    ],
+    [
+     "k1136:42",
+     0.7192805608113607,
+     "Avukatlık Kanunu"
+    ],
+    [
+     "k6102:222",
+     0.7178138891855875,
+     "Türk Ticaret Kanunu"
+    ],
+    [
+     "k5490:3",
+     0.7152295112609863,
+     "Nüfus Hizmetleri Kanunu"
+    ],
+    [
+     "k4721:20",
+     0.715100367863973,
+     "Türk Medeni Kanunu"
+    ],
+    [
+     "k6100:5",
+     0.7150552272796631,
+     "Hukuk Muhakemeleri Kanunu"
+    ],
+    [
+     "k2004:21",
+     0.7136295636494955,
+     "İcra ve İflas Kanunu"
+    ],
+    [
+     "k2918:38",
+     0.7127935091654459,
+     "Karayolları Trafik Kanunu"
+    ],
+    [
+     "k2547:36",
+     0.7119037310282389,
+     "Yükseköğretim Kanunu"
+    ],
+    [
+     "k6098:120",
+     0.709453821182251,
+     "Türk Borçlar Kanunu"
+    ],
+    [
+     "k1512:50",
+     0.7093392213185629,
+     "Noterlik Kanunu"
+    ],
+    [
+     "k4734:57",
+     0.70914626121521,
+     "Kamu İhale Kanunu"
+    ],
+    [
+     "k5490:21",
+     0.7067805926005045,
+     "Nüfus Hizmetleri Kanunu"
+    ],
+    [
+     "k4734:54",
+     0.7041000525156657,
+     "Kamu İhale Kanunu"
+    ]
+   ]
+  }
+ ]
+}
