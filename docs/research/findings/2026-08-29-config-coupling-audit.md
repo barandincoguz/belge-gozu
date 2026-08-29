@@ -24,6 +24,8 @@ Not: S/C/D numaraları yukarıdaki üç arşiv dosyasının tablo satırlarına 
 
 **Ölçüm (eşik taşıma, int8, MPS):** answerable n=43 min 0.5767 / medyan 0.6250 / maks 0.7450; unanswerable n=5: 0.5679–0.6866. Dağılımlar int8'de de örtüşüyor → **ayrışmama temsilden bağımsızdır**; kalibrasyon P2'nin işi olarak değişmedi. Hedef sorgular: kısa sorgu gold rank 4 (top1 0.7450), uzun sorgu gold rank 664 (1-bit'te 1221 idi — int8 kalite kazancının cırcıra yansıması).
 
+**Ek ölçüm (scoped review, 2026-08-29) — eşik temsiller arası TAŞINAMAZ:** b790f6c incelemesi, 1-bit indeksin AYNI normalize ölçekteki ([−1,1], /EMBED_DIM) canary top-1 dağılımını ölçtü: answerable min 0.4676 / medyan 0.4953 / maks 0.6133 → 0.58 eşiğini 1-bit'te yalnız **1/43** answerable geçer (int8'de 42/43). Yani **normalizasyon aralığı birleştirir, dağılımı birleştirmez** — eşik, ölçek değil temsil dağılımı üzerinde tanımlıdır ve her temsil değişiminde yeniden taşıma ölçümü gerekir (README/config bu uyarıyı taşır; temsil-başına eşik konfigürasyonu bilinçli olarak EKLENMEDİ — R19, kalibrasyon P2). İkinci incelik: 0.58 taşıması çalışma noktasını SAYICA korur (42/43 + 4/5) ama soru-kimliği bazında iki satır yer değiştirir — c306 binary@60'ta abstain iken int8@0.58'de geçer (0.5965), c211 tersi (0.5767) — çünkü int8 ile binary sıralamaları/skorları farklıdır. Monotonik taşıma sayıları korur, kimlikleri korumaz; makale için not edilmiştir. Düzeltme turunda bağımsız yeniden üretildi; 1-bit için eşdeğer çalışma noktası bandı `(0.4676, 0.4698]` ≈ **0.47** ölçüldü — yani 1-bit'e dönülecek olsa eşik de ~0.47'ye taşınmalıdır (README/config uyarısı bunu söyler).
+
 ---
 
 ## 2. Triyaj
