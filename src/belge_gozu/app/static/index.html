@@ -250,7 +250,7 @@
 
   <section id="retrieval-sec" hidden aria-label="Retrieval sonuçları">
     <h2 class="sec-title">Sistem hangi sayfalara baktı?</h2>
-    <p class="sec-sub">Retrieval’ın seçtiği en yakın 5 sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
+    <p class="sec-sub">Retrieval’ın seçtiği en yakın <span id="hits-count">5</span> sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
       kaba, kalibre edilmemiş bir kesme noktasıdır (güven ölçüsü değil) — en iyi skor bu
       çizgiyi geçemezse sistem, yanıt uydurmak yerine “dayanak bulunamadı” der ve Gemini
       hiç çağrılmaz.</p>
@@ -262,7 +262,7 @@
 </main>
 
 <footer>
-  <p class="inner">ColSmol-500M görsel dizin · bütün korpusta exhaustive binary MaxSim (geç-etkileşim) ·
+  <p class="inner">ColSmol-500M görsel dizin · bütün korpusta exhaustive MaxSim (geç-etkileşim) ·
      Gemini Flash yanıtlayıcı · kaynaklar sayfa kartlarında</p>
 </footer>
 
@@ -277,13 +277,21 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 1) => n.toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-let THRESHOLD = 60.0;
+/* Skorlar normalize [-1,1] (sorgu jetonu başına ortalama MaxSim), bu yüzden
+   eşik de o bantta: 0.58 = config.py'deki varsayılan (eski binary 60.0'ın
+   MEKANİK ölçek taşıması; bkz. data/bench/results/int8-threshold-transfer.json).
+   /healthz'e ulaşılamazsa kullanılan yedek değer de aynı bantta olmalı —
+   eski 60.0 yedeği grafikteki tüm çubukları ~%1 genişliğe çökertirdi. */
+let THRESHOLD = 0.58;
+let TOP_K = 5;
 
 fetch("/healthz").then(r => r.json()).then(h => {
   THRESHOLD = h.threshold ?? THRESHOLD;
+  TOP_K = h.top_k ?? TOP_K;
   $("page-count").textContent = h.pages.toLocaleString("tr-TR");
-  $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada exhaustive MaxSim → ilk 5`;
-  $("st-th").textContent = `eşik kontrolü (${fmt(THRESHOLD)})`;
+  $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada exhaustive MaxSim → ilk ${TOP_K}`;
+  $("st-th").textContent = `eşik kontrolü (${fmt(THRESHOLD, 2)})`;
+  $("hits-count").textContent = String(TOP_K);
 }).catch(() => {});
 
 /* ---- pipeline ---- */
@@ -320,7 +328,11 @@ function renderChart(hits) {
   c.innerHTML = "";
   if (!hits.length) { c.innerHTML = '<p class="sec-sub">Hiç sayfa bulunamadı.</p>'; return; }
   const maxV = Math.max(...hits.map(h => h.score), THRESHOLD) * 1.08;
-  const thPct = (THRESHOLD / maxV * 100).toFixed(2) + "%";
+  /* Skorlar artık NEGATİF olabilir (normalize [-1,1] bant): oran hesapları
+     %0'ın altına inebilir. CSS genişliği ve eşik çizgisinin konumu negatife
+     düşerse çubuk hiç çizilmez / çizgi grafikten kaçar — ikisi de 0'a kırpılır. */
+  const pct = (v) => Math.max(0, v / maxV * 100).toFixed(2) + "%";
+  const thPct = pct(THRESHOLD);
   const rows = document.createElement("div");
   rows.className = "chart-rows";
   rows.style.paddingTop = "32px"; /* eşik etiketi için yer */
@@ -333,10 +345,10 @@ function renderChart(hits) {
     row.innerHTML = `
       <span class="name"><span class="nm">${esc(h.doc_name)}</span><small>s.${h.page_no}</small></span>
       <span class="track" style="--th:${thPct}">
-        <span class="barfill" style="width:${(h.score / maxV * 100).toFixed(2)}%"></span>
-        ${i === 0 ? `<span class="thlabel">eşik ${fmt(THRESHOLD)}</span>` : ""}
+        <span class="barfill" style="width:${pct(h.score)}"></span>
+        ${i === 0 ? `<span class="thlabel">eşik ${fmt(THRESHOLD, 2)}</span>` : ""}
       </span>
-      <span class="val">${fmt(h.score)}</span>`;
+      <span class="val">${fmt(h.score, 2)}</span>`;
     row.addEventListener("click", () => {
       const card = document.querySelector(`.hit[data-pid="${CSS.escape(h.page_id)}"]`);
       if (card) { card.scrollIntoView({ block: "center" }); flash(card); }
@@ -348,7 +360,7 @@ function renderChart(hits) {
   c.appendChild(rows);
   const foot = document.createElement("p");
   foot.className = "chart-foot";
-  foot.textContent = "skor: kalibre edilmemiş benzerlik (MaxSim, sorgu jetonu başına ortalama) — güven ya da doğruluk yüzdesi DEĞİLDİR";
+  foot.textContent = "skor: kalibre edilmemiş benzerlik (MaxSim, sorgu jetonu başına ortalama, ~[-1..1]) — güven ya da doğruluk yüzdesi DEĞİLDİR";
   c.appendChild(foot);
 }
 function hl(pid, on) {
@@ -371,7 +383,7 @@ function renderHits(hits) {
     card.dataset.pid = h.page_id;
     card.setAttribute("aria-label", `${h.doc_name} sayfa ${h.page_no}, büyütmek için tıklayın`);
     card.innerHTML = `
-      <span class="badge"><span class="sq"></span>${fmt(h.score)}</span>
+      <span class="badge"><span class="sq"></span>${fmt(h.score, 2)}</span>
       <img src="/pages/${encodeURI(h.image_path)}" loading="lazy"
            alt="${esc(h.doc_name)}, sayfa ${h.page_no}">
       <span class="cap"><b>${esc(h.doc_name)}</b>

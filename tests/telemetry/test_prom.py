@@ -71,6 +71,37 @@ def test_observe_and_render_contains_series():
     assert "openmetrics" in ctype or "text/plain" in ctype
 
 
+def test_score_histograms_carry_quantization_label():
+    """Skor/marj örnekleri TEMSİLE göre etiketlenir (T14).
+
+    Skorun ölçeği kuantizasyona bağlıdır (binary 0-128 vs normalize
+    [-1,1]); etiketsiz tek seride geçiş öncesi/sonrası örnekler geri
+    dönülemez biçimde karışır ve histogram quantile'ları anlamsızlaşır.
+    Değer olayın kendi künyesinden (`detail.retrieval.quantization`) gelir."""
+    pm = PromMetrics()
+    pm.observe(
+        _ask_ev(
+            top_score=0.62,
+            margin_1_2=0.01,
+            detail={"retrieval": {"query_format": "train-compat-v1", "quantization": "int8"}},
+        )
+    )
+    text = pm.render()[0].decode()
+    assert 'bg_retrieval_top_score_bucket{le="0.65",quantization="int8"} 1.0' in text
+    assert 'bg_retrieval_score_margin_bucket{le="0.02",quantization="int8"} 1.0' in text
+    # eşik civarındaki bucket'lar gerçekten normalize ölçekte
+    assert 'bg_retrieval_top_score_bucket{le="0.58",quantization="int8"} 0.0' in text
+
+
+def test_score_histogram_without_identity_falls_back_to_unknown():
+    """Künye taşımayan olay (eski satır / enjekte edilmiş olay) düşürülmez."""
+    pm = PromMetrics()
+    pm.observe(_ask_ev(top_score=0.5, margin_1_2=0.0, detail={}))
+    assert 'bg_retrieval_top_score_bucket{le="0.5",quantization="unknown"} 1.0' in (
+        pm.render()[0].decode()
+    )
+
+
 def test_degraded_maps_to_degraded_reason():
     pm = PromMetrics()
     pm.observe(_ask_ev(status="degraded", abstained=True))

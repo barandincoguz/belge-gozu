@@ -199,6 +199,101 @@ def test_mismatch_override(tiny_corpus):
     assert app_ is not None
 
 
+# --- T14 korkulukları: ölçek + temsil ---------------------------------
+
+
+def _int8_index_dir(tiny_corpus) -> Path:
+    """tiny_corpus'un AYNI sayfalarından türetilmiş int8 indeks dizini.
+
+    FakeEncoder deterministiktir (görüntü baytlarından seed'ler), bu yüzden
+    aynı görüntülerden yeniden encode etmek aynı embedding'leri verir."""
+    import shutil
+
+    from PIL import Image
+
+    from belge_gozu.index.float_store import FloatIndex
+    from belge_gozu.index.manifest import corpus_checksum, write_manifest
+    from belge_gozu.index.quantize import Int8Index
+
+    data_dir, enc, _ = tiny_corpus
+    ids = [f"d{i}:1" for i in range(3)]
+    images = []
+    for i in range(3):
+        with Image.open(data_dir / f"images/d{i}/0001.webp") as raw:
+            images.append(raw.convert("RGB"))
+    i8 = Int8Index.derive(FloatIndex.build(ids, enc.encode_pages(images)))
+    out = data_dir / "index-int8"
+    i8.save(out)
+    shutil.copy(data_dir / "meta.parquet", out / "meta.parquet")
+    write_manifest(
+        out,
+        make_manifest(
+            quantization="int8",
+            corpus_checksum=corpus_checksum(out),
+            n_pages=3,
+            n_tokens=int(i8.offsets[-1]),
+        ),
+    )
+    return out
+
+
+def test_create_app_rejects_binary_scale_threshold(tiny_corpus):
+    """Eski binary ölçeğinde (0-128) kalmış bir eşik fail-fast olmalı.
+
+    Skorlar T14'ten sonra normalize [-1,1]; 60.0 gibi bir eşik asla
+    aşılamaz, yani servis HER soruya sessizce "dayanak bulamadım" derdi.
+    Ölçek geçişinin üretebileceği en sessiz hata tam olarak budur."""
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=60.0)
+    with pytest.raises(IndexCompatibilityError, match="binary ölçeği"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+
+
+def test_two_stage_on_int8_index_raises_cleanly(tiny_corpus):
+    """two-stage ablasyonu YALNIZ PackedIndex ile çalışır (page_vecs gerekir).
+
+    int8 indekste sessiz bir AttributeError yerine açık uyumsuzluk hatası."""
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=_int8_index_dir(tiny_corpus),
+        retrieval_pipeline="two-stage",
+        min_score_threshold=-1e9,
+    )
+    with pytest.raises(IndexCompatibilityError, match="two-stage"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+
+
+def test_exhaustive_on_int8_index_serves(tiny_corpus):
+    """Aynı int8 dizini VARSAYILAN (exhaustive) pipeline'da sorunsuz açılır —
+    yukarıdaki hatanın temsile özgü olduğunu, int8'in genel olarak
+    reddedilmediğini kanıtlar."""
+    from fastapi.testclient import TestClient
+
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir, index_dir=_int8_index_dir(tiny_corpus), min_score_threshold=-1e9
+    )
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=object()))
+    assert c.get("/healthz").json()["index"]["quantization"] == "int8"
+    hits = c.post("/search", json={"query": "deneme"}).json()["hits"]
+    assert len(hits) == 3
+    # (Bant iddiası [-1,1] burada SINANMAZ: FakeEncoder birim normlu
+    # embedding üretmez — normalize ölçek testi gerçek ColPali gibi normlu
+    # fikstürle tests/index/test_loader.py'de yapılır.)
+    scores = [h["score"] for h in hits]
+    assert scores == sorted(scores, reverse=True)
+
+
 def test_write_manifest_legacy_cli(tiny_corpus, monkeypatch):
     data_dir, _, _ = tiny_corpus
     (data_dir / "index" / "manifest.json").unlink()

@@ -12,10 +12,23 @@ class Settings(BaseSettings):
     )
 
     data_dir: Path = Path("data")
-    # T11/Step 6 A/B ölçümü: float Recall@5 0.093->0.233, Recall@20 0.186->0.302
-    # (train-compat-v1 + eğitim zamanı doc prompt, cpe-0.3.18'e karşı kazandı;
-    # ölçüm tarihi 2026-08-27; ayrıntı p0-gate raporunda). Üretim indeksi artık bu.
-    index_dir: Path = Path("data/index-traincompat-1bit")
+    # ÜRETİM İNDEKSİ. İki eksende de ölçümle seçildi:
+    #
+    # 1) Sorgu/doküman formatı (T11/Step 6 A/B, 2026-08-27): train-compat-v1 +
+    #    eğitim zamanı doc prompt, cpe-0.3.18'e karşı kazandı — float Recall@5
+    #    0.093->0.233, Recall@20 0.186->0.302 (ayrıntı p0-gate raporunda).
+    # 2) Kuantizasyon (C1/C2 ablasyonu, 2026-08-27/29; T14'te üretime alındı):
+    #    int8, float16 ile HER k'da birebir aynı kalite (R@1/5/20/50/200);
+    #    1-bit float16'ya göre R@20'de 7.0 puan KAYBEDİYOR (0.233 vs 0.302) ve
+    #    üstelik 4.3x DAHA YAVAŞ (CPU, 4222 sayfa: int8 0.24 sn/sorgu vs 1-bit
+    #    1.08 sn/sorgu — int8/f16 BLAS matmul yoluna girerken 1-bit popcount
+    #    indirgemesi için büyük geçici diziler kuruyor). 1-bit'in kazandığı tek
+    #    eksen disk: 58 MB vs int8 474 MB vs f16 919 MB. int8 ölçümün kazananıydı
+    #    ama servis tarafı yalnız PackedIndex yükleyebildiği için üretimde
+    #    kullanılamıyordu; T14 o eksik bağlantıyı kurdu (ruling R16/D1).
+    #    1-bit ablasyon/disk-bütçesi seçeneği olarak duruyor
+    #    (data/index-traincompat-1bit).
+    index_dir: Path = Path("data/index-traincompat-int8")
     retriever_model: str = "vidore/colSmol-500M"
     device: str = "auto"
     hf_dataset_repo: str = ""
@@ -40,19 +53,29 @@ class Settings(BaseSettings):
     # mean-sign Hamming ile aday eleme + kesin MaxSim (ablasyon-only; spec §1.1
     # karşı-örneği nedeniyle üretimde kullanılmaz).
     retrieval_pipeline: Literal["exhaustive", "two-stage"] = "exhaustive"
-    # kaba v0 kalıntısı (Task 13 smoke test: gerçek soru top_score~70.6, saçma soru
-    # top_score~52.4 -- 20.0 hiçbir zaman tetiklemiyordu). Bu skor bir güven/olasılık
-    # ölçüsü DEĞİLDİR (bkz. README "v0 limitations"); gerçek kalibrasyon P2'nin işi.
-    # DİKKAT: yukarıdaki 70.6/52.4 rakamları T11 format değişikliğinden (train-compat-v1
-    # + train-compat doküman prompt'u, yeni indeks data/index-traincompat-1bit) ÖNCE
-    # ölçüldü; bugünkü skor dağılımını TEMSİL ETMİYORLAR. 2026-08-27 canary ölçümü:
-    # cevaplanabilir n=43 min 59.85 / medyan 63.40 / maks 78.50, cevaplanamaz n=5
-    # min 59.65 / medyan 67.88 / maks 71.95 -> dağılımlar iç içe, 60.0 (ya da başka
-    # herhangi bir tek eşik) bu ikisini AYIRMIYOR; korpus-dışı üç soru da eşiği geçiyor.
-    # Bu durum tests/retrieval/test_semantic_canary.py::
+    # MEKANİK ÖLÇEK TAŞIMASI — KALİBRASYON DEĞİL.
+    #
+    # T14'te skorlar tek bir normalize ölçeğe alındı: sorgu jetonu başına
+    # ortalama MaxSim, ~[-1,1] (binary kol EMBED_DIM'e bölünerek int8/float16
+    # dot-product bandına taşındı). Eski eşik 60.0 ESKİ binary ölçeğindeydi
+    # (0-128) ve yeni ölçekte hiçbir zaman aşılamazdı.
+    #
+    # 0.58, o eski 60.0'ın ÇALIŞMA NOKTASINI birebir yeniden üretir: canary'de
+    # binary@60.0 cevaplanabilirlerin 42/43'ünü ve cevaplanamazların 4/5'ini
+    # geçiriyordu; int8 ölçeğinde 0.58 tam olarak aynı bölmeyi verir (0.5767
+    # kalır, 0.5860+ geçer; 0.5679 kalır, kalan 4 geçer). Yani bu bir
+    # dönüştürme, yeni bir karar DEĞİL.
+    #
+    # Skor hâlâ bir güven/olasılık ölçüsü DEĞİLDİR ve eşik hâlâ AYIRMIYOR:
+    # 2026-08-29 canary ölçümü (data/index-traincompat-int8, MPS) cevaplanabilir
+    # n=43 min 0.5767 / medyan 0.6250 / maks 0.7450; cevaplanamaz n=5 min 0.5679
+    # / medyan 0.6550 / maks 0.6866 — dağılımlar hâlâ iç içe, korpus-dışı
+    # sorular hâlâ eşiği geçiyor. Artefakt:
+    # data/bench/results/int8-threshold-transfer.json. Bu durum
+    # tests/retrieval/test_semantic_canary.py::
     # test_out_of_corpus_canary_scores_below_threshold ile xfail(strict) olarak
-    # kilitlidir. Kalibrasyon (ve muhtemelen skor normalizasyonu) P2'nin işi.
-    min_score_threshold: float = 60.0
+    # kilitlidir. Gerçek kalibrasyon P2'nin işi.
+    min_score_threshold: float = 0.58
     request_delay_s: float = 1.0
     # Tahmini birim fiyatlar (USD / 1M token). Kesin değildir; runbook'taki
     # doğrulama adımıyla güncellenir, env ile geçersiz kılınır.

@@ -15,8 +15,14 @@ from belge_gozu.telemetry.schema import RequestEvent
 
 REQUEST_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30)
 STAGE_BUCKETS = (0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20)
-SCORE_BUCKETS = (45, 50, 55, 58, 60, 62, 65, 70, 75)
-MARGIN_BUCKETS = (0, 0.5, 1, 2, 4, 8)
+# T14: skor/marj bucket'ları normalize [-1,1] ölçeğine taşındı (eşik 0.58
+# çevresinde sıklaştırılmış). GEÇİŞ ÖNCESİ seriler/satırlar eski binary
+# ölçeğindedir (0-128) ve aynı seride karışırlar — hangi ölçekte oldukları
+# `bg_app_info`'nun `index_revision`/`threshold` etiketlerinden (olay
+# tablosunda `index_revision` kolonundan) ve bu histogramların
+# `quantization` etiketinden ayırt edilir.
+SCORE_BUCKETS = (0.30, 0.40, 0.45, 0.50, 0.55, 0.58, 0.60, 0.65, 0.70, 0.80)
+MARGIN_BUCKETS = (0.0, 0.005, 0.01, 0.02, 0.04, 0.08)
 TPS_BUCKETS = (5, 10, 20, 40, 80, 160)
 
 _STAGE_COLS = {
@@ -50,11 +56,23 @@ class PromMetrics:
             buckets=STAGE_BUCKETS,
             registry=r,
         )
+        # `quantization` etiketi (T14): skorun ölçeği hangi temsille
+        # üretildiğine bağlıdır (binary 0-128 vs normalize [-1,1]). Etiketsiz
+        # tek seride geçiş öncesi ve sonrası örnekler GERİ DÖNÜLEMEZ biçimde
+        # karışırdı — histogram toplamları ve quantile'lar anlamsızlaşırdı.
         self.top_score = Histogram(
-            "bg_retrieval_top_score", "En iyi skor", buckets=SCORE_BUCKETS, registry=r
+            "bg_retrieval_top_score",
+            "En iyi skor",
+            ["quantization"],
+            buckets=SCORE_BUCKETS,
+            registry=r,
         )
         self.margin = Histogram(
-            "bg_retrieval_score_margin", "top1-top2 farkı", buckets=MARGIN_BUCKETS, registry=r
+            "bg_retrieval_score_margin",
+            "top1-top2 farkı",
+            ["quantization"],
+            buckets=MARGIN_BUCKETS,
+            registry=r,
         )
         self.abstain = Counter("bg_abstain", "Abstain sayısı", ["reason"], registry=r)
         self.honest_miss = Counter("bg_honest_miss", "'bulamadım' yanıtları", registry=r)
@@ -112,10 +130,13 @@ class PromMetrics:
         for stage_name, ms in ev.detail.get("stages", {}).items():
             if stage_name not in _STAGE_COLS and ms is not None:
                 self.stage.labels(stage=stage_name).observe(ms / 1000.0)
+        # Olayın kendi künyesinden okunur (app/main.py `detail.retrieval`'i
+        # manifest'ten doldurur); künye taşımayan olaylar "unknown"a düşer.
+        quant = str((ev.detail.get("retrieval") or {}).get("quantization") or "unknown")
         if ev.top_score is not None:
-            self.top_score.observe(ev.top_score)
+            self.top_score.labels(quantization=quant).observe(ev.top_score)
         if ev.margin_1_2 is not None:
-            self.margin.observe(ev.margin_1_2)
+            self.margin.labels(quantization=quant).observe(ev.margin_1_2)
         if ev.status == "degraded":
             self.abstain.labels(reason="degraded").inc()
         elif ev.abstained:

@@ -1,4 +1,5 @@
 {
-  "long_query_gold_rank_max": 1221,
-  "_measured": "2026-08-27, data/index-traincompat-1bit, exhaustive, canary c001"
+  "quantization": "int8",
+  "long_query_gold_rank_max": 664,
+  "_measured": "2026-08-29, data/index-traincompat-int8, exhaustive, canary c001; önceki: 1221 (1-bit)"
 }

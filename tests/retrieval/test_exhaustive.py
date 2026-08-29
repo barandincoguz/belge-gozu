@@ -6,14 +6,20 @@ from tests.retrieval.test_core import build_fixture
 
 
 def test_scores_match_per_page_maxsim():
+    """Skor = ham MaxSim / n_q / 128 — normalize [-1,1] ölçek (T14).
+
+    128'e bölme int8/float16 skorlarıyla aynı bandı verir; eşik
+    (Settings.min_score_threshold) bu banda göre yorumlanır."""
     idx, meta, embs = build_fixture(n_pages=30)
     r = ExhaustiveBinaryRetriever(idx, meta, encoder=None)
     q = embs[17]
     scores = r.score_all(q)
     qp = binarize_pack(q)
     for i in (0, 7, 17, 29):
-        expected = binary_maxsim(qp, np.asarray(idx.page_tokens(i))) / q.shape[0]
+        expected = binary_maxsim(qp, np.asarray(idx.page_tokens(i))) / q.shape[0] / 128
         assert scores[i] == expected
+    # ölçek kilidi: normalize skor bandı dışına çıkmamalı
+    assert (scores >= -1.0).all() and (scores <= 1.0).all()
 
 
 def test_self_match_is_top1():
@@ -35,7 +41,9 @@ def test_exhaustive_recovers_what_stage1_loses():
             ex_best_i, ex_best_s = ex.search_embedding(q, k=1)[0]
             ts_best_i, ts_best_raw = ts.search_embedding(q, k=1, candidates=1)[0]
             if ts_best_i != ex_best_i:
-                assert ex_best_s >= ts_best_raw / q.shape[0]  # TwoStage raw döner
+                # search_embedding RAW döner; aynı ölçeğe getirmek için
+                # n_q * 128 (bkz. TwoStageRetriever.search).
+                assert ex_best_s >= ts_best_raw / q.shape[0] / 128
                 return
     raise AssertionError("hiçbir karışık sorguda stage-1 sapması bulunamadı — fikstürü genişlet")
 

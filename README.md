@@ -35,16 +35,16 @@ flowchart TD
     M["Manifest CSV<br/>50 statutes + historical Official Gazette list"] --> D["Downloader (download.py)<br/>polite: 1s delay, resumable"]
     D --> R["Renderer (render.py)<br/>PDF -> WebP page image<br/>+ meta.parquet (page ids)"]
     R --> E["Encoder: ColSmol-500M (vision-language model)<br/>each page -> ~1000 tokens x 128-dim vectors"]
-    E --> P["PackedIndex (store.py)<br/>binarized: 1 bit/dim -> ~16KB/page"]
+    E --> P["f16 master (float_store.py)<br/>-> int8 (474MB, shipped) or 1-bit (58MB, ablation)<br/>quantize.py / store.py"]
   end
 
   P -->|"belge-gozu index push"| HUB[("HF Datasets - free storage<br/>barandincoguz/belge-gozu-index")]
 
   subgraph ON["2 - ONLINE SERVICE (Docker, CPU)"]
-    IDX["In-memory index<br/>binary, mmap"]
+    IDX["In-memory index<br/>int8 (shipped), mmap"]
     U["User<br/>single-page web UI"] -->|"question"| API["FastAPI (app/main.py)"]
     API --> QE["Query encoder<br/>same VLM, on CPU"]
-    QE --> S2["Exhaustive binary MaxSim (late interaction)<br/>Hamming XOR+popcount in place of float dot-product<br/>whole corpus -> top-5 pages (~1.2s/query, 4,222 pages)"]
+    QE --> S2["Exhaustive MaxSim (late interaction)<br/>per-token max-similarity over the int8 index<br/>whole corpus -> top-5 pages (~0.24s/query, 4,222 pages)"]
     IDX --> S2
     S2 --> G{"score >= threshold?"}
     G -->|"no"| AB["Says 'not found'<br/>hallucination brake"]
@@ -58,16 +58,14 @@ flowchart TD
   HUB -->|"pull + mmap at startup"| IDX
 ```
 
-Retrieval is exhaustive: every query is scored against the whole corpus with binary
-late-interaction MaxSim (Hamming distance standing in for the float dot-product) — no
-elimination pass — which takes ~1.2 s/query over the current 4,222-page index on an
-M4 Pro. An earlier two-stage design first narrowed the corpus to ~200 candidates with
+Retrieval is exhaustive: every query is scored against the whole corpus with
+late-interaction MaxSim — no elimination pass — which takes ~0.24 s/query over the
+current 4,222-page int8 index (CPU, idle machine). An earlier two-stage design first narrowed the corpus to ~200 candidates with
 a cheap mean-sign Hamming filter before re-ranking with MaxSim; that filter turned out
 to be discarding good candidates (see [v0 limitations](#v0-limitations)) and was
 removed from the production path — it survives only as an ablation option
-(`BG_RETRIEVAL_PIPELINE=two-stage`). MaxSim over the binarized codes is exact *within
-that binary code space*, but relative to native float ColPali scoring it is an
-approximation, and the P0 plan's quantization ablation (C1/C2: float16 oracle vs.
+(`BG_RETRIEVAL_PIPELINE=two-stage`, which needs the 1-bit index). Any quantized
+index approximates native float ColPali scoring, and the P0 plan's quantization ablation (C1/C2: float16 oracle vs.
 int8 vs. 1-bit) has now been run on the 48-question canary benchmark (43 answerable;
 **not a human-validated set** — see the caveat below, so treat these numbers as
 provisional), in the production query/document format: **int8 matches float16 exactly
@@ -77,9 +75,11 @@ faster**: scoring all 4,222 pages against a 40-token query takes 1.08 s at 1-bit
 0.24 s at int8 vs. 0.08 s at float16 (CPU, idle machine), because int8/float16 hit a
 BLAS matmul path while the 1-bit path builds large temporaries for the popcount
 reduction. Index size is the one axis where 1-bit still wins (58 MB vs. 474 MB for
-int8 vs. 919 MB for float16). The production index is still 1-bit purely because the
-retriever currently only accepts the packed 1-bit index — wiring int8 into serving is
-deferred to P1, so 1-bit is what ships, not what won the ablation. Full tables:
+int8 vs. 919 MB for float16). **int8 is now what ships**: serving was the only missing
+piece (the retriever previously accepted the packed 1-bit index only), and it is now
+representation-agnostic, so the measured winner is also the served one. 1-bit remains
+available as the ablation / disk-budget option (`data/index-traincompat-1bit`, 58 MB)
+via `BG_INDEX_DIR`. Full tables:
 [`docs/research/findings/2026-08-27-p0-baseline.md`](docs/research/findings/2026-08-27-p0-baseline.md)
 and
 [`docs/research/findings/2026-08-27-p0-gate.md`](docs/research/findings/2026-08-27-p0-gate.md).
@@ -99,11 +99,15 @@ correlated blind spots are possible. Full provenance, limitations and the list o
 defects found: [`data/bench/canary_v1.README.md`](data/bench/canary_v1.README.md).
 
 The resulting score is itself
-an **uncalibrated similarity**
-(`128 − 2×Hamming`, averaged per query token) — not a confidence or probability — and
-if it doesn't clear a threshold (a rough v0 cut-off, not a tuned operating point), the
+an **uncalibrated similarity** — the per-query-token average MaxSim, normalized to
+roughly [-1, 1] so that every representation (int8, float16, 1-bit) reports on one
+scale — not a confidence or probability. If it doesn't clear a threshold, the
 service returns "I couldn't find grounds for this in the corpus" *before* ever calling
-the LLM — the abstain path costs nothing and can't hallucinate.
+the LLM — the abstain path costs nothing and can't hallucinate. The threshold
+(`BG_MIN_SCORE_THRESHOLD=0.58`) is a **mechanical transfer** of the old binary-scale
+60.0 onto that normalized scale — it reproduces the same operating point, question for
+question — and is therefore still uncalibrated and still non-separating (see
+[v0 limitations](#v0-limitations)); real calibration is P2 work.
 
 ## Example queries
 
@@ -139,6 +143,7 @@ uv sync --all-extras        # + ml deps (torch, colpali-engine) — needed for i
 uv run belge-gozu --help
 
 # serve straight from the published index + images (no local corpus needed)
+# serves data/index-traincompat-int8 by default (int8, 474 MB — see BG_INDEX_DIR)
 BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index BG_DEVICE=cpu \
   uv run belge-gozu serve --pull
 # -> http://localhost:7860
@@ -149,7 +154,10 @@ To reproduce the corpus from scratch instead of pulling the published index:
 ```bash
 uv run belge-gozu corpus download   # ~50 statutes + historical RG scans -> data/pdf/
 uv run belge-gozu corpus render     # PDF -> WebP page images + data/meta.parquet
-uv run belge-gozu index build       # ColSmol-500M embeddings -> data/index-traincompat-1bit/ (packed, binary)
+uv run belge-gozu index build --precision f16 --out data/index-traincompat-f16
+                                   # ColSmol-500M embeddings -> f16 master (919 MB)
+uv run belge-gozu index derive --from data/index-traincompat-f16 \
+  --quant int8 --out data/index-traincompat-int8      # what serving loads (474 MB)
 uv run belge-gozu index push        # optional: publish index/ + images/ to your own HF dataset repo
 uv run belge-gozu serve
 ```
@@ -188,14 +196,17 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
   means real answers get missed. Query rewriting and a VLM reranking pass are planned
   next, along with a proper retrieval benchmark (v0 has none — the numbers above are a
   qualitative session log, not a scored eval).
-- **The score threshold (`BG_MIN_SCORE_THRESHOLD=60.0`) is a rough calibration** from a
+- **The score threshold (`BG_MIN_SCORE_THRESHOLD=0.58`) is a rough calibration** from a
   handful of observed scores, not a tuned operating point — and after the T11 query/
   document format change it no longer separates answerable from unanswerable questions
-  at all. Measured on the canary set (2026-08-27, current production index; 3/48 rows
+  at all. The 0.58 is a *mechanical* transfer of the old binary-scale 60.0 onto the
+  normalized score scale, reproducing the same operating point (42/43 answerable and
+  4/5 unanswerable questions clear it, exactly as before) — a unit change, not a
+  recalibration. Measured on the canary set (2026-08-29, production int8 index; 3/48 rows
   human-verified, 45 model-cross-checked — see the provenance caveat above):
-  answerable top-1 scores run min 59.85 / median 63.40 / max 78.50, unanswerable ones
-  min 59.65 / median 67.88 / max 71.95 — overlapping distributions, so no single
-  cut-off splits them, and all three out-of-corpus questions currently clear 60.0.
+  answerable top-1 scores run min 0.5767 / median 0.6250 / max 0.7450, unanswerable ones
+  min 0.5679 / median 0.6550 / max 0.6866 — overlapping distributions, so no single
+  cut-off splits them, and all three out-of-corpus questions currently clear 0.58.
   Raising the threshold would just abstain on real questions instead. Proper
   calibration (and probably score normalization) is P2 work; the current state is
   pinned by an `xfail(strict=True)` canary test so it can neither rot further nor be
@@ -212,8 +223,9 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
   real correctness defect (padding embeddings collapsing to an all-zero bit vector and
   scoring as if it were a genuine token). This is now fixed and locked:
   `PackedIndex.build` rejects all-zero rows at build time, and the rebuilt index has
-  0 such rows and 3,776,882 tokens — exactly 3,960 fewer than the old index's
-  3,780,842. It was **not**, however, one of the causes of today's poor retrieval
+  0 such rows: 3,776,882 tokens in the same (cpe-0.3.18) format as the old index —
+  exactly 3,960 fewer than its 3,780,842 — and 3,759,994 in the train-compat format
+  that ships today. It was **not**, however, one of the causes of today's poor retrieval
   numbers: measured on the canary benchmark (3/48 rows human-verified, 45
   model-cross-checked — see the provenance caveat above), an
   index rebuilt in the same format without the padding rows produced byte-identical
@@ -245,6 +257,6 @@ Source URLs for every document are recorded in `data/manifest/v0_manifest.csv` a
 
 Python 3.12 · FastAPI + uvicorn · PyMuPDF (PDF -> image rendering, no OCR) ·
 colpali-engine / ColSmol-500M (visual late-interaction retrieval) · PyTorch (MPS/CUDA/CPU) ·
-NumPy (binary-packed index, memory-mapped) · Gemini API via `google-genai` (pluggable
+NumPy (int8 index, memory-mapped) · Gemini API via `google-genai` (pluggable
 answerer) · Hugging Face Hub (dataset storage + Space hosting) · pandas/pyarrow ·
 pytest + ruff + pyright, enforced in CI.

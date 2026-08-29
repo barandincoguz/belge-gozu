@@ -46,10 +46,29 @@ def make_client(tiny_corpus) -> TestClient:
 
 
 def test_healthz(tiny_corpus):
+    """Gövde TAM eşitlikle kilitli: UI eşiği ve sayfa sayısını buradan okur.
+
+    T14'te `index` bloğu eklendi (hangi TEMSİLİN servis edildiği) — eşiğin
+    ölçeği kuantizasyona bağlı olduğu için ikisi birlikte okunmalı. `revision`
+    telemetrideki `index_revision` ile aynı dizedir."""
+    from belge_gozu.index.manifest import read_manifest
+
+    data_dir, _, _ = tiny_corpus
+    m = read_manifest(data_dir / "index")
+    assert m is not None
     c = make_client(tiny_corpus)
     r = c.get("/healthz")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "pages": 3, "threshold": -1e9}
+    assert r.json() == {
+        "status": "ok",
+        "pages": 3,
+        "threshold": -1e9,
+        "top_k": 5,
+        "index": {
+            "quantization": "sign-1bit",
+            "revision": f"{m.corpus_checksum[:12]}/train-compat-v1/sign-1bit",
+        },
+    }
 
 
 def test_search_returns_hits(tiny_corpus):

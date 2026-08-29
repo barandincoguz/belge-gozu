@@ -9,16 +9,18 @@ değiştiriyor mu?
   - no-aug  : aynı format ama `n_suffix=0` (prefix/suffix_token/trailing_newline
               korunur — bkz. `noaug_format`)
 
-Her cevaplanabilir bench sorusu her iki kolda da encode edilir, aynı paketli
-(binary) indekse karşı `ExhaustiveBinaryRetriever.score_all` ile tam
-sıralanır; altın sayfa sıraları `belge_gozu.bench.oracle.rank_of` ile
-kaydedilir. Doküman prompt'u (`manifest.doc_prompt_sha256`) yalnız raporlama
-amaçlıdır — sorgu encode'unda kullanılmaz (sorgular doküman prompt'una
-dokunmaz).
+Her cevaplanabilir bench sorusu her iki kolda da encode edilir, aynı indekse
+karşı `ExhaustiveRetriever.score_all` ile tam sıralanır; altın sayfa sıraları
+`belge_gozu.bench.oracle.rank_of` ile kaydedilir. İndeks
+`belge_gozu.index.loader.load_scorable_index` ile yüklenir: manifest'teki
+`quantization`'a göre packed/int8/float16 — yani üretimin skorladığı temsil
+neyse D1 de onu ölçer. Doküman prompt'u (`manifest.doc_prompt_sha256`) yalnız
+raporlama amaçlıdır — sorgu encode'unda kullanılmaz (sorgular doküman
+prompt'una dokunmaz).
 
 Çalıştırma (model ağırlıkları HF önbelleğinden gelir):
 
-    uv run python scripts/d1_augmentation.py --index data/index-traincompat-1bit
+    uv run python scripts/d1_augmentation.py --index data/index-traincompat-int8
 
 CI'da koşmaz: model dokunan her şey runbook betiklerinde ya da `-m slow`'da.
 """

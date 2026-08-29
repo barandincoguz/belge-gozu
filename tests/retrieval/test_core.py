@@ -77,7 +77,10 @@ def test_search_scores_normalized_per_query_token():
     r = TwoStageRetriever(idx, meta, OneTokenEncoder())
     hits = r.search("x", k=1, candidates=30)
     raw = r.search_embedding(embs[17][:1], k=1, candidates=30)
-    assert hits[0].score == raw[0][1] / 1
+    # T14: search() ham toplamı n_q * 128'e böler — exhaustive üretim
+    # yolunun ürettiği AYNI normalize [-1,1] ölçek.
+    assert hits[0].score == raw[0][1] / 1 / 128
+    assert -1.0 <= hits[0].score <= 1.0
 
 
 def test_search_normalizes_by_multi_token_query():
@@ -93,5 +96,6 @@ def test_search_normalizes_by_multi_token_query():
     r = TwoStageRetriever(idx, meta, MultiTokenEncoder())
     hits = r.search("x", k=1, candidates=30)
     raw = r.search_embedding(embs[17], k=1, candidates=30)
-    assert hits[0].score == raw[0][1] / embs[17].shape[0]
+    assert hits[0].score == raw[0][1] / embs[17].shape[0] / 128
     assert hits[0].score != raw[0][1]  # n_q>1: normalizasyon gerçekten iz bırakıyor
+    assert -1.0 <= hits[0].score <= 1.0

@@ -3,25 +3,26 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
-from belge_gozu.index.chunking import CHUNK_TOKENS, chunk_bounds
+from belge_gozu.index.chunking import CHUNK_TOKENS, EMBED_DIM
 from belge_gozu.index.encode import Encoder
-from belge_gozu.index.store import PackedIndex, binarize_pack
+from belge_gozu.index.loader import ScorableIndex
+from belge_gozu.index.store import PackedIndex, as_u64, binarize_pack
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import stage
 
 
-def _as_u64(packed: np.ndarray) -> np.ndarray:
-    return np.ascontiguousarray(packed).view(np.uint64)  # (n,16) uint8 -> (n,2) uint64
-
-
 def hamming_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """a: (n,16) uint8, b: (m,16) uint8 -> (n,m) int32 Hamming mesafeleri."""
-    xa, xb = _as_u64(a), _as_u64(b)
+    xa, xb = as_u64(a), as_u64(b)
     return np.bitwise_count(xa[:, None, :] ^ xb[None, :, :]).sum(axis=2).astype(np.int32)
 
 
 def binary_maxsim(q_packed: np.ndarray, d_packed: np.ndarray) -> float:
-    sim = 128 - 2 * hamming_matrix(q_packed, d_packed)  # (n_q, n_d)
+    """HAM MaxSim toplamı: jeton başına [-EMBED_DIM, EMBED_DIM], normalize DEĞİL.
+
+    Normalize [-1,1] skor için `n_q * EMBED_DIM`'e bölünür (bkz.
+    `TwoStageRetriever.search`, `PackedIndex.score_all`)."""
+    sim = EMBED_DIM - 2 * hamming_matrix(q_packed, d_packed)  # (n_q, n_d)
     return float(sim.max(axis=1).sum())
 
 
@@ -63,7 +64,11 @@ class TwoStageRetriever:
             out.append(
                 PageHit(
                     page_id=row["page_id"],
-                    score=score / n_q,
+                    # T14: ham MaxSim toplamı `n_q * EMBED_DIM`'e bölünür —
+                    # üretim (exhaustive) yolunun ürettiği AYNI normalize
+                    # [-1,1] ölçek. Ablasyon kolu farklı bir ölçekte skor
+                    # yaymamalı: eşik (min_score_threshold) tek ve ortaktır.
+                    score=score / (n_q * EMBED_DIM),
                     doc_name=row["doc_name"],
                     page_no=int(row["page_no"]),
                     image_path=row["image_path"],
@@ -73,41 +78,38 @@ class TwoStageRetriever:
         return out
 
 
-class ExhaustiveBinaryRetriever:
-    """Tüm korpus üstünde kesin binary MaxSim. 4222 sayfada ~1.2 s (M4 Pro).
+class ExhaustiveRetriever:
+    """Tüm korpus üstünde kesin MaxSim — indeks temsilinden BAĞIMSIZ.
+
+    Skorlar normalize [-1,1]: sorgu jetonu başına ortalama MaxSim. Hangi
+    indeks yüklüyse (packed/int8/float) kendi `score_all`'unu uygular ve
+    ÜÇÜ DE aynı bandı döner (binary kol T14'te 128'e bölünerek bu banda
+    taşındı) — böylece `Settings.min_score_threshold` tek ve ortak kalır.
 
     Mean-sign Stage-1 kaldırıldı: ölçülen top-200 kesişimi %11.5-19 ve rank-2
     sonucu 1768'e atma karşı-örneği (spec §1.1). TwoStageRetriever yalnız
-    ablasyon için durur (config: retrieval_pipeline="two-stage")."""
+    ablasyon için durur (config: retrieval_pipeline="two-stage") ve YALNIZ
+    PackedIndex ile çalışır (bkz. app/main.py ve cli.py korkulukları).
+
+    T14: eski ad `ExhaustiveBinaryRetriever` alias olarak korunuyor (harness,
+    testler ve betikler o adı import ediyor)."""
 
     # Ortak sabit (belge_gozu.index.chunking) — eskiden bu sınıfın kendi üçüncü
     # kopyasıydı; test override'ı için instance üstünde değiştirilebilir
-    # (bkz. index/quantize.py'deki aynı desen).
+    # (bkz. index/quantize.py'deki aynı desen). İndekse her çağrıda geçilir.
     CHUNK_TOKENS: ClassVar[int] = CHUNK_TOKENS
 
-    def __init__(self, index: PackedIndex, meta: pd.DataFrame, encoder: Encoder | None):
+    def __init__(self, index: ScorableIndex, meta: pd.DataFrame, encoder: Encoder | None):
         self.index = index
         self.encoder = encoder
         self.meta = meta.set_index("page_id", drop=False)
-        self.tokens = np.ascontiguousarray(np.asarray(index.tokens))
-        self.offsets = np.asarray(index.offsets)
 
     def score_all(self, q_emb: np.ndarray) -> np.ndarray:
-        q_packed = binarize_pack(q_emb)
-        qa = _as_u64(q_packed)
-        ta = _as_u64(self.tokens)
-        n_pages = len(self.index.page_ids)
-        out = np.empty(n_pages, dtype=np.float64)
-        bounds = chunk_bounds(self.offsets, self.CHUNK_TOKENS)
-        for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
-            t0, t1 = int(self.offsets[b0]), int(self.offsets[b1])
-            ham = np.bitwise_count(qa[:, None, :] ^ ta[None, t0:t1, :]).sum(axis=2, dtype=np.int32)
-            sim = 128 - 2 * ham
-            starts = (self.offsets[b0:b1] - t0).astype(np.int64)
-            # offsets kesin artan (PackedIndex.build sıfır-token sayfayı reddeder) ->
-            # reduceat boş segment göremez.
-            out[b0:b1] = np.maximum.reduceat(sim, starts, axis=1).sum(axis=0)
-        return out / max(1, q_emb.shape[0])
+        """(n_pages,) — normalize [-1,1] skorlar; çekirdek indeksin kendisinde.
+
+        T14'te binary çekirdek `PackedIndex.score_all`'a taşındı: getirim
+        katmanı artık temsile değil yalnız sözleşmeye (`ScorableIndex`) bakar."""
+        return self.index.score_all(q_emb, chunk_tokens=self.CHUNK_TOKENS)
 
     def search_embedding(self, q_emb: np.ndarray, k: int) -> list[tuple[int, float]]:
         """Per-query-token NORMALIZE edilmiş skorlar döner (score_all zaten böler)."""
@@ -136,3 +138,8 @@ class ExhaustiveBinaryRetriever:
                 )
             )
         return out
+
+
+# Geriye dönük ad: sınıf T14'te temsil-bağımsız hale gelince "Binary" adı
+# yanlış oldu, ama harness/testler/betikler bu adı import ediyor.
+ExhaustiveBinaryRetriever = ExhaustiveRetriever

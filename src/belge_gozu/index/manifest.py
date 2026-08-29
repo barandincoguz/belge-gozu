@@ -77,6 +77,20 @@ DOC_PROMPTS: dict[DocPromptChoice, str | None] = {
 }
 
 
+class Quantization(StrEnum):
+    """`IndexManifest.quantization`'ın SÖZLÜĞÜ — indeks temsillerinin tek adı.
+
+    T14: eskiden bu enum yalnız cli.py'de (`index derive --quant`) duruyordu
+    ve `float16` üyesi YOKTU; "float16" dizesi cli/loader/manifest'te üç ayrı
+    literal olarak geçiyordu. Yükleyici (`index/loader.py`) artık dağıtımı bu
+    enum üstünden yapar, böylece yeni bir temsil eklenirken atlanan bir çağrı
+    yeri sessizce eski davranışta kalmaz."""
+
+    sign_1bit = "sign-1bit"
+    int8 = "int8"
+    float16 = "float16"
+
+
 class RenderConfig(BaseModel):
     dpi: int = 150
     format: str = "webp"

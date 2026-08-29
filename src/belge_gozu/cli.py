@@ -25,9 +25,11 @@ from belge_gozu.index.manifest import (
     QUERY_FORMATS,
     DocPromptChoice,
     IndexManifest,
+    Quantization,
     QueryFormatChoice,
     RenderConfig,
     corpus_checksum,
+    read_manifest,
     write_manifest,
 )
 from belge_gozu.index.store import PackedIndex
@@ -56,9 +58,13 @@ class Precision(StrEnum):
     f16 = "f16"
 
 
-class Quantization(StrEnum):
-    sign_1bit = "sign-1bit"
-    int8 = "int8"
+# `index build --precision` -> manifest'e yazılacak quantization.
+# `Quantization` T14'te belge_gozu.index.manifest'e taşındı (yükleyici de
+# aynı sözlükten okur); burada yalnız import edilir.
+PRECISION_QUANTIZATION: dict[Precision, Quantization] = {
+    Precision.packed: Quantization.sign_1bit,
+    Precision.f16: Quantization.float16,
+}
 
 
 # QueryFormatChoice/DocPromptChoice ve QUERY_FORMATS/DOC_PROMPTS sözlükleri
@@ -154,6 +160,23 @@ def index_build(
             f"config={s.query_format_id}/{s.doc_prompt_id}); üretim indeksini "
             f"({s.index_dir}) ezmemek için --out ile ayrı bir dizin verin"
         )
+    quantization = PRECISION_QUANTIZATION[precision]
+    # T14 emniyeti (aynı gerekçenin KUANTİZASYON ekseni): üretim indeksi artık
+    # int8 ama `index build` yalnız packed/f16 üretir. --out'suz bir build
+    # sessizce int8 indeksin üstüne 1-bit yazar, manifest'i de "sign-1bit"e
+    # çevirdiği için yükleyici hiçbir şey fark etmeden onu servis eder —
+    # ölçümde kaybeden temsile sessiz geri dönüş. Fail-fast:
+    if out is None:
+        existing = read_manifest(s.index_dir)
+        if existing is not None and existing.quantization != quantization.value:
+            raise typer.BadParameter(
+                f"{s.index_dir} indeksi quantization={existing.quantization} "
+                f"taşıyor, bu build ise {quantization.value} yazacak — üretim "
+                "indeksi sessizce başka bir temsile döndürülemez. Ayrı bir dizin "
+                "için --out verin; int8/1-bit türetmek için f16 master'dan "
+                "`belge-gozu index derive --from <f16> --quant <...> --out <...>` "
+                "kullanın."
+            )
     out_dir = out or s.index_dir
     qf = QUERY_FORMATS[query_format]
     doc_prompt_override = DOC_PROMPTS[doc_prompt]
@@ -197,10 +220,8 @@ def index_build(
     # verilmez (write_manifest ile ayrıca yazılır).
     if precision == Precision.f16:
         index = FloatIndex.build(ids, embs)
-        quantization = "float16"
     else:
         index = PackedIndex.build(ids, embs)
-        quantization = "sign-1bit"
     index.save(out_dir)
     shutil.copy(s.data_dir / "meta.parquet", out_dir / "meta.parquet")
 
@@ -210,7 +231,7 @@ def index_build(
         engine_versions=_engine_versions(),
         query_format=qf,
         doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", "unknown"),
-        quantization=quantization,
+        quantization=quantization.value,
         mask_policy="drop-padding",
         render=RenderConfig(),
         corpus_checksum=corpus_checksum(out_dir),
@@ -232,6 +253,15 @@ def index_derive(
     """f16 master'dan (T9 FloatIndex) sign-1bit veya int8 türetir (C1/C2 ablasyonu)."""
     from belge_gozu.index.quantize import Int8Index, derive_packed
 
+    # `Quantization` T14'te üç üyeye çıktı (float16 dahil) — bu komut yalnız
+    # ikisini türetebilir. Açıkça reddedilmezse aşağıdaki dallanma
+    # `--quant float16` için sessizce int8 üretir ve manifest'e "float16"
+    # yazardı: diskteki veriyle etiketi çelişen bir indeks.
+    if quant == Quantization.float16:
+        raise typer.BadParameter(
+            "--quant float16 anlamsız: --from zaten float16 master. "
+            "Türetilebilir temsiller: sign-1bit, int8"
+        )
     if not (from_dir / "embs.npy").exists():
         raise typer.BadParameter(
             f"--from bir float16 (FloatIndex) dizini olmalı: {from_dir / 'embs.npy'} bulunamadı"
@@ -243,7 +273,7 @@ def index_derive(
     findex = FloatIndex.load(from_dir, mmap=False)
     if findex.manifest is None:
         raise typer.BadParameter(f"--from indeksinde manifest.json yok: {from_dir}")
-    if findex.manifest.quantization != "float16":
+    if findex.manifest.quantization != Quantization.float16.value:
         raise typer.BadParameter(
             f"--from float16 indeks olmalı, bulunan quantization={findex.manifest.quantization}"
         )
@@ -398,23 +428,34 @@ def bench_run(
         run_retrieval_eval,
     )
     from belge_gozu.index.encode import ColSmolEncoder
-    from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever, TwoStageRetriever
+    from belge_gozu.index.loader import load_scorable_index
+    from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
 
     s = _settings()
-    idx = PackedIndex.load(s.index_dir)
+    # T14: serve ile AYNI yükleyici — bench, üretimin skorladığı temsilin
+    # dışında bir temsili ölçmesin (packed/int8/float manifest'ten çözülür).
+    idx = load_scorable_index(s.index_dir)
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
     query_format = idx.manifest.query_format if idx.manifest else CPE_0_3_18
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=query_format)
 
     adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter
     if pipeline == Pipeline.two_stage:
+        # app/main.py'deki aynı korkuluk: mean-sign eleme yalnız paketli
+        # bit vektörleri üstünde tanımlı (int8/float16'da page_vecs yok).
+        if not isinstance(idx, PackedIndex):
+            quant = idx.manifest.quantization if idx.manifest else "bilinmiyor"
+            raise typer.BadParameter(
+                "--pipeline two-stage yalnız sign-1bit (PackedIndex) indeksle "
+                f"çalışır; {s.index_dir} yüklü: {quant}"
+            )
         adapter = TwoStageDiagnosticAdapter(
             TwoStageRetriever(idx, meta, encoder),
             candidates=s.stage1_candidates,
             record_top=max(200, s.stage1_candidates),
         )
     else:
-        adapter = ExhaustiveDiagnosticAdapter(ExhaustiveBinaryRetriever(idx, meta, encoder))
+        adapter = ExhaustiveDiagnosticAdapter(ExhaustiveRetriever(idx, meta, encoder))
 
     questions, only_verified = _load_bench_mode(bench, only_verified)
     run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-{pipeline.value}"

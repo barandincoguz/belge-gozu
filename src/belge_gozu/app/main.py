@@ -14,14 +14,17 @@ from pydantic import BaseModel
 from belge_gozu.answer.base import Answer, AskService
 from belge_gozu.config import Settings, get_settings
 from belge_gozu.index.compat import IndexCompatibilityError, check_compatibility
+from belge_gozu.index.loader import load_scorable_index
 from belge_gozu.index.manifest import (
     DOC_PROMPTS,
     QUERY_FORMATS,
     DocPromptChoice,
+    IndexManifest,
+    QueryFormat,
     QueryFormatChoice,
 )
 from belge_gozu.index.store import PackedIndex
-from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever, TwoStageRetriever
+from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import StageCollector, collecting
 from belge_gozu.telemetry.prom import PromMetrics
@@ -42,6 +45,83 @@ class AskBody(BaseModel):
     question: str
 
 
+def resolve_formats(s: Settings) -> tuple[QueryFormat, str | None]:
+    """Config'ten (Settings) çözülen (sorgu formatı, doküman prompt'u).
+
+    CLI'nin `index build` sırasında kullandığı QUERY_FORMATS/DOC_PROMPTS
+    sözlükleriyle aynı kaynak (belge_gozu.index.manifest) — T11/Step 6."""
+    return (
+        QUERY_FORMATS[QueryFormatChoice(s.query_format_id)],
+        DOC_PROMPTS[DocPromptChoice(s.doc_prompt_id)],
+    )
+
+
+def build_retriever(
+    s: Settings,
+    encoder,
+    *,
+    model_name: str,
+    model_revision: str | None,
+) -> tuple[ExhaustiveRetriever | TwoStageRetriever, IndexManifest | None]:
+    """İndeksi yükler, uyumluluğu doğrular ve yapılandırılmış getiriciyi kurar.
+
+    `create_app` ile slow canary fixture'ı (tests/retrieval/
+    test_semantic_canary.py) BU fonksiyonu paylaşır: fixture eskiden aynı
+    mantığı kopyalıyordu ve bu yüzden üretim yapılandırmasından sessizce
+    sapabiliyordu (nitekim doğrudan `PackedIndex.load` çağırdığı için
+    varsayılan indeks int8'e döndüğünde kopya sürüm bozulurdu).
+
+    T14: hangi kuantizasyonun diskte olduğu manifest'ten okunur (packed/
+    int8/float16). Eskiden burada sabit `PackedIndex.load` vardı; ölçümde
+    kazanan int8 indeks (float16 ile birebir kalite, 1-bit'e karşı +7 puan
+    R@20 ve 4.3x hız) bu yüzden üretimde HİÇ yüklenemiyordu (ruling R16/D1).
+    """
+    index = load_scorable_index(s.index_dir)
+    meta = pd.read_parquet(s.index_dir / "meta.parquet")
+    resolved_query_format, resolved_doc_prompt = resolve_formats(s)
+    # Final review IMPORTANT-2: fallback'ler ESKİ varsayılan literal'i (CPE_0_3_18)
+    # ve None değil, config'ten çözülen ÜRETİM değerleridir. Aksi halde
+    # `query_format`/`doc_prompt_sha256` taşımayan bir encoder enjekte edildiğinde
+    # (testler, gömme/uzak encoder'lar) kontrol sessizce ölü hale geliyordu:
+    # indeks train-compat, karşılaştırma cpe-0.3.18'e karşı yapılıyordu.
+    resolved_doc_prompt_sha256 = (
+        hashlib.sha256(resolved_doc_prompt.encode()).hexdigest()
+        if resolved_doc_prompt is not None
+        else None  # processor-default: etkin prompt yalnız processor'dan bilinir
+    )
+    # Manifest'i loader zaten okudu (üç indeks sınıfı da `.load` içinde okur);
+    # ikinci bir `read_manifest` çağrısı aynı dosyayı tekrar ayrıştırırdı.
+    problems = check_compatibility(
+        index.manifest,
+        model_name=model_name,
+        model_revision=model_revision,
+        query_format_id=getattr(encoder, "query_format", resolved_query_format).format_id,
+        doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", resolved_doc_prompt_sha256),
+        index_dir=s.index_dir,
+    )
+    if problems:
+        msg = "indeks/serve uyumsuzluğu: " + "; ".join(problems)
+        if not s.allow_index_mismatch:
+            raise IndexCompatibilityError(msg)
+        logger.warning("BG_ALLOW_INDEX_MISMATCH=true ile devam ediliyor — %s", msg)
+
+    retriever: ExhaustiveRetriever | TwoStageRetriever
+    if s.retrieval_pipeline == "exhaustive":
+        retriever = ExhaustiveRetriever(index, meta, encoder)
+    else:
+        # two-stage mean-sign eleme YALNIZ paketli bit vektörleri üstünde
+        # tanımlı (page_vecs + Hamming); int8/float16 indekste `page_vecs`
+        # yoktur. Sessiz AttributeError yerine açık uyumsuzluk hatası.
+        if not isinstance(index, PackedIndex):
+            quant = index.manifest.quantization if index.manifest else "bilinmiyor"
+            raise IndexCompatibilityError(
+                "two-stage ablasyonu yalnız sign-1bit (PackedIndex) indeksle "
+                f"çalışır; yüklü: {quant}"
+            )
+        retriever = TwoStageRetriever(index, meta, encoder)
+    return retriever, index.manifest
+
+
 def create_app(
     settings: Settings | None = None,
     encoder=None,
@@ -49,13 +129,7 @@ def create_app(
     recorder: EventRecorder | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
-    index = PackedIndex.load(s.index_dir)
-    meta = pd.read_parquet(s.index_dir / "meta.parquet")
-    # CLI'nin index build sırasında kullandığı QUERY_FORMATS/DOC_PROMPTS
-    # sözlükleriyle aynı kaynak (belge_gozu.index.manifest) — serve config'i
-    # (Settings.query_format_id/doc_prompt_id) buradan çözülür (T11/Step 6).
-    resolved_query_format = QUERY_FORMATS[QueryFormatChoice(s.query_format_id)]
-    resolved_doc_prompt = DOC_PROMPTS[DocPromptChoice(s.doc_prompt_id)]
+    resolved_query_format, resolved_doc_prompt = resolve_formats(s)
     if encoder is None:
         from belge_gozu.index.encode import ColSmolEncoder
 
@@ -70,39 +144,31 @@ def create_app(
 
         answerer = GeminiAnswerer(s.gemini_model, s.gemini_api_key)
 
-    # Final review IMPORTANT-2: fallback'ler ESKİ varsayılan literal'i (CPE_0_3_18)
-    # ve None değil, config'ten çözülen ÜRETİM değerleridir. Aksi halde
-    # `query_format`/`doc_prompt_sha256` taşımayan bir encoder enjekte edildiğinde
-    # (testler, gömme/uzak encoder'lar) kontrol sessizce ölü hale geliyordu:
-    # indeks train-compat, karşılaştırma cpe-0.3.18'e karşı yapılıyordu.
-    resolved_doc_prompt_sha256 = (
-        hashlib.sha256(resolved_doc_prompt.encode()).hexdigest()
-        if resolved_doc_prompt is not None
-        else None  # processor-default: etkin prompt yalnız processor'dan bilinir
-    )
-    problems = check_compatibility(
-        index.manifest,
+    retriever, manifest = build_retriever(
+        s,
+        encoder,
         model_name=s.retriever_model,
         model_revision=getattr(encoder, "model_revision", None),
-        query_format_id=getattr(encoder, "query_format", resolved_query_format).format_id,
-        doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", resolved_doc_prompt_sha256),
-        index_dir=s.index_dir,
     )
-    if problems:
-        msg = "indeks/serve uyumsuzluğu: " + "; ".join(problems)
-        if not s.allow_index_mismatch:
-            raise IndexCompatibilityError(msg)
-        logger.warning("BG_ALLOW_INDEX_MISMATCH=true ile devam ediliyor — %s", msg)
+    index = retriever.index
+
+    # Ölçek korkuluğu (T14): skorlar artık normalize [-1,1] (sorgu jetonu
+    # başına ortalama MaxSim). Eski binary ölçeğinde (0-128) kalmış bir eşik
+    # — ör. 60.0 — yeni ölçekte HİÇBİR ZAMAN aşılamaz, yani servis her
+    # soruya sessizce "dayanak bulamadım" derdi. Bu, ölçek geçişinin
+    # üreteceği en sessiz hatadır; burada fail-fast'e çevriliyor.
+    # (Testler -1e9 gibi "kapalı eşik" değerleri kullanır: negatif taraf
+    # kasten serbest.)
+    if s.min_score_threshold > 1.5:
+        raise IndexCompatibilityError(
+            f"min_score_threshold={s.min_score_threshold} eski binary ölçeği (0-128) "
+            "kalıntısı görünüyor; skorlar artık normalize [-1,1] — bkz. "
+            "data/bench/results/int8-threshold-transfer.json"
+        )
 
     def load_image(image_path: str) -> bytes:
         return (s.data_dir / image_path).read_bytes()
 
-    if s.retrieval_pipeline == "exhaustive":
-        retriever = ExhaustiveBinaryRetriever(index, meta, encoder)
-    else:
-        retriever = TwoStageRetriever(index, meta, encoder)
-
-    manifest = index.manifest
     if manifest is not None:
         index_revision = (
             f"{manifest.corpus_checksum[:12]}/{manifest.query_format.format_id}/"
@@ -227,10 +293,17 @@ def create_app(
 
     @app.get("/healthz")
     def healthz() -> dict:
+        # `index` bloğu (T14): eşik ile hangi TEMSİLİN servis edildiği tek
+        # yerde görünür. Eşik ölçeği kuantizasyona bağlı olduğu için
+        # ("0.58 normalize" vs "60.0 binary") ikisini ayrı ayrı sormak
+        # yanlış okumaya açıktı; `revision` telemetrideki `index_revision`
+        # ile aynı dizedir (olay kayıtlarıyla eşleştirilebilir).
         return {
             "status": "ok",
             "pages": len(index.page_ids),
             "threshold": s.min_score_threshold,
+            "top_k": s.top_k,
+            "index": {"quantization": quantization, "revision": index_revision},
         }
 
     @app.post("/search")

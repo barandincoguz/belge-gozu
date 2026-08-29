@@ -10,7 +10,7 @@ from belge_gozu.bench.metrics import bootstrap_ci, mrr, ndcg_at_k, recall_at_k
 from belge_gozu.index.manifest import IndexManifest
 from belge_gozu.index.store import binarize_pack
 from belge_gozu.provenance import git_commit  # geriye dönük re-export (eski ev buradaydı)
-from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever, TwoStageRetriever, hamming_matrix
+from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever, hamming_matrix
 
 
 class StageRecord(BaseModel):
@@ -61,11 +61,17 @@ class DiagnosticPipeline(Protocol):
 
 
 class ExhaustiveDiagnosticAdapter:
-    """ExhaustiveBinaryRetriever sarar."""
+    """ExhaustiveRetriever sarar — indeks temsilinden bağımsız.
+
+    Getiriciden YALNIZ `encoder`, `index.page_ids` ve `score_all` kullanılır;
+    `score_all` normalize [-1,1] skorları zaten kendisi döndürdüğü için
+    burada hiçbir ölçek düzeltmesi YOKTUR (bkz. TwoStageDiagnosticAdapter —
+    orada ham toplam normalize edilmek zorunda). Bu yüzden adapter
+    packed/int8/float indekslerin üçüyle de çalışır."""
 
     name = "exhaustive"
 
-    def __init__(self, retriever: ExhaustiveBinaryRetriever, record_top: int = 200):
+    def __init__(self, retriever: ExhaustiveRetriever, record_top: int = 200):
         self.retriever = retriever
         self.record_top = record_top
 
@@ -136,17 +142,21 @@ class TwoStageDiagnosticAdapter:
             latency_ms=(t1 - t0) * 1000,
         )
 
-        # Aşama 2: adaylarda kesin binary MaxSim (RAW toplam n_q'ya bölünerek
-        # normalize edilir). NOT: `search_embedding` üretim kodu, aday
-        # seçimini kendi içinde tekrar hesaplar (stage-1 hamming'i
-        # `argpartition` ile yeniden çalıştırır) — bu yüzden aşağıdaki
-        # latency_ms yalnız "aşama 2" değil, o dahili tekrar-hesaplamayı da
-        # (sub-ms mertebesinde) içerir; "stage2-only" değildir.
+        # Aşama 2: adaylarda kesin binary MaxSim (RAW toplam `n_q * 128`'e
+        # bölünerek normalize edilir — ÜRETİMİN `TwoStageRetriever.search`
+        # ile BİREBİR aynı ifadesi; teşhis kaydı üretim skorundan farklı bir
+        # ölçekte olursa iki taraf sessizce ayrışır, bkz.
+        # tests/bench/test_harness.py::test_two_stage_adapter_matches_production_score).
+        # NOT: `search_embedding` üretim kodu, aday seçimini kendi içinde
+        # tekrar hesaplar (stage-1 hamming'i `argpartition` ile yeniden
+        # çalıştırır) — bu yüzden aşağıdaki latency_ms yalnız "aşama 2"
+        # değil, o dahili tekrar-hesaplamayı da (sub-ms mertebesinde)
+        # içerir; "stage2-only" değildir.
         hits = self.retriever.search_embedding(q_emb, k=self.candidates, candidates=self.candidates)
         t2 = time.perf_counter()
         n_q = max(1, q_emb.shape[0])
         stage2_ids = [page_ids[i] for i, _ in hits]
-        stage2_scores = [score / n_q for _, score in hits]
+        stage2_scores = [score / (n_q * 128) for _, score in hits]
         stage2 = StageRecord(
             stage="stage2",
             gold_ranks={},

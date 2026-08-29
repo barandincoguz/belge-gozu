@@ -5,8 +5,8 @@ from typing import ClassVar
 
 import numpy as np
 
-from belge_gozu.bench.oracle import FloatIndex
-from belge_gozu.index.chunking import CHUNK_TOKENS, chunk_bounds
+from belge_gozu.index.chunking import CHUNK_TOKENS, EMBED_DIM, INT8_MAX, chunk_bounds
+from belge_gozu.index.float_store import FloatIndex
 from belge_gozu.index.manifest import IndexManifest, read_manifest, write_manifest
 from belge_gozu.index.store import PackedIndex
 
@@ -31,12 +31,12 @@ def derive_packed(findex: FloatIndex) -> PackedIndex:
 
 @dataclass
 class Int8Index:
-    """Per-token simetrik ölçekli int8 kuantizasyon: scale_t = max|x_t| / 127,
+    """Per-token simetrik ölçekli int8 kuantizasyon: scale_t = max|x_t| / INT8_MAX,
     q_t = round(x_t / scale_t). Skor: chunk'lar float32'ye açılıp T5/oracle
     desenindeki aynı sayfa-hizalı MaxSim (`np.maximum.reduceat`) uygulanır --
     saklama küçülür, hesap yine float."""
 
-    codes: np.ndarray  # (toplam_token, 128) int8
+    codes: np.ndarray  # (toplam_token, EMBED_DIM) int8
     scales: np.ndarray  # (toplam_token,) float32
     offsets: np.ndarray
     page_ids: list[str]
@@ -57,7 +57,7 @@ class Int8Index:
         farklı olarak burada satırlar arası indirgeme yok)."""
         offsets = np.asarray(findex.offsets)
         total_tokens = int(offsets[-1])
-        codes = np.empty((total_tokens, 128), dtype=np.int8)
+        codes = np.empty((total_tokens, EMBED_DIM), dtype=np.int8)
         scales = np.empty(total_tokens, dtype=np.float32)
         resolved_chunk = chunk_tokens if chunk_tokens is not None else cls.CHUNK_TOKENS
         bounds = chunk_bounds(offsets, resolved_chunk)
@@ -65,12 +65,12 @@ class Int8Index:
             t0, t1 = int(offsets[b0]), int(offsets[b1])
             chunk = np.asarray(findex.embs[t0:t1], dtype=np.float32)  # kopya, yalnız bu chunk
             abs_max = np.abs(chunk).max(axis=1)
-            chunk_scale = np.maximum(abs_max / np.float32(127.0), np.float32(1e-8)).astype(
+            chunk_scale = np.maximum(abs_max / np.float32(INT8_MAX), np.float32(1e-8)).astype(
                 np.float32
             )
             np.divide(chunk, chunk_scale[:, None], out=chunk)
             np.round(chunk, out=chunk)
-            np.clip(chunk, -127, 127, out=chunk)
+            np.clip(chunk, -INT8_MAX, INT8_MAX, out=chunk)
             codes[t0:t1] = chunk.astype(np.int8)
             scales[t0:t1] = chunk_scale
         manifest = (
@@ -83,14 +83,22 @@ class Int8Index:
     def page_tokens(self, i: int) -> np.ndarray:
         return self.codes[self.offsets[i] : self.offsets[i + 1]]
 
-    def score_all(self, q_emb: np.ndarray) -> np.ndarray:
+    def score_all(self, q_emb: np.ndarray, chunk_tokens: int | None = None) -> np.ndarray:
         """(n_pages,) — dequantize edilmiş chunk'larla float MaxSim, T5/oracle
-        ile birebir aynı sayfa-hizalı chunk + reduceat deseni."""
+        ile birebir aynı sayfa-hizalı chunk + reduceat deseni.
+
+        Skorlar sorgu jetonu başına ortalamadır (~[-1,1]) — PackedIndex ve
+        FloatIndex ile AYNI ölçek; burada matematik değişmedi (T14'te
+        normalize edilen taraf binary koldu).
+
+        `chunk_tokens=None` -> `self.CHUNK_TOKENS` (instance üstünde override
+        edilebilir — bkz. tests/index/test_quantize.py çoklu-chunk testi)."""
         q = np.asarray(q_emb, dtype=np.float32)
         offsets = np.asarray(self.offsets)
         n_pages = len(self.page_ids)
         out = np.empty(n_pages, dtype=np.float64)
-        bounds = chunk_bounds(offsets, self.CHUNK_TOKENS)
+        resolved = chunk_tokens if chunk_tokens is not None else self.CHUNK_TOKENS
+        bounds = chunk_bounds(offsets, resolved)
         for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
             t0, t1 = int(offsets[b0]), int(offsets[b1])
             chunk = self.codes[t0:t1].astype(np.float32) * self.scales[t0:t1, None]

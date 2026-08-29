@@ -22,7 +22,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ml = ["colpali-engine>=0.3", "torch>=2.4"]
+# colpali-engine PIN'LI (aralık değil): prompt-format sözleşmesi 0.3.18
+# davranışına karşı doğrulandı (T11/Step 1 — visual_prompt_prefix ClassVar'ı
+# 0.3.11'de, "Query: " prefix'i 0.3.13'te değişti). Manifest engine sürümünü
+# KAYDEDER ama uyumluluk kontrolünde KARŞILAŞTIRMAZ; asıl kilit bu pin.
+ml = ["colpali-engine==0.3.18", "torch>=2.4"]
 dev = ["pytest>=8.0", "ruff>=0.6", "pyright>=1.1.380", "pre-commit>=3.8"]
 
 [project.scripts]

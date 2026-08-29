@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from belge_gozu.config import Settings
 
 
@@ -7,6 +9,23 @@ def test_defaults():
     assert s.stage1_candidates == 200
     assert s.top_k == 5
     assert s.request_delay_s == 1.0
+
+
+def test_production_index_and_threshold_defaults():
+    """İki varsayılan BİRLİKTE kilitlenir: temsil + o temsile ait eşik.
+
+    Bu iki alan eskiden hiç assert edilmiyordu — tam da bu yüzden bir ölçek
+    kayması (indeks int8'e geçerken eşiğin binary 60.0'da kalması gibi)
+    testlerde görünmezdi. İkisi birbirine bağlıdır: eşik yalnız normalize
+    [-1,1] skor ölçeğinde anlamlıdır ve o ölçek indeksin temsiliyle gelir.
+
+    Gerekçe ve ölçümler: config.py'deki yorumlar +
+    data/bench/results/int8-threshold-transfer.json."""
+    s = Settings()
+    assert s.index_dir == Path("data/index-traincompat-int8")
+    assert s.min_score_threshold == 0.58
+    # ölçek korkuluğunun (app/main.py) reddettiği banda düşmemeli
+    assert s.min_score_threshold <= 1.5
 
 
 def test_env_override(monkeypatch):

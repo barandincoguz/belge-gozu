@@ -1,97 +1,34 @@
-import json
-from dataclasses import dataclass
-from pathlib import Path
+"""f16 oracle yardımcıları — `FloatIndex`'in ESKİ evi.
+
+T14 (ruling D4): `FloatIndex` `belge_gozu.index.float_store`'a taşındı,
+çünkü üretim kodu (`index/quantize.py`) onu buradan import ediyordu —
+index -> bench yönünde bir katman inversiyonu. Bu modül artık yalnız
+geriye dönük re-export + oracle'a özgü küçük yardımcılardır; mevcut
+`from belge_gozu.bench.oracle import FloatIndex, native_float_scores`
+importları AYNEN çalışmaya devam eder.
+"""
 
 import numpy as np
 
 from belge_gozu.index.chunking import CHUNK_TOKENS, chunk_bounds
-from belge_gozu.index.manifest import IndexManifest, read_manifest, write_manifest
+from belge_gozu.index.float_store import FloatIndex
 
 __all__ = [
     "CHUNK_TOKENS",  # geriye dönük: eskiden bu modülün global'iydi (bkz. index/chunking.py)
-    "FloatIndex",
+    "FloatIndex",  # geriye dönük: eskiden burada tanımlıydı (bkz. index/float_store.py)
     "chunk_bounds",
     "native_float_scores",
     "rank_of",
 ]
 
 
-@dataclass
-class FloatIndex:
-    """f16 master token embedding'leri: embs.npy (toplam_token, 128) float16 +
-    offsets.npy + page_ids.json + manifest.json (quantization="float16").
-
-    T5'teki PackedIndex ile aynı sayfa-hizalı chunk deseni kullanılır; tek fark
-    Hamming yerine gerçek dot-product MaxSim (native_float_scores)."""
-
-    embs: np.ndarray
-    offsets: np.ndarray
-    page_ids: list[str]
-    manifest: IndexManifest | None = None
-
-    @classmethod
-    def build(
-        cls,
-        page_ids: list[str],
-        embs: list[np.ndarray],
-        manifest: IndexManifest | None = None,
-    ) -> "FloatIndex":
-        if len(page_ids) != len(embs):
-            raise ValueError(
-                f"page_ids ({len(page_ids)}) ve embs ({len(embs)}) uzunlukları eşleşmiyor"
-            )
-        if not embs:
-            raise ValueError("boş korpus: en az bir sayfa embedding'i gerekli")
-        for pid, e in zip(page_ids, embs, strict=True):
-            if e.shape[0] == 0:
-                raise ValueError(f"sıfır token'lı sayfa: {pid}")
-        offsets = np.zeros(len(embs) + 1, dtype=np.int64)
-        np.cumsum([e.shape[0] for e in embs], out=offsets[1:])
-        stacked = np.vstack(embs).astype(np.float16)
-        return cls(stacked, offsets, list(page_ids), manifest)
-
-    def page_tokens(self, i: int) -> np.ndarray:
-        return self.embs[self.offsets[i] : self.offsets[i + 1]]
-
-    def save(self, dir: Path) -> None:
-        dir.mkdir(parents=True, exist_ok=True)
-        np.save(dir / "embs.npy", self.embs)
-        np.save(dir / "offsets.npy", self.offsets)
-        (dir / "page_ids.json").write_text(json.dumps(self.page_ids, ensure_ascii=False))
-        if self.manifest is not None:
-            write_manifest(dir, self.manifest)
-
-    @classmethod
-    def load(cls, dir: Path, mmap: bool = True) -> "FloatIndex":
-        mode = "r" if mmap else None
-        return cls(
-            embs=np.load(dir / "embs.npy", mmap_mode=mode),
-            offsets=np.load(dir / "offsets.npy"),
-            page_ids=json.loads((dir / "page_ids.json").read_text()),
-            manifest=read_manifest(dir),
-        )
-
-
 def native_float_scores(findex: FloatIndex, q_emb: np.ndarray) -> np.ndarray:
-    """(n_pages,) — float MaxSim (per-query-token ortalama), sayfa-hizalı chunk'lı.
+    """(n_pages,) — `FloatIndex.score_all`'a ince delegasyon (aynı matematik).
 
-    T5'teki `ExhaustiveBinaryRetriever.score_all` deseniyle aynı: sayfa-hizalı
-    chunk'lar üstünde `np.maximum.reduceat`; tek fark Hamming yerine `q @
-    chunk.T` gerçek dot-product'ı (f16 saklamadan float32'ye açılarak)."""
-    q = np.asarray(q_emb, dtype=np.float32)
-    offsets = np.asarray(findex.offsets)
-    n_pages = len(findex.page_ids)
-    out = np.empty(n_pages, dtype=np.float64)
-    bounds = chunk_bounds(offsets)
-    for b0, b1 in zip(bounds[:-1], bounds[1:], strict=True):
-        t0, t1 = int(offsets[b0]), int(offsets[b1])
-        chunk = np.asarray(findex.embs[t0:t1], dtype=np.float32)
-        sim = q @ chunk.T  # (n_q, chunk_tokens)
-        starts = (offsets[b0:b1] - t0).astype(np.int64)
-        # offsets kesin artan (FloatIndex.build sıfır-token sayfayı reddeder) ->
-        # reduceat boş segment göremez.
-        out[b0:b1] = np.maximum.reduceat(sim, starts, axis=1).sum(axis=0)
-    return out / max(1, q.shape[0])
+    Skorlar per-query-token ortalamadır (~[-1,1]): PackedIndex/Int8Index ile
+    AYNI ölçek. Fonksiyon biçimi oracle koşumlarındaki çağrı yerleri için
+    korunuyor."""
+    return findex.score_all(q_emb)
 
 
 def rank_of(scores: np.ndarray, page_ids: list[str], target: str) -> int:

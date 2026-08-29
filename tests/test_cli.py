@@ -136,6 +136,53 @@ def test_index_build_refuses_to_overwrite_prod_index_with_other_format(tmp_path,
     assert not (tmp_path / "index").exists()
 
 
+def test_index_build_refuses_to_overwrite_prod_index_with_other_quantization(tmp_path, monkeypatch):
+    """Aynı korkuluğun KUANTİZASYON ekseni (T14).
+
+    Üretim indeksi artık int8 ama `index build` yalnız packed/f16 üretir.
+    --out'suz bir build sessizce int8'in üstüne 1-bit yazar ve manifest'i de
+    "sign-1bit"e çevirdiği için yükleyici hiçbir şey fark etmeden onu servis
+    ederdi: ölçümde KAYBEDEN temsile sessiz geri dönüş."""
+    from belge_gozu.index.manifest import write_manifest
+    from tests.index.test_manifest import make_manifest
+
+    index_dir = tmp_path / "index"
+    index_dir.mkdir(parents=True)
+    write_manifest(index_dir, make_manifest(quantization="int8"))
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BG_INDEX_DIR", str(index_dir))
+
+    result = runner.invoke(app, ["index", "build", "--fake"])
+
+    assert result.exit_code != 0
+    assert "int8" in result.output and "sign-1bit" in result.output
+    assert "--out" in result.output and "derive" in result.output
+    assert not (index_dir / "tokens.npy").exists()  # hiçbir şey yazılmadı
+
+
+def test_index_derive_rejects_float16_quant(tmp_path):
+    """`Quantization` T14'te float16 üyesini kazandı; `derive` onu türetemez.
+
+    Açıkça reddedilmezse dallanma sessizce int8 üretir ve manifest'e
+    "float16" yazardı: diskteki veriyle etiketi çelişen bir indeks."""
+    result = runner.invoke(
+        app,
+        [
+            "index",
+            "derive",
+            "--from",
+            str(tmp_path / "f16"),
+            "--quant",
+            "float16",
+            "--out",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "float16" in result.output
+    assert not (tmp_path / "out").exists()
+
+
 def test_metrics_export_cli(tmp_path, monkeypatch):
     from belge_gozu.telemetry.recorder import EventRecorder
     from belge_gozu.telemetry.schema import RequestEvent
