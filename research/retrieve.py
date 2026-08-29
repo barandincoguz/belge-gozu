@@ -3,10 +3,10 @@
 Sözleşme (research/program.md): rank_pages(q) -> sıralı page_id listesi.
 q: query_text, page_ids, visual_scores (float32[n]), page_texts.
 
-EXP-1 (bm25-only): SAF metin kanalı — sayfa PDF metinleri üzerinde BM25
-(k1=1.5, b=0.75), Türkçe-farkında küçük harf, \\w+ tokenizasyonu. Görsel skor
-KULLANILMAZ: amaç metin kanalının tek başına aday recall'unu ölçmek
-(ilke 23: füzyondan önce kanal recall ölçümü).
+EXP-3 (bm25-f5): exp1 + F5 ön-ek kırpması — her token ilk 5 karaktere kırpılır.
+Türkçe eklemeli dilde 5-karakter ön-ek eşleşmesi, tam kök çıkarmaya yakın
+performans verir (Can vd., Turkish IR literatürü); ayarlanmış değil, sabit seçim.
+Tek değişken: tokenizasyon (BM25 parametreleri ve kanal aynı).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from collections import Counter
 import numpy as np
 
 _WORD = re.compile(r"\w+", re.UNICODE)
+F5 = 5  # Türkçe ön-ek kırpma uzunluğu
 
 
 def tr_lower(s: str) -> str:
@@ -25,7 +26,7 @@ def tr_lower(s: str) -> str:
 
 
 def tokenize(s: str) -> list[str]:
-    return [t for t in _WORD.findall(tr_lower(s)) if len(t) > 1]
+    return [t[:F5] for t in _WORD.findall(tr_lower(s)) if len(t) > 1]
 
 
 class BM25:

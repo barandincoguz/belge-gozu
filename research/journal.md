@@ -31,3 +31,27 @@ Birincil metrik: canary-answerable (n=43) **R@5**. Sayı satırları: `results.j
   bulunuyor (6/8); (c) hedef 0.30 daha füzyonsuz aşıldı — asıl soru artık füzyonun
   BM25-only'yi geçip geçemeyeceği. Dikkat: dogrudan-madde dilimi BM25 lehine
   (sorular madde diliyle örtüşür); paraphrase dilimi gerçek genelleme testi.
+
+## #2 — exp2-rrf-visual-bm25-k60 → DISCARDED
+
+- **Hipotez:** standart eşit-ağırlık RRF (k=60) iki kanalı birleştirince R@5 artar.
+- **Sayılar:** R@5 0.3953 (0.6744'ten GERİLEME) · R@1 0.2093 · R@20 0.7442 · MRR 0.316
+- **Karar:** DISCARDED (git checkout).
+- **Öğrenilen + analiz (soru-bazlı çapraz tablo):** her ikisi @5: 8 · yalnız görsel: 2
+  (c202, c205) · yalnız metin: 21 · hiçbiri: 12. Eşit-ağırlık RRF, zayıf kanalın
+  (görsel R@5 0.2326) gürültüsünü — kapak/başlık sayfaları — metnin 21 tekil
+  kazanımının üstüne bindirip 12'sini düşürüyor. Mükemmel füzyon tavanı 31/43=0.7209:
+  füzyonun getirebileceği en fazla +2 soru. BM25 top-skoru güven geçidi olarak
+  ayrıştırmıyor (vuran min 14.0 / ıskalayan maks 33.1). "Hiçbiri" listesinde 4 soru
+  metin rank 6-8'de (c203:7, c212:6, c304:7, c001:8) → önce metin kanalını iyileştir.
+
+## #3 — exp3-bm25-f5 → KEPT
+
+- **Hipotez:** Türkçe eklemeli; F5 ön-ek kırpması (Can vd.) ek/çekim farklarını
+  kapatıp paraphrase eşleşmesini güçlendirir. Tek değişken: tokenizasyon.
+- **Sayılar:** R@5 **0.7674** (0.6744'ten, +4 soru) · R@1 0.4884 (−1 soru; veto dışı,
+  not edildi) · R@20 0.8837 · MRR 0.6211 · visual_R@5 **1.0** · chip1 8 · chip2 3
+- **Karar:** KEPT.
+- **Öğrenilen:** kırpma kazancı recall tarafında (R@5/R@20); R@1'de küçük kayıp
+  ön-ek çakışmalarının beklenen bedeli. requires_visual 8/8 → OCR katmanı + F5,
+  "görsel" soruları tamamen kapsıyor.
