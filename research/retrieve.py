@@ -3,10 +3,14 @@
 Sözleşme (research/program.md): rank_pages(q) -> sıralı page_id listesi.
 q: query_text, page_ids, visual_scores (float32[n]), page_texts.
 
-EXP-5 (bm25-f5-stop): exp3 + sabit Türkçe işlev-kelimesi listesi (iki tarafta:
-indeks + sorgu). Liste standart dilbilgisi işlev kelimeleri — canary'ye
-AYARLANMADI; içerikle çakışabilenler ("zaman" → zamanaşımı, "iş") bilinçli
-dışarıda. Tek değişken: tokenizasyon filtresi.
+EXP-7 (docroute-window20): exp5 + PENCERE-İÇİ doküman-adı yönlendirmesi.
+exp6'nın mutlak bölümlemesi guardrail'i deldi (aday kümesini değiştiriyordu);
+bu sürüm yalnız BM25 top-20 penceresinin İÇİNİ yeniden sıralar: pencere kümesi
+yapısal olarak aynı kalır (R@20 tanım gereği korunur), adı sorguda tam geçen
+doküman(lar)ın sayfaları pencere içinde öne alınır. Ad çıkarımı exp6 ile aynı
+(1. sayfa büyük-harfli başlık satırı; jenerik: kanun/türk/türki/cumhu).
+Pencere = 20, R@20 guardrail'iyle eşleşsin diye seçildi (veriye ayar değil).
+Tek değişken: pencere-içi yönlendirme katmanı.
 """
 
 from __future__ import annotations
@@ -73,7 +77,48 @@ def _bm25(page_texts: list[str]) -> BM25:
     return _BM25
 
 
+WINDOW = 20  # R@20 guardrail'iyle bilinçli hizalı: pencere kümesi değişmez
+
+_GENERIC = frozenset({"kanun", "türk", "türki", "cumhu"})
+_TITLE_LINE = re.compile(r"^[A-ZÇĞİÖŞÜÂÎÛ0-9 ()'’.,;:-]{8,}$")
+_DOC_NAMES: dict[str, frozenset[str]] | None = None
+
+
+def _doc_name_tokens(page_ids: list[str], page_texts: list[str]) -> dict[str, frozenset[str]]:
+    """doc_id -> 1. sayfadaki başlık satırından türetilmiş jenerik-dışı ad token'ları."""
+    global _DOC_NAMES
+    if _DOC_NAMES is not None:
+        return _DOC_NAMES
+    names: dict[str, frozenset[str]] = {}
+    for pid, text in zip(page_ids, page_texts):
+        doc, _, page = pid.partition(":")
+        if page != "1":
+            continue
+        cands = [
+            ln.strip()
+            for ln in text.splitlines()
+            if ("KANUN" in ln or "ANAYASA" in ln) and _TITLE_LINE.match(ln.strip())
+        ]
+        if not cands:
+            continue
+        toks = frozenset(tokenize(max(cands, key=len))) - _GENERIC
+        if toks:
+            names[doc] = toks
+    _DOC_NAMES = names
+    return names
+
+
 def rank_pages(q) -> list[str]:
     scores = _bm25(q.page_texts).scores(q.query_text)
     order = np.argsort(-scores, kind="stable")
-    return [q.page_ids[i] for i in order]
+    ranking = [q.page_ids[i] for i in order]
+
+    q_toks = set(tokenize(q.query_text))
+    names = _doc_name_tokens(q.page_ids, q.page_texts)
+    routed = {doc for doc, toks in names.items() if toks <= q_toks}
+    if not routed:
+        return ranking
+    win = ranking[:WINDOW]
+    front = [pid for pid in win if pid.partition(":")[0] in routed]
+    back = [pid for pid in win if pid.partition(":")[0] not in routed]
+    return front + back + ranking[WINDOW:]

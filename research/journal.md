@@ -80,3 +80,33 @@ Birincil metrik: canary-answerable (n=43) **R@5**. Sayı satırları: `results.j
 - **Öğrenilen:** stoplist R@5'i değil derin sıraları düzeltiyor (kalıp kelimeler
   en çok orta-sıra karışıklığı üretiyormuş); chip1 sınıfının (kanun adı + kalıp)
   ana ilacı bu oldu.
+
+## #6 — exp6-bm25-f5-stop-docroute → DISCARDED (guardrail vetosu)
+
+- **Hipotez:** kanun adını anan sorgularda o dokümanın sayfalarını öne bölümle.
+- **Sayılar:** R@5 0.7907 (+1) AMA R@20 0.907→0.8372 (−3) ve visual_R@5 1.0→0.875 (−1)
+  · chip1 4→2 · chip2 2
+- **Karar:** DISCARDED — mutlak bölümleme, ad token'ları tesadüfen eşleşen
+  sorgularda gold'u (özellikle RG/tarihi gold'lar) 20 dışına itiyor.
+- **Öğrenilen:** yönlendirme sinyali gerçek (+1 @5, chip1 2) ama küresel
+  uygulanamaz; aday kümesini DEĞİŞTİRMEYEN, yalnız yerel sırayı düzelten bir
+  biçim gerekli → pencere-içi yeniden sıralama (exp7).
+
+## #7 — exp7-docroute-window20 → KEPT
+
+- **Hipotez:** exp6'nın yönlendirme sinyali, aday kümesini değiştirmeyen
+  pencere-içi (top-20) yeniden sıralamayla guardrail'leri delmeden kazanılır.
+- **Sayılar:** R@5 **0.8140** (35/43; exp5'ten +2) · R@1 0.5116 · R@20 0.907
+  (yapısal olarak korunur) · MRR 0.6519 · visual_R@5 1.0 · **chip1 rank 2 ·
+  chip2 rank 2**
+- **Karar:** KEPT.
+- **Öğrenilen:** kural sinyalleri (doküman adı) küresel bölümleme yerine
+  pencere-içi sıralama düzeltmesi olarak güvenli; R@20 guardrail'i pencereyle
+  hizalanınca gerileme sınıfı yapısal olarak kapanıyor.
+
+## DÖNGÜ SONU — durma koşulu: hedef aşıldı
+
+Taban 0.2326 → **0.8140** (3.5×). Hedef 0.30, esnek 0.40 — ikisi de aşıldı.
+Seyir: +BM25 0.674 → +F5 0.767 → +stoplist (R@20/MRR/chip1) → +pencere-yönlendirme 0.814.
+Atılanlar: eşit-RRF (0.395 — zayıf kanal gürültüsü), bigram (0.628), mutlak yönlendirme
+(guardrail vetosu). Görsel kanalın füzyon katkısı bu bench'te SIFIR benzersiz @5 sorusu.
