@@ -1,6 +1,6 @@
 # Canary Ön-Kontrol Raporu
 
-Oluşturulma: 2026-08-27T18:16:25.377063+00:00  ·  toplam soru: 48
+Oluşturulma: 2026-08-29T16:34:12.897687+00:00  ·  toplam soru: 48
 
 Normalizasyon: karşılaştırmadan önce boşluk/satır sonları tek boşluğa indirgenir, ardından Türkçe'ye duyarlı küçültme uygulanır (İ->i, I->ı, sonra str.casefold()); hem sayfa metni hem alıntı AYNI fonksiyondan geçer.
 
