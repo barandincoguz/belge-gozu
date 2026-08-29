@@ -266,3 +266,13 @@ KRİTİK BULGU (yeni, makale için): EŞİK (min_score_threshold=60.0) ARTIK AYI
   Kilit: tests/retrieval/test_semantic_canary.py'de xfail(strict=True) olarak sabitlendi;
   P2 kalibrasyonu doğru davranışı getirdiğinde test KIRMIZIYA döner ve fark edilir.
   Bu, P2'nin (kalibre selective answering) neden zorunlu olduğunun doğrudan kanıtıdır.
+
+DOĞRULAMA TURU (2026-08-29): canary 48/48 verified.
+  3 insan (c307/c308/c314 — sahibi) + 45 bağımsız model çapraz-kontrolü (4 doğrulayıcı,
+  sayfa görüntülerini yeniden okudu). Bulunan kusurlar: 5 düzeltme (c001/c002/c108 slice,
+  c312 query_style, c203 eksik kanıt alıntısı) + 1 sayfa-aralığı hatası (c213: VUK m.17'nin
+  3. şartı k213:9'da; gold iki sayfaya çıkarıldı). Model turu rubber stamp DEĞİLDİ.
+  Yeni alan: verification_kind ∈ {human, model-cross-check} — kapı raporlarında ayrı sayılır.
+  Kapı sayıları --only-verified ile yeniden koşuldu: SONUÇLAR AYNI (R@5 0.116; oracle
+  1bit/float/int8 = 0.116/0.233/0.233). Yani doğrulama metrikleri değiştirmedi, güvenilirliği
+  artırdı. KISIT: set insan-doğrulanmış olarak alıntılanamaz (yalnız 3/48 insan onaylı).
