@@ -93,6 +93,21 @@ def test_score_histograms_carry_quantization_label():
     assert 'bg_retrieval_top_score_bucket{le="0.58",quantization="int8"} 0.0' in text
 
 
+def test_bm25_routing_set_is_derived_from_the_single_scale_map():
+    """Yönlendirme kümesi `config.PIPELINE_SCORE_SCALE`'den TÜRETİLMELİ (review M1).
+
+    Elle yazılmış bir kopya, ölçeği BM25 olan yeni bir pipeline eklendiğinde
+    sessizce eskir: korkuluk ve uyarı doğru davranır ama skorlar normalize
+    [-1,1] histogramına dökülmeye başlar — T14 hatasının aynısı."""
+    from belge_gozu.config import BM25_SCALE, PIPELINE_SCORE_SCALE
+    from belge_gozu.telemetry.prom import BM25_SCALE_PIPELINES
+
+    assert BM25_SCALE_PIPELINES == {p for p, s in PIPELINE_SCORE_SCALE.items() if s == BM25_SCALE}
+    assert BM25_SCALE_PIPELINES == {"hybrid"}  # bugünkü durum
+    # ölçek adının kendisi de tek kaynaktan gelmeli (dize kopyası yok)
+    assert PIPELINE_SCORE_SCALE["hybrid"] == BM25_SCALE
+
+
 def test_hybrid_scores_go_to_the_bm25_series():
     """Skor ÖLÇEĞİ pipeline'a bağlı (P1): hibrit örnekler AYRI seriye düşer.
 

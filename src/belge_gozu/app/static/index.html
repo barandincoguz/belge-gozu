@@ -232,7 +232,7 @@
   <section id="pipeline" class="pipeline" hidden aria-label="İşlem aşamaları">
     <ol>
       <li class="stage" data-st="0"><span class="dot"></span><span>sorgu kodlanıyor</span></li>
-      <li class="stage" data-st="1"><span class="dot"></span><span id="st-scan">4.222 sayfada exhaustive MaxSim → ilk 5</span></li>
+      <li class="stage" data-st="1"><span class="dot"></span><span id="st-scan">4.222 sayfada BM25 + doküman yönlendirme → ilk 5</span></li>
       <li class="stage" data-st="2"><span class="dot"></span><span id="st-th">eşik kontrolü</span></li>
       <li class="stage" data-st="3"><span class="dot"></span><span id="st-llm">Gemini sayfaları okuyor</span></li>
       <li class="elapsed" id="elapsed" aria-hidden="true"></li>
@@ -251,9 +251,11 @@
   <section id="retrieval-sec" hidden aria-label="Retrieval sonuçları">
     <h2 class="sec-title">Sistem hangi sayfalara baktı?</h2>
     <p class="sec-sub">Retrieval’ın seçtiği en yakın <span id="hits-count">5</span> sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
-      kaba, kalibre edilmemiş bir kesme noktasıdır (güven ölçüsü değil) — en iyi skor bu
-      çizgiyi geçemezse sistem, yanıt uydurmak yerine “dayanak bulunamadı” der ve Gemini
-      hiç çağrılmaz.</p>
+      kaba, kalibre edilmemiş bir kesme noktasıdır (güven ölçüsü değil) — eşik
+      <b>sıralamanın birincisine</b> uygulanır: o sayfa çizgiyi geçemezse sistem, yanıt
+      uydurmak yerine “dayanak bulunamadı” der ve Gemini hiç çağrılmaz. Doküman-adı
+      yönlendirmesi ilk sırayı skora göre değil <i>sorguda adı geçen kanuna</i> göre
+      belirlediği için liste skora göre azalan olmayabilir.</p>
     <div class="chart" id="chart"></div>
     <div id="hits" class="hits"></div>
   </section>
@@ -290,7 +292,16 @@ fetch("/healthz").then(r => r.json()).then(h => {
   THRESHOLD = h.threshold ?? THRESHOLD;
   TOP_K = h.top_k ?? TOP_K;
   $("page-count").textContent = h.pages.toLocaleString("tr-TR");
-  $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada exhaustive MaxSim → ilk ${TOP_K}`;
+  /* Aşama etiketi ETKİN pipeline'ı anlatmalı: hibrit yolda "ilk K"yı BM25 metin
+     kanalı + doküman-adı yönlendirmesi seçer (görsel MaxSim koşar ama sıralamaya
+     girmez); exhaustive/two-stage kollarında sıralayan görsel kanaldır. */
+  const SCAN_LABEL = {
+    hybrid: "BM25 + doküman yönlendirme (görsel MaxSim telemetride)",
+    exhaustive: "exhaustive MaxSim",
+    "two-stage": "Hamming eleme + MaxSim",
+  };
+  const scan = SCAN_LABEL[h.pipeline] ?? SCAN_LABEL.hybrid;
+  $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada ${scan} → ilk ${TOP_K}`;
   $("st-th").textContent = `eşik kontrolü (${fmt(THRESHOLD, 2)})`;
   $("hits-count").textContent = String(TOP_K);
 }).catch(() => {});
@@ -346,7 +357,11 @@ function renderChart(hits) {
     const row = document.createElement("div");
     row.className = "crow " + (above ? "above" : "below");
     row.dataset.pid = h.page_id;
-    row.title = `${h.doc_name} — sayfa ${h.page_no}`;
+    /* Eşik kararı YALNIZ 1. satıra bakar (AskService: hits[0].score). Yönlendirme
+       listeyi skora göre monoton olmaktan çıkarabildiği için, alt satırlardaki
+       "eşik üstü" renkler abstain kararıyla çelişiyormuş gibi görünebilir —
+       hangi satırın karar verdiği burada açıkça söyleniyor. */
+    row.title = `${h.doc_name} — sayfa ${h.page_no}` + (i === 0 ? " · eşik bu satıra uygulanır" : "");
     row.innerHTML = `
       <span class="name"><span class="nm">${esc(h.doc_name)}</span><small>s.${h.page_no}</small></span>
       <span class="track" style="--th:${thPct}">

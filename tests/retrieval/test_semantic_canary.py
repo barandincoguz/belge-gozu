@@ -130,6 +130,12 @@ def test_long_query_rank_ratchet(prod_retriever):
             f"cırcır bu pipeline'da ölçülmemiş: {s.retrieval_pipeline} "
             "(tests/retrieval/canary_expectations.json)"
         )
+    # Bloğun kendi `pipeline` künyesi anahtarıyla tutarlı olmalı (review L9:
+    # aksi halde alan "kontrol ediliyor" izlenimi verip hiç okunmuyordu).
+    assert block["pipeline"] == s.retrieval_pipeline, (
+        f"canary_expectations.json anahtarı ({s.retrieval_pipeline}) ile bloğun "
+        f"künyesi ({block['pipeline']}) çelişiyor — cırcır yanlış kola uygulanır"
+    )
     if s.retrieval_pipeline == "hybrid":
         # Metin kanalı tam sıralamayı kendisi verir (model gerektirmez).
         ranking = prod_retriever.rank_all(Q_LONG)

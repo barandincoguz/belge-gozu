@@ -210,6 +210,47 @@ def test_index_build_text_does_not_invalidate_manifest(tmp_path: Path, monkeypat
     assert problems == []
 
 
+def test_index_build_text_refuses_partial_corpus(tmp_path: Path, monkeypatch):
+    """Yarım kalmış `corpus download` SESSİZ bozulma üretiyordu (review M3).
+
+    PDF'i olmayan bir dokümanın tüm sayfaları boş metinle yazılır; artefakt
+    satır-hizalı olduğu için serve'ün kontrolünden GEÇER ve korpusun o kısmı
+    BM25 tarafından hiç görülmez."""
+    index_dir = _built_index(tmp_path, monkeypatch, pages=2)
+    # indeks d1'i tanıyor; sanki indirme yarıda kesilmiş gibi PDF'i kaldır
+    (tmp_path / "pdf" / "d1.pdf").unlink()
+
+    result = runner.invoke(app, ["index", "build-text"])
+
+    assert result.exit_code != 0
+    assert "d1" in result.output and "corpus download" in result.output
+    assert not (index_dir / "page_texts.parquet").exists()  # bozuk artefakt YAZILMADI
+
+
+def test_index_build_text_allow_missing_escape_hatch(tmp_path: Path, monkeypatch):
+    """Bilinçli kısmi koşum mümkün, ama sessiz değil: uyarı + doküman kırılımı."""
+    import pandas as pd
+
+    index_dir = _built_index(tmp_path, monkeypatch, pages=2)
+    (tmp_path / "pdf" / "d1.pdf").unlink()
+
+    result = runner.invoke(app, ["index", "build-text", "--allow-missing"])
+
+    assert result.exit_code == 0, result.output
+    assert "UYARI" in result.output
+    assert "boş: d1 2/2 sayfa" in result.output  # doküman başına kırılım
+    df = pd.read_parquet(index_dir / "page_texts.parquet")
+    assert len(df) == 2 and (df["text"] == "").all()
+
+
+def test_index_build_text_reports_no_empty_docs_on_healthy_corpus(tmp_path: Path, monkeypatch):
+    _built_index(tmp_path, monkeypatch, pages=2)
+    result = runner.invoke(app, ["index", "build-text"])
+    assert result.exit_code == 0, result.output
+    assert "2 sayfa, 0 metin katmanı boş" in result.output
+    assert "boş: " not in result.output and "UYARI" not in result.output
+
+
 def test_index_build_text_refuses_without_index(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("BG_INDEX_DIR", str(tmp_path / "yok"))

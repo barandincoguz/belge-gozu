@@ -47,7 +47,7 @@ Her `/ask` ve `/search` isteği bu tabloya bir satır düşürür (WAL modlu SQL
 | `tokens_per_s` | REAL | token/sn | `app/main.py` (`tokens_out / (answer_ms/1000)`) | akışsız ortalama üretim hızı | 1 |
 | `est_cost_usd` | REAL | USD | `app/main.py:113-115` (`config.py` fiyat sabitleri) | çağrı başına tahmini maliyet | 1 |
 | `error_type` | TEXT, yalnız `status='error'` | exception sınıf adı | `app/main.py` | hata sınıflandırması | 1 |
-| `detail` | TEXT (JSON) | — | `app/main.py` | top-5 `[{page_id,score}]`, model adları, device, threshold, app_version — makale tekrarlanabilirliği için koşum künyesi | 1 |
+| `detail` | TEXT (JSON) | — | `app/main.py` | koşum künyesi: `hits` (top-k `[{page_id,score}]`), `threshold`, `retriever_model`, `gemini_model`, `device`, `app_version`, `stages` (aşama adı -> ms; `_STAGE_COLS` dışındaki adlar YALNIZ burada), `retrieval` (`query_format`, `quantization`; hibrit yolda ayrıca `bm25_top1`, `visual_top1`, `routed_docs`) | 1 |
 
 İndeks: `(ts)`, `(endpoint, ts)` — `telemetry/schema.py: EVENTS_INDEXES`.
 
@@ -99,7 +99,9 @@ Kaynak: `src/belge_gozu/telemetry/prom.py` — `REQUEST_BUCKETS`, `STAGE_BUCKETS
 
 Skor/marj bucket'ları T14'te normalize [-1,1] ölçeğine taşındı; geçiş öncesi seriler ve `events` satırları eski binary ölçeğindedir (0-128) ve `bg_app_info`'nun `index_revision` etiketi (olay tablosunda `index_revision` kolonu) ile bu iki histogramın `quantization` etiketinden ayırt edilir.
 
-**BM25 ölçeği (P1).** Hibrit pipeline'da sıralamayı ve dolayısıyla `top_score`'u BM25 metin kanalı üretir: kalibre edilmemiş, ÜST SINIRSIZ birim (canary'de cevaplanabilir top-1'ler min 10.53 / medyan 26.05 / maks 69.30). Bu örnekler normalize [-1,1] serilerinde toplansaydı hepsi son bucket'a düşer ve quantile'lar anlamsızlaşırdı, bu yüzden `PromMetrics.observe` olayın `pipeline` künyesine bakıp AYRI `*_bm25` serilerine yönlendirir (`prom.py: BM25_SCALE_PIPELINES`). `quantization` etiketi bu serilerde YOKTUR: BM25 skoru metin katmanından gelir, indeks temsiline bağlı değildir. Aşama serisine (`bg_stage_duration_seconds`) hibritin `text_bm25`/`route_fuse` adları `detail.stages` fallback'iyle kendiliğinden akar — prom.py'de aşama adı listesi tutulmaz.
+**BM25 ölçeği (P1).** Hibrit pipeline'da sıralamayı ve dolayısıyla `top_score`'u BM25 metin kanalı üretir: kalibre edilmemiş, ÜST SINIRSIZ birim. Canary'de **servis edilen** (yani eşiğe giren) top-1'ler min 10.53 / medyan 24.02 / maks 69.30; kanalın kendi top-1 medyanı 26.05'tir (`detail.retrieval.bm25_top1`) — doküman-adı yönlendirmesi sıralamanın birincisini skora göre seçmediği için ikisi ayrışır ve eşik/çalışma noktası **servis edilen** skordan ölçülmüştür. Bu örnekler normalize [-1,1] serilerinde toplansaydı hepsi son bucket'a düşer ve quantile'lar anlamsızlaşırdı, bu yüzden `PromMetrics.observe` olayın `pipeline` künyesine bakıp AYRI `*_bm25` serilerine yönlendirir. Yönlendirme kümesi (`prom.py: BM25_SCALE_PIPELINES`) `config.PIPELINE_SCORE_SCALE`'den **türetilir**, kopya sabit tutulmaz. `quantization` etiketi bu serilerde YOKTUR: BM25 skoru metin katmanından gelir, indeks temsiline bağlı değildir. Aşama serisine (`bg_stage_duration_seconds`) hibritin `text_bm25`/`route_fuse` adları `detail.stages` fallback'iyle kendiliğinden akar — prom.py'de aşama adı listesi tutulmaz.
+
+**Grafana panosu.** `observability/grafana/.../belge-gozu.json` iki skor paneli taşır: "Top skor dağılımı — BM25 (hibrit, varsayılan)" (`bg_retrieval_top_score_bm25_bucket`) ve "Top skor dağılımı — görsel ölçek" (`bg_retrieval_top_score_bucket`, `quantization` kırılımlı). Etkin pipeline'a göre biri dolu, diğeri BOŞ olur; bu beklenen davranıştır, telemetri arızası değildir.
 
 ### Türetilmiş metrikler (SQL/pandas — analiz katmanı, kod değil)
 

@@ -5,22 +5,32 @@ from typing import Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Skor ÖLÇEĞİ adları. Bu iki dize projedeki tek ölçek kimliğidir: korkuluk,
+# taşınabilirlik uyarısı ve telemetri yönlendirmesi hepsi bunlara bakar.
+BM25_SCALE = "hybrid-bm25"  # BM25 birimi, üst sınırsız (ölçülen bant ~4-70)
+VISUAL_SCALE = "visual-normalized"  # sorgu jetonu başına ortalama MaxSim, ~[-1,1]
+
 # `min_score_threshold`ın ÜZERİNDE TAŞINDIĞI SKOR ÖLÇEĞİ. P1'de eşiğin
 # bağlandığı eksen KUANTİZASYONDAN PIPELINE'A geçti: hibrit yolda sıralamayı
 # ve dolayısıyla eşikle karşılaştırılan skoru BM25 metin kanalı üretir
-# (kalibre edilmemiş, üst sınırsız, ölçülen bant ~4-70) — int8/1-bit ayrımı bu
-# skoru etkilemez. `app/main.py` etkin pipeline'ın ölçeği bundan farklıysa
-# UYARIR ve ölçek dışı bir eşikte fail-fast yapar.
-THRESHOLD_CALIBRATED_ON = "hybrid-bm25"
+# — int8/1-bit ayrımı bu skoru etkilemez. `app/main.py` etkin pipeline'ın
+# ölçeği bundan farklıysa UYARIR ve ölçek dışı bir eşikte fail-fast yapar.
+THRESHOLD_CALIBRATED_ON = BM25_SCALE
 
 # Hangi pipeline hangi skor ölçeğinde skorlar. Ölçek karışımı bu projenin en
-# sessiz hata sınıfıdır (T14: binary 0-128 -> normalize [-1,1]); tek yerde
-# tutulur ki korkuluk, uyarı ve telemetri yönlendirmesi aynı kaynağa baksın.
+# sessiz hata sınıfıdır (T14: binary 0-128 -> normalize [-1,1]); TEK yerde
+# tutulur ki korkuluk, uyarı ve telemetri yönlendirmesi aynı kaynağa baksın —
+# `telemetry/prom.py` bu sözlükten TÜRETİR, kopya tutmaz (review M1).
 PIPELINE_SCORE_SCALE: dict[str, str] = {
-    "hybrid": "hybrid-bm25",  # BM25 birimi, üst sınırsız (~4-70 gözlendi)
-    "exhaustive": "visual-normalized",  # sorgu jetonu başına ortalama MaxSim, ~[-1,1]
-    "two-stage": "visual-normalized",
+    "hybrid": BM25_SCALE,
+    "exhaustive": VISUAL_SCALE,
+    "two-stage": VISUAL_SCALE,
 }
+
+
+def pipelines_on_scale(scale: str) -> frozenset[str]:
+    """Verilen skor ölçeğinde skorlayan pipeline adları (tek kaynaktan türetilir)."""
+    return frozenset(p for p, s in PIPELINE_SCORE_SCALE.items() if s == scale)
 
 
 class Settings(BaseSettings):
@@ -69,9 +79,11 @@ class Settings(BaseSettings):
     # hybrid (VARSAYILAN, P1): sıralamayı PDF metin katmanı üzerindeki BM25 +
     # doküman-adı pencere-içi yönlendirmesi belirler; görsel MaxSim kanalı
     # koşmaya devam eder ama sıralamaya girmez (telemetri + P2 kalibrasyon
-    # verisi). Ölçüm (canary answerable n=43, autoresearch exp7): R@5 0.2326 ->
-    # 0.8140, vitrin sorgularının gold sıraları 664->2 ve 137->2 — findings
-    # 2026-08-29-autoresearch-text-channel.md. exhaustive: yalnız görsel kanal,
+    # verisi). Ölçüm (canary answerable n=43, autoresearch exp7 -> exp8): R@5
+    # 0.2326 -> 0.8140 -> 0.8372 (ikili tanım), R@20 0.302 -> 0.9302, vitrin
+    # sorgularının gold sıraları 664->2 ve 137->2 — findings
+    # 2026-08-29-autoresearch-text-channel.md + research/journal.md #8.
+    # exhaustive: yalnız görsel kanal,
     # her arama tüm korpusu tarar (P0 üretim yolu; artık ablasyon/karşılaştırma
     # kolu). two-stage: mean-sign Hamming ile aday eleme + kesin MaxSim
     # (ablasyon-only; spec §1.1 karşı-örneği nedeniyle üretimde kullanılmaz).
@@ -87,13 +99,23 @@ class Settings(BaseSettings):
     # ölçekte hiçbir soruyu geçirmemesi gibi, aynı hatanın simetriği.
     #
     # 10.6, T14'ün 0.58'i gibi, bir öncekinin ÇALIŞMA NOKTASINI SAYICA yeniden
-    # üretir. Ölçüm (canary, BM25 ölçeği): cevaplanabilir n=43 top-1'ler min
-    # 10.53 / medyan 26.05 / maks 69.30; cevaplanamaz top-1'ler 4.23 (c006
-    # anlamsız), 12.96 (c004), 15.54 (c007), 17.86 (c005), 23.53 (c003).
-    # binary@60 / int8@0.58'in çalışma noktası "42/43 cevaplanabilir + 4/5
-    # cevaplanamaz geçer"di; bu ölçekte o noktayı veren eşik bandı
-    # (10.528, 10.712] — 10.6 o bandın içinden seçildi. Yani mekanik ölçek
+    # üretir. Ölçüm — hepsi SERVİS EDİLEN top-1 üzerinde, yani `AskService`in
+    # eşikle karşılaştırdığı gerçek skor üzerinde (canary, BM25 ölçeği):
+    # cevaplanabilir n=43 min 10.5284 / medyan 24.02 / maks 69.30;
+    # cevaplanamaz top-1'ler 4.23 (c006 anlamsız), 12.96 (c004), 15.54 (c007),
+    # 17.86 (c005), 23.53 (c003). binary@60 / int8@0.58'in çalışma noktası
+    # "42/43 cevaplanabilir + 4/5 cevaplanamaz geçer"di; bu ölçekte o noktayı
+    # veren eşik bandı — ikinci en küçük servis edilen skor 10.7117 olduğu için
+    # — (10.528, 10.712]; 10.6 o bandın içinden seçildi. Yani mekanik ölçek
     # taşıması, kalibrasyon değil.
+    #
+    # SERVİS EDİLEN vs KANAL top-1 (review L1): pencere-içi yönlendirme
+    # sıralamanın BİRİNCİSİNİ skora göre değil sorguda adı geçen kanuna göre
+    # seçebilir, yani eşiğe giren sayfa kanalın en yüksek skorlu sayfası
+    # OLMAYABİLİR. Kanalın kendi top-1 medyanı 26.05 (telemetride
+    # `detail.retrieval.bm25_top1`); yukarıdaki bant ve çalışma noktası
+    # kanaldan değil SERVİS EDİLEN skordan ölçüldü. (Pencere 20 -> 50 exp8
+    # değişikliği bu dağılımı değiştirmedi: aynı min/2./medyan/maks.)
     #
     # TAŞINABİLİRLİK: eşik artık KUANTİZASYONA değil PIPELINE'a bağlı (bkz.
     # PIPELINE_SCORE_SCALE). BG_RETRIEVAL_PIPELINE=exhaustive/two-stage'e

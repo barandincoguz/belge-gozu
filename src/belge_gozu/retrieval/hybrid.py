@@ -1,44 +1,120 @@
 """Hibrit getirim: BM25 metin kanalı + doküman-adı yönlendirmesi (P1 üretim yolu).
 
-Sıralamayı METİN KANALI belirler (`retrieval/text.py` — autoresearch exp7
-reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md, canary
-answerable n=43 R@5 0.2326 -> 0.8140). Görsel MaxSim kanalı her sorguda
+Sıralamayı METİN KANALI belirler (`retrieval/text.py` — autoresearch exp7/exp8
+reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md + journal #8,
+canary answerable n=43 R@5 0.2326 -> 0.8372). Görsel MaxSim kanalı her sorguda
 KOŞMAYA DEVAM EDER ama sıralamaya GİRMEZ:
 
   * ölçüm (bulgu 3): F5 kırpmasından sonra görselin top-5'e BENZERSİZ katkısı
     SIFIR soru — yani füzyon bugün ölçülebilir bir kazanç getirmiyor;
-  * eşit-ağırlık RRF ÖLÇÜLDÜ ve REDDEDİLDİ (R@5 0.6744 -> 0.3953): zayıf
-    kanalın kapak-sayfası gürültüsü güçlü kanalın kazanımlarını düşürüyor;
+  * üç ayrı füzyon biçimi ÖLÇÜLDÜ ve REDDEDİLDİ: küresel eşit-ağırlık RRF
+    (R@5 0.6744 -> 0.3953), mutlak doküman bölümlemesi (R@20 vetosu) ve
+    pencere-içi RRF (0.8372 -> 0.5349, journal #10) — zayıf kanalın
+    kapak-sayfası çekimi her granülaritede metin gold'larını eziyor;
   * yine de koşuyor, çünkü iki kanalın skorlarının YAN YANA kaydı P2
     kalibrasyonunun girdisi (`detail.retrieval.visual_top1`) ve görselin
     "tablo/tarama fallback" rolü orada yeniden çerçevelenecek.
 
 Bu bilinçli bir gecikme takasıdır: görsel kanal sorgu başına ~0.24 sn
 (4222 sayfa, int8, CPU) ekler; BM25 milisaniyeler mertebesindedir.
+
+Metin kanalı ARTEFAKTININ yüklenmesi de burada (`require_text_artifact` /
+`load_text_channel`): serve ve bench aynı kurulumu çağırsın diye getirim
+katmanında durur — daha önce `app/main.py`'deydi ve `bench run` FastAPI
+uygulama modülünü çekmek zorunda kalıyordu (review L8).
 """
 
 from __future__ import annotations
 
+import logging
+import time
 from contextvars import ContextVar
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import pandas as pd
 
 from belge_gozu.index.chunking import CHUNK_TOKENS
+from belge_gozu.index.compat import IndexCompatibilityError
 from belge_gozu.index.encode import Encoder
-from belge_gozu.retrieval.text import WINDOW, BM25Index, route_window, tokenize
+from belge_gozu.retrieval.text import (
+    WINDOW,
+    BM25Index,
+    extract_doc_name_tokens,
+    route_window,
+    tokenize,
+)
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import stage
 
 if TYPE_CHECKING:
     from belge_gozu.index.loader import ScorableIndex
 
+logger = logging.getLogger(__name__)
+
+TEXT_ARTIFACT_NAME = "page_texts.parquet"
+
 # İstek başına getirim künyesi. Düz bir instance alanı olsaydı eşzamanlı
 # isteklerde (FastAPI senkron uç noktaları threadpool'da koşar) bir isteğin
 # künyesi diğerinin olayına yazılabilirdi. ContextVar `telemetry/collect.py`
 # ile aynı desendir: uç nokta gövdesi ve `search()` aynı bağlamda çalışır.
 _LAST_META: ContextVar[dict | None] = ContextVar("bg_hybrid_meta", default=None)
+
+
+def require_text_artifact(index_dir: Path) -> Path:
+    """Metin kanalı artefaktının VARLIĞINI doğrular (saf dosya sistemi kontrolü).
+
+    Ayrı bir fonksiyon çünkü `create_app` bunu VLM ağırlıklarını ve 474 MB'lık
+    indeksi yüklemeden ÖNCE çağırır (review L6): tek satırlık "`index
+    build-text` çalıştır" mesajı için dakikalarca model yüklemek anlamsız.
+    Hizalama kontrolü indeksin `page_ids`'ini gerektirdiği için
+    `load_text_channel`'da kalır."""
+    path = index_dir / TEXT_ARTIFACT_NAME
+    if not path.exists():
+        raise IndexCompatibilityError(
+            f"hibrit pipeline metin kanalı artefaktı gerektirir ama {path} yok. "
+            "Çözüm: `uv run belge-gozu index build-text` (model gerekmez, saniyeler sürer). "
+            "Alternatif: BG_RETRIEVAL_PIPELINE=exhaustive ile yalnız-görsel yola dönün "
+            "(eşiği de o ölçeğe taşımayı unutmayın)."
+        )
+    return path
+
+
+def load_text_channel(
+    index_dir: Path, page_ids: list[str]
+) -> tuple[BM25Index, dict[str, frozenset[str]]]:
+    """`<index_dir>/page_texts.parquet` -> (BM25 indeksi, doküman-adı token'ları).
+
+    Artefakt `belge-gozu index build-text` ile üretilir ve indeks dizininde
+    durur: metin kanalı görsel indeksin SAYFA SIRASINA bağlıdır, ayrı bir
+    dizinde tutulmak ikisinin sessizce ayrışmasına davetiye olurdu. Sıra
+    burada ayrıca DOĞRULANIR (bir satır kayması yanlış sayfayı döndürür ve
+    hiçbir yerde hata vermez)."""
+    path = require_text_artifact(index_dir)
+    df = pd.read_parquet(path)
+    file_ids = df["page_id"].tolist()
+    if file_ids != list(page_ids):
+        missing = sorted(set(page_ids) - set(file_ids))
+        extra = sorted(set(file_ids) - set(page_ids))
+        detail = (
+            f"indekste olup metinde olmayan={len(missing)} {missing[:3]}; "
+            f"metinde olup indekste olmayan={len(extra)} {extra[:3]}"
+            if (missing or extra)
+            else "aynı küme, farklı SIRA (listeler birebir eşleşmeli)"
+        )
+        raise IndexCompatibilityError(
+            f"{TEXT_ARTIFACT_NAME} indeksle hizalı değil: indeks n={len(page_ids)} "
+            f"metin n={len(file_ids)} — {detail}. Çözüm: `uv run belge-gozu index build-text` "
+            "ile yeniden üretin."
+        )
+    texts = df["text"].fillna("").tolist()
+    t0 = time.perf_counter()
+    bm25 = BM25Index(list(page_ids), texts)
+    logger.info(
+        "BM25 metin indeksi kuruldu: %d sayfa, %.2f sn", len(page_ids), time.perf_counter() - t0
+    )
+    return bm25, extract_doc_name_tokens(list(page_ids), texts)
 
 
 class HybridRetriever:
@@ -105,9 +181,14 @@ class HybridRetriever:
         Görsel kanalı ÇALIŞTIRMAZ: sıralamaya girmediği için sonucu
         değiştirmez, ama model yüklemeden koşulabilmesini sağlar (deterministik).
         """
-        return self._rank(query, self.text.scores(query))[0]
+        return self.rank(query, self.text.scores(query))[0]
 
-    def _rank(self, query: str, bm25: np.ndarray) -> tuple[list[str], set[str]]:
+    def rank(self, query: str, bm25: np.ndarray) -> tuple[list[str], set[str]]:
+        """(nihai sıralama, yönlendirilen doküman kümesi) — reçetenin sıra kompozisyonu.
+
+        PUBLIC çünkü bench adapter'ı (`bench/harness.py`) da bunu çağırır:
+        kompozisyonu orada yeniden kurmak, üretim sırası değiştiğinde bench'in
+        sessizce BAŞKA bir şey ölçmesi demekti (review L7)."""
         order = np.argsort(-bm25, kind="stable")
         ranking = [self.index.page_ids[i] for i in order]
         routed = self.routed_docs(query)
@@ -125,7 +206,7 @@ class HybridRetriever:
         with stage("text_bm25"):
             bm25 = self.text.scores(query)
         with stage("route_fuse"):
-            ranking, routed = self._rank(query, bm25)
+            ranking, routed = self.rank(query, bm25)
         by_id = dict(zip(self.index.page_ids, bm25.tolist(), strict=True))
         _LAST_META.set(
             {

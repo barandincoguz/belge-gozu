@@ -1,6 +1,8 @@
 import json
 import sqlite3
 
+import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from belge_gozu.answer.base import SERVICE_ERROR_TEXT, Answer
@@ -270,8 +272,18 @@ def test_hybrid_search_records_channel_tops_and_routing(tiny_corpus):
     assert detail["retrieval"]["routed_docs"] == ["d0"]
     assert detail["retrieval"]["bm25_top1"] > 0
     assert isinstance(detail["retrieval"]["visual_top1"], float)
-    # servis edilen top-1 BM25 ölçeğinde (görsel normalize banda değil)
-    assert row[1] == detail["hits"][0]["score"]
+    # Olaya yazılan top_score GERÇEKTEN o sayfanın BM25 skoru (review L3:
+    # `row[1] == detail["hits"][0]["score"]` totolojikti — ikisi de aynı
+    # listeden türüyor). Skoru fikstürün parquet'inden BAĞIMSIZ hesaplıyoruz.
+    from belge_gozu.retrieval.text import BM25Index
+
+    texts = pd.read_parquet(data_dir / "index" / "page_texts.parquet")
+    bm25 = BM25Index(texts["page_id"].tolist(), texts["text"].tolist())
+    expected = dict(
+        zip(bm25.page_ids, bm25.scores("Medeni Kanuna göre yerleşim yeri").tolist(), strict=True)
+    )
+    assert row[1] == pytest.approx(expected[detail["hits"][0]["page_id"]])
+    assert row[1] > 1.5  # BM25 bandı — normalize [-1,1] ölçeğinde OLAMAZ
 
 
 def test_query_text_flag_off_hashes_only(tiny_corpus):

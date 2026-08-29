@@ -6,6 +6,7 @@ davranış değil, SABİTLER ve YAPISAL SÖZLEŞMELER kilitlenir.
 """
 
 import math
+import random
 
 import numpy as np
 import pytest
@@ -23,9 +24,13 @@ from belge_gozu.retrieval.text import (
 
 
 def test_recipe_constants_are_the_measured_ones():
-    """Sabitler exp7 reçetesinden: F5=5, pencere=20 (R@20 guardrail'iyle hizalı)."""
+    """Sabitler reçeteden: F5=5 (exp3), pencere=50 (exp8 — journal #8).
+
+    Pencere exp7'de 20'ydi (R@20 guardrail'iyle yapısal hizalı); exp8 ölçümü
+    50'ye çıkardı ve R@20 korunmakla kalmayıp 0.907 -> 0.9302'ye YÜKSELDİ,
+    R@5 0.8140 -> 0.8372 (+c214)."""
     assert F5 == 5
-    assert WINDOW == 20
+    assert WINDOW == 50
     # İçerik taşıyabilecek kelimeler listede OLMAMALI (canary'ye ayar riski).
     assert {"ve", "göre", "nedir", "sayılı"} <= STOPWORDS
     assert not ({"zaman", "iş", "izin", "yerleşim"} & STOPWORDS)
@@ -143,12 +148,31 @@ def _ranking(n: int = 30) -> list[str]:
 
 
 def test_route_window_keeps_top_window_set_and_tail_identical():
-    """Yapısal sözleşme: pencere KÜMESİ ve pencere SONRASI hiç değişmez."""
-    ranking = _ranking()
-    out = route_window(ranking, {"d1"}, window=20)
-    assert len(out) == len(ranking)
-    assert set(out[:20]) == set(ranking[:20])  # R@20 tanım gereği korunur
-    assert out[20:] == ranking[20:]  # pencere sonrası dokunulmaz
+    """Yapısal sözleşme (property): pencere KÜMESİ ve pencere SONRASI hiç değişmez.
+
+    Tek bir örnekle değil, rastgele üretilmiş 300 (sıralama, yönlendirilen
+    küme, pencere) üçlüsüyle sınanır — sözleşme `window` değerinden BAĞIMSIZ
+    olarak yapısaldır ve exp8'in 20 -> 50 değişikliğinden sonra da aynen
+    geçerlidir. VARSAYILAN pencere de taranan değerler arasında."""
+    rng = random.Random(20260830)
+    docs = [f"d{i}" for i in range(6)]
+    for _ in range(300):
+        n = rng.randint(1, 120)
+        ranking = [f"{rng.choice(docs)}:{i}" for i in range(n)]
+        routed = set(rng.sample(docs, rng.randint(0, len(docs))))
+        window = rng.choice([0, 1, 2, 5, 20, WINDOW, n, n + 10])
+
+        out = route_window(ranking, routed, window=window)
+
+        assert len(out) == len(ranking)
+        assert set(out) == set(ranking)  # hiçbir sayfa kaybolmuyor/eklenmiyor
+        assert set(out[:window]) == set(ranking[:window])  # R@window tanım gereği korunur
+        assert out[window:] == ranking[window:]  # pencere sonrası dokunulmaz
+        # pencere İÇİNDE: yönlendirilenler önce, iki grupta da BM25 sırası korunuyor
+        win = ranking[:window]
+        front = [p for p in win if p.partition(":")[0] in routed]
+        back = [p for p in win if p.partition(":")[0] not in routed]
+        assert out[:window] == (front + back if routed else win)
 
 
 def test_route_window_puts_routed_first_preserving_order():
@@ -165,10 +189,10 @@ def test_route_window_without_routed_docs_is_identity():
 def test_route_window_does_not_pull_pages_into_the_window():
     """Pencere DIŞINDAKİ yönlendirilmiş sayfa öne ÇEKİLMEZ (exp6'nın vetolanan
     davranışı): aday kümesini değiştirmek R@20'yi düşürüyordu."""
-    ranking = [f"x:{i}" for i in range(20)] + ["hedef:1"]
-    out = route_window(ranking, {"hedef"}, window=20)
+    ranking = [f"x:{i}" for i in range(WINDOW)] + ["hedef:1"]
+    out = route_window(ranking, {"hedef"})
     assert out == ranking
-    assert out[20] == "hedef:1"
+    assert out[WINDOW] == "hedef:1"
 
 
 def test_route_window_default_is_the_measured_window():

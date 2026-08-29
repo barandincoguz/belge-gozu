@@ -30,8 +30,7 @@ from belge_gozu.index.manifest import (
 )
 from belge_gozu.index.store import PackedIndex
 from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
-from belge_gozu.retrieval.hybrid import HybridRetriever
-from belge_gozu.retrieval.text import BM25Index, extract_doc_name_tokens
+from belge_gozu.retrieval.hybrid import HybridRetriever, load_text_channel, require_text_artifact
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import StageCollector, collecting
 from belge_gozu.telemetry.prom import PromMetrics
@@ -64,50 +63,6 @@ def resolve_formats(s: Settings) -> tuple[QueryFormat, str | None]:
 
 
 Retriever = ExhaustiveRetriever | TwoStageRetriever | HybridRetriever
-
-
-def build_text_channel(s: Settings, index) -> tuple[BM25Index, dict[str, frozenset[str]]]:
-    """`<index_dir>/page_texts.parquet` -> (BM25 indeksi, doküman-adı token'ları).
-
-    Artefakt `belge-gozu index build-text` ile üretilir ve indeks dizininde
-    durur: metin kanalı görsel indeksin SAYFA SIRASINA bağlıdır, ayrı bir
-    dizinde tutulmak ikisinin sessizce ayrışmasına davetiye olurdu. Sıra
-    burada ayrıca DOĞRULANIR (bir satır kayması yanlış sayfayı döndürür ve
-    hiçbir yerde hata vermez).
-    """
-    texts_path = s.index_dir / "page_texts.parquet"
-    if not texts_path.exists():
-        raise IndexCompatibilityError(
-            f"hibrit pipeline metin kanalı artefaktı gerektirir ama {texts_path} yok. "
-            "Çözüm: `uv run belge-gozu index build-text` (model gerekmez, saniyeler sürer). "
-            "Alternatif: BG_RETRIEVAL_PIPELINE=exhaustive ile yalnız-görsel yola dönün "
-            "(eşiği de o ölçeğe taşımayı unutmayın)."
-        )
-    df = pd.read_parquet(texts_path)
-    file_ids = df["page_id"].tolist()
-    if file_ids != list(index.page_ids):
-        missing = sorted(set(index.page_ids) - set(file_ids))
-        extra = sorted(set(file_ids) - set(index.page_ids))
-        detail = (
-            f"indekste olup metinde olmayan={len(missing)} {missing[:3]}; "
-            f"metinde olup indekste olmayan={len(extra)} {extra[:3]}"
-            if (missing or extra)
-            else "aynı küme, farklı SIRA (listeler birebir eşleşmeli)"
-        )
-        raise IndexCompatibilityError(
-            f"page_texts.parquet indeksle hizalı değil: indeks n={len(index.page_ids)} "
-            f"metin n={len(file_ids)} — {detail}. Çözüm: `uv run belge-gozu index build-text` "
-            "ile yeniden üretin."
-        )
-    texts = df["text"].fillna("").tolist()
-    t0 = time.perf_counter()
-    bm25 = BM25Index(list(index.page_ids), texts)
-    logger.info(
-        "BM25 metin indeksi kuruldu: %d sayfa, %.2f sn",
-        len(index.page_ids),
-        time.perf_counter() - t0,
-    )
-    return bm25, extract_doc_name_tokens(list(index.page_ids), texts)
 
 
 def build_retriever(s: Settings, encoder) -> tuple[Retriever, IndexManifest | None]:
@@ -161,7 +116,7 @@ def build_retriever(s: Settings, encoder) -> tuple[Retriever, IndexManifest | No
 
     retriever: Retriever
     if s.retrieval_pipeline == "hybrid":
-        bm25, doc_names = build_text_channel(s, index)
+        bm25, doc_names = load_text_channel(s.index_dir, list(index.page_ids))
         retriever = HybridRetriever(index, meta, encoder, bm25, doc_names)
     elif s.retrieval_pipeline == "exhaustive":
         retriever = ExhaustiveRetriever(index, meta, encoder)
@@ -244,6 +199,14 @@ def create_app(
             s.retrieval_pipeline,
             threshold_scale,
         )
+
+    # Metin kanalı artefaktının VARLIĞI da saf bir dosya sistemi kontrolüdür ve
+    # aynı gerekçeyle buraya alındı (review L6): "`index build-text` çalıştır"
+    # mesajını almak için VLM ağırlıklarını ve 474 MB'lık indeksi yüklemek
+    # gerekmez. HİZALAMA kontrolü indeksin page_ids'ini gerektirdiği için
+    # `build_retriever` içinde (load_text_channel) kalır ve orada da koşar.
+    if s.retrieval_pipeline == "hybrid":
+        require_text_artifact(s.index_dir)
 
     resolved_query_format, resolved_doc_prompt = resolve_formats(s)
     if encoder is None:

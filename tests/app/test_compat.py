@@ -307,10 +307,13 @@ def test_absurdly_high_threshold_on_hybrid_is_rejected(tiny_corpus):
         create_app(settings=settings, encoder=enc, answerer=object())
 
 
-@pytest.mark.parametrize("pipeline", ["hybrid", "exhaustive"])
+@pytest.mark.parametrize("pipeline", ["hybrid", "exhaustive", "two-stage"])
 def test_negative_threshold_allowed_on_every_pipeline(tiny_corpus, pipeline):
     """NEGATİF eşik ("her zaman cevapla") ölçek kalıntısı DEĞİL, kasıtlı bir
-    kapatmadır — hiçbir pipeline'da reddedilmemeli (testlerin -1e9'u budur)."""
+    kapatmadır — hiçbir pipeline'da reddedilmemeli (testlerin -1e9'u budur).
+
+    two-stage dahil: o kol fikstürün sign-1bit indeksinde geçerli, yani
+    korkuluğu gerçekten geçmek zorunda."""
     from fastapi.testclient import TestClient
 
     from belge_gozu.app.main import create_app
@@ -325,6 +328,43 @@ def test_negative_threshold_allowed_on_every_pipeline(tiny_corpus, pipeline):
     )
     c = TestClient(create_app(settings=settings, encoder=enc, answerer=object()))
     assert c.get("/healthz").json()["pipeline"] == pipeline
+
+
+# Korkuluk SINIRLARI (review L4). Sınırlar spec'te harfi harfine yazılı:
+#   hybrid  -> 0 SERBEST, (0, 1.5] RED, 200 SERBEST, >200 RED
+#   görsel  -> 1.5 SERBEST, >1.5 RED
+# Sınır değerleri test edilmezse `<=` -> `<` gibi tek karakterlik bir kayma
+# paketi yeşil bırakır.
+@pytest.mark.parametrize(
+    ("pipeline", "threshold", "rejected"),
+    [
+        ("hybrid", 0.0, False),  # "her skoru geçir" — kalıntı değil, kasıt
+        ("hybrid", 0.0001, True),  # (0, 1.5] bandının alt ucu
+        ("hybrid", 1.5, True),  # üst uç DAHİL
+        ("hybrid", 1.5001, False),  # bandın hemen dışı
+        ("hybrid", 200.0, False),  # üst sınır DAHİL DEĞİL (red > 200)
+        ("hybrid", 200.0001, True),
+        ("exhaustive", 1.5, False),  # görsel kolda 1.5 serbest
+        ("exhaustive", 1.5001, True),
+        ("two-stage", 1.5001, True),  # aynı kural iki görsel kolda da
+    ],
+)
+def test_threshold_guard_boundaries(tiny_corpus, pipeline, threshold, rejected):
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        retrieval_pipeline=pipeline,
+        min_score_threshold=threshold,
+    )
+    if rejected:
+        with pytest.raises(IndexCompatibilityError):
+            create_app(settings=settings, encoder=enc, answerer=object())
+    else:
+        assert create_app(settings=settings, encoder=enc, answerer=object()) is not None
 
 
 def test_hybrid_without_text_artifact_fails_fast(tiny_corpus):

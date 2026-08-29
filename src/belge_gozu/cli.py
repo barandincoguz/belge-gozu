@@ -2,6 +2,7 @@ import json
 import math
 import shutil
 import sqlite3
+from collections import Counter
 from datetime import UTC, datetime
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError
@@ -257,7 +258,9 @@ def index_build(
 
 
 @index_app.command("build-text")
-def index_build_text() -> None:
+def index_build_text(
+    allow_missing: bool = typer.Option(False, "--allow-missing"),  # noqa: B008
+) -> None:
     """PDF metin katmanını indeksin sayfa sırasıyla hizalı parquet'e yazar (hibrit kanal).
 
     Model GEREKTİRMEZ (saniyeler sürer): `data/pdf` altındaki PDF'lerin metin
@@ -265,6 +268,14 @@ def index_build_text() -> None:
     indeks dizinine yazılır çünkü GÖRSEL İNDEKSİN SAYFA SIRASINA bağlıdır;
     `corpus_checksum` yalnız page_ids.json + meta.parquet'i okuduğu için
     manifest'i geçersiz KILMAZ (serve tarafı hizalamayı ayrıca doğrular).
+
+    KISMİ KORPUS REDDEDİLİR (review M3): indekste geçen bir dokümanın PDF'i
+    `data/pdf` altında yoksa komut listeyle birlikte durur. Aksi halde yarım
+    kalmış bir `corpus download` (ağ hatası / Ctrl-C) satır-hizalı ve bu yüzden
+    serve'ün hizalama kontrolünden GEÇEN, ama sayfalarının bir kısmı boş olan
+    bir artefakt üretir: hibrit "çalışır", korpusun bir bölümü BM25 tarafından
+    hiç görülmez ve bozulma tamamen sessizdir. Bilinçli kısmi koşumlar için
+    `--allow-missing`.
     """
     from belge_gozu.corpus.text import extract_page_texts
 
@@ -287,11 +298,34 @@ def index_build_text() -> None:
             "(`belge-gozu corpus download`)"
         )
     page_ids = json.loads(ids_path.read_text(encoding="utf-8"))
+    doc_ids = sorted({pid.partition(":")[0] for pid in page_ids})
+    missing = [d for d in doc_ids if not (pdf_dir / f"{d}.pdf").is_file()]
+    if missing and not allow_missing:
+        raise typer.BadParameter(
+            f"{len(missing)}/{len(doc_ids)} dokümanın PDF'i {pdf_dir} altında yok: "
+            f"{', '.join(missing)}. Bu dokümanların TÜM sayfaları boş metinle yazılır "
+            "ve BM25 onları hiç göremez; kontrol satır sayısına baktığı için serve "
+            "bunu fark etmez. Çözüm: `belge-gozu corpus download` (yarım kalmış indirme "
+            "sürdürülebilir). Bilinçli kısmi koşum için: --allow-missing"
+        )
     df = extract_page_texts(pdf_dir, page_ids)
     out = s.index_dir / "page_texts.parquet"
     df.to_parquet(out, index=False)
-    empty = int((df["text"].str.strip() == "").sum())
-    typer.echo(f"{len(df)} sayfa, {empty} metin katmanı boş -> {out}")
+
+    blank_by_doc: Counter[str] = Counter()
+    pages_by_doc: Counter[str] = Counter()
+    for pid, text in zip(df["page_id"], df["text"], strict=True):
+        doc = pid.partition(":")[0]
+        pages_by_doc[doc] += 1
+        if not text.strip():
+            blank_by_doc[doc] += 1
+    typer.echo(f"{len(df)} sayfa, {sum(blank_by_doc.values())} metin katmanı boş -> {out}")
+    # Doküman kırılımı (review M3): 1/4222 (sağlıklı — tek taranmış RG sayfası) ile
+    # 2500/4222 (yarım korpus) yalnız toplama bakınca ayırt edilemiyordu.
+    for doc, n in sorted(blank_by_doc.items(), key=lambda kv: (-kv[1], kv[0])):
+        typer.echo(f"  boş: {doc} {n}/{pages_by_doc[doc]} sayfa")
+    if missing:
+        typer.echo(f"  UYARI: --allow-missing ile PDF'i olmayan {len(missing)} doküman atlandı")
 
 
 @index_app.command("derive")
@@ -481,7 +515,7 @@ def bench_run(
     from belge_gozu.index.encode import ColSmolEncoder
     from belge_gozu.index.loader import load_scorable_index
     from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
-    from belge_gozu.retrieval.hybrid import HybridRetriever
+    from belge_gozu.retrieval.hybrid import HybridRetriever, load_text_channel
 
     s = _settings()
     # T14: serve ile AYNI yükleyici — bench, üretimin skorladığı temsilin
@@ -493,11 +527,10 @@ def bench_run(
 
     adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter | HybridDiagnosticAdapter
     if pipeline == Pipeline.hybrid:
-        # serve ile AYNI metin kanalı kurulumu (app/main.py::build_text_channel):
-        # artefakt yoksa bench sessizce yalnız-görsel ölçmemeli.
-        from belge_gozu.app.main import build_text_channel
-
-        bm25, doc_names = build_text_channel(s, idx)
+        # serve ile AYNI metin kanalı kurulumu (retrieval.hybrid.load_text_channel —
+        # serve de tam olarak bunu çağırır): artefakt yoksa bench sessizce
+        # yalnız-görsel ölçmemeli.
+        bm25, doc_names = load_text_channel(s.index_dir, list(idx.page_ids))
         adapter = HybridDiagnosticAdapter(HybridRetriever(idx, meta, encoder, bm25, doc_names))
     elif pipeline == Pipeline.two_stage:
         # app/main.py'deki aynı korkuluk: mean-sign eleme yalnız paketli

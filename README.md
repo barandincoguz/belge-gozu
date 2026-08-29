@@ -5,8 +5,8 @@ Pages are indexed as *images* by a ColPali-class vision-language model, and a sw
 VLM answerer looks at those page images and answers strictly from what it sees — citing
 pages, or admitting it doesn't know — instead of hallucinating an article number.
 Retrieval was visual-only in v0/P0; **P1 measured that channel against a Turkish-tuned
-BM25 pass over the PDF text layer and the text channel won by 3.5x** (canary Recall@5
-0.233 → 0.814), so ranking is now hybrid. The visual channel still runs on every query,
+BM25 pass over the PDF text layer and the text channel won by 3.6x** (canary Recall@5
+0.233 → 0.837), so ranking is now hybrid. The visual channel still runs on every query,
 kept for telemetry and P2 calibration — the honest result, not the one that fit the
 original pitch.
 
@@ -72,7 +72,7 @@ flowchart TD
 the PDF text layer, with Turkish-specific handling measured one step at a time: `İ/I`-aware
 lowercasing, a fixed Turkish function-word stoplist applied before stemming, F5 prefix
 truncation (first 5 characters — Turkish is agglutinative), and a **document-name routing**
-pass that re-orders *only inside* the BM25 top-20 window when every non-generic token of a
+pass that re-orders *only inside* the BM25 top-50 window when every non-generic token of a
 statute's own title (derived from its page-1 heading, so no hand-written name table and no
 benchmark leakage) appears in the query. The visual MaxSim channel still runs on every
 query but no longer decides the ranking — it is kept for telemetry and as the input to P2
@@ -83,12 +83,28 @@ calibration (both channels' top-1 scores are logged side by side in
 | pipeline | Recall@5 | Recall@20 | MRR | demo chip 1 gold rank | demo chip 2 gold rank |
 |---|---|---|---|---|---|
 | visual only (P0, exhaustive int8) | 0.233 | 0.302 | 0.149 | 664 / 4222 | 137 / 4222 |
-| **hybrid (P1, shipped)** | **0.814** | **0.907** | **0.652** | **2** | **2** |
+| **hybrid (P1, shipped)** | **0.837** | **0.930** | **0.655** | **2** | **2** |
 
-Two negative results are part of that recipe and are worth as much as the positive one:
-**equal-weight RRF fusion of the two channels made things worse** (0.674 → 0.395 — the weak
-channel's cover-page noise sank the strong channel's wins), and after F5 truncation the
-visual channel contributed **zero unique top-5 questions**. Latency-wise BM25 is
+> **Which Recall@5?** Both numbers you may see come from the *same* run and differ only in
+> metric definition. **0.8372 = 36/43** counts a question as a hit if *any* of its gold pages
+> is in the top-5 (binary; the research harness's definition, and what the table above
+> reports). **0.8256** is fractional recall, `|gold ∩ top-5| / |gold|`, which the production
+> `uv run belge-gozu bench run` prints by default — it scores 0.5 on a question that has two
+> gold pages and only one of them retrieved. Same ranking, two conventions; neither is
+> "the corrected" one. Recall@20 is **0.9302 under both**. Report:
+> `data/bench/results/20260829-2115-3a031ca-hybrid.json`.
+
+The routing window was 20 in the first measured recipe and 50 in the shipped one: at 20 the
+window set was preserved *by construction* so Recall@20 could not regress, and widening it
+gave that guarantee up — so it had to be measured. It was, and Recall@20 did not merely hold
+but **improved, 0.907 → 0.930**, with Recall@5 0.814 → 0.837 (`research/journal.md` #8).
+
+Three negative results are part of that recipe and are worth as much as the positive one:
+**every fusion of the two channels tried so far made things worse** — global equal-weight RRF
+(0.674 → 0.395), absolute document partitioning (vetoed on a Recall@20 regression), and
+window-local RRF (0.837 → 0.535) — because the weak channel's cover-page pull outranks the
+text channel's gold pages at every granularity. After F5 truncation the visual channel
+contributed **zero unique top-5 questions**. Latency-wise BM25 is
 negligible — ~2-8 ms/query on 4,222 pages, against ~0.24 s for the visual channel it runs
 alongside — and building the BM25 index at startup takes ~0.4 s (one-off, after the
 `page_texts.parquet` artifact is built by `belge-gozu index build-text`).
@@ -136,17 +152,25 @@ correlated blind spots are possible. Full provenance, limitations and the list o
 defects found: [`data/bench/canary_v1.README.md`](data/bench/canary_v1.README.md).
 
 The score that reaches the abstain gate is itself an **uncalibrated similarity** — under the
-hybrid default it is a raw **BM25 score** (unbounded; answerable canary top-1s run min 10.53 /
-median 26.05 / max 69.30), not a confidence or probability. If it doesn't clear a threshold,
+hybrid default it is a raw **BM25 score** (unbounded; the *served* top-1 — the one the gate
+actually reads — runs min 10.53 / median 24.02 / max 69.30 across the answerable canary
+questions), not a confidence or probability. If it doesn't clear a threshold,
 the service returns "I couldn't find grounds for this in the corpus" *before* ever calling
 the LLM — the abstain path costs nothing and can't hallucinate. The threshold
 (`BG_MIN_SCORE_THRESHOLD=10.6`) is a **mechanical transfer** of the previous int8 `0.58`
 (itself a transfer of the older binary-scale `60.0`) onto the BM25 scale: it reproduces the
 same operating point *by count* — 42 of 43 answerable and 4 of 5 unanswerable canary
 questions clear it, exactly as before — which makes it a unit change, not a recalibration.
-The band of thresholds giving that operating point is `(10.528, 10.712]`; 10.6 is picked
-from inside it. It is therefore still uncalibrated and still non-separating (see
+The band of thresholds giving that operating point is `(10.528, 10.712]` — the gap between
+the lowest and second-lowest *served* top-1 — and 10.6 is picked from inside it. It is
+therefore still uncalibrated and still non-separating (see
 [v0 limitations](#v0-limitations)); real calibration is P2 work.
+
+*(Served vs channel top-1: document-name routing can put a lower-BM25 page first — it ranks
+by "the query names this statute", not by score — so the page the gate reads is not always
+the channel's highest-scoring one. Every threshold number on this page is measured on the
+**served** score, the one `AskService` actually compares; the channel's own top-1 median is
+26.05 and is logged separately as `detail.retrieval.bm25_top1` for P2.)*
 
 **The threshold's scale is tied to the pipeline, not to the index representation.** Switching
 to `BG_RETRIEVAL_PIPELINE=exhaustive` (or the two-stage ablation) puts scores back on the
@@ -185,27 +209,38 @@ query-format problem P0 later found and fixed.
 
 ## Quickstart
 
+Run these in order — the last command is the blocking one.
+
 ```bash
 make setup                  # dev deps: ruff, pyright, pytest
 uv sync --all-extras        # + ml deps (torch, colpali-engine) — needed for index/serve
 uv run belge-gozu --help
 
-# serve straight from the published index + images (no local corpus needed)
-# serves data/index-traincompat-int8 by default (int8, 476 MB — see BG_INDEX_DIR)
-BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index BG_DEVICE=cpu \
-  uv run belge-gozu serve --pull
+# 1. pull the published visual index + page images (int8, 476 MB)
+#    -> data/index-traincompat-int8 by default (see BG_INDEX_DIR)
+BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index uv run belge-gozu index pull
 
-# the hybrid (default) pipeline also needs the BM25 text-channel artifact,
-# extracted from the corpus PDFs into <BG_INDEX_DIR>/page_texts.parquet.
-# No model, no GPU, ~9 s for 4,222 pages -> 5.5 MB:
-uv run belge-gozu corpus download    # only if you don't have data/pdf/ yet
-uv run belge-gozu index build-text
+# 2. the hybrid (default) pipeline additionally needs the BM25 text channel.
+#    It is extracted from the source PDFs, so the corpus download is required
+#    even when the index itself came from the Hub:
+uv run belge-gozu corpus download    # ~56 PDFs -> data/pdf/ (polite, resumable)
+uv run belge-gozu index build-text   # -> <BG_INDEX_DIR>/page_texts.parquet
+                                     # no model, no GPU: ~9 s for 4,222 pages -> 5.5 MB
+
+# 3. serve
+BG_DEVICE=cpu uv run belge-gozu serve
 # -> http://localhost:7860
 ```
 
-Serving refuses to start with `BG_RETRIEVAL_PIPELINE=hybrid` (the default) if that file is
-missing or is not row-for-row aligned with the index's `page_ids.json` — a silent fallback to
-visual-only retrieval would quietly give up the measured recipe.
+**Why the download is not optional any more.** The published Hub index was pushed before P1
+and therefore contains no `page_texts.parquet`; `serve --pull` alone leaves the hybrid
+pipeline without its text channel and the server **fails fast** at startup rather than
+silently degrading to visual-only retrieval (which would quietly give up the measured
+recipe). The same fail-fast fires if the artifact is present but not row-for-row aligned
+with the index's `page_ids.json`. If you re-push the index after `index build-text`, the
+artifact travels with it and `serve --pull` becomes self-sufficient again.
+For a visual-only run with no PDFs at all, set `BG_RETRIEVAL_PIPELINE=exhaustive` — and move
+`BG_MIN_SCORE_THRESHOLD` onto that scale too (see the threshold note above).
 
 To reproduce the corpus from scratch instead of pulling the published index:
 
@@ -252,20 +287,21 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
 
 - **Retrieval precision on natural-language queries was the weak link — P1 fixed most of
   it, and the remaining misses are known.** The hybrid text channel took canary Recall@5
-  from 0.233 to 0.814, but 8 of 43 questions still miss the top-5: article-number queries
-  ("madde 7", `c214` — no article-number channel yet), abbreviation queries (`c206`, "KVKK"
-  is never spelled out in the title, so document-name routing can't fire), a partial-title
-  case (`c209`, Anayasa), and one question the visual channel used to win alone (`c202`)
-  that the text-only recipe loses — a deliberate, measured cost of not fusing the channels.
-  No query rewriting and no reranking pass yet.
+  from 0.233 to 0.837 (binary, 36/43; 0.8256 under the fractional definition — see the
+  metric note above), but **7 of 43 questions still miss the top-5, and all seven are pure
+  semantic paraphrases that name no statute** — the lexical ceiling of a BM25-plus-rules
+  recipe. Two rule-based attempts at them were measured and *discarded* for regressing
+  elsewhere (a distinctive-single-token routing rule, and letting the visual channel break
+  ties inside the window). Closing the rest needs a dense Turkish text channel; that is P1
+  backlog, not a tuning knob. No query rewriting and no reranking pass yet.
 - **The score threshold (`BG_MIN_SCORE_THRESHOLD=10.6`) is a mechanical scale transfer,
   not a calibration** — and it still does not separate answerable from unanswerable
   questions. It reproduces the previous operating point by count (42/43 answerable and
   4/5 unanswerable questions clear it, exactly as under 0.58 and 60.0 before it) — a unit
-  change on a new score scale, not a recalibration. Measured on the canary set (2026-08-29,
+  change on a new score scale, not a recalibration. Measured on the canary set (2026-08-30,
   production int8 index + hybrid pipeline; 3/48 rows human-verified, 45 model-cross-checked
-  — see the provenance caveat above): answerable BM25 top-1 scores run min 10.53 /
-  median 26.05 / max 69.30, while the out-of-corpus ones land at 23.53 / 12.96 / 17.86 and
+  — see the provenance caveat above), on the **served** top-1 the gate actually reads:
+  answerable scores run min 10.53 / median 24.02 / max 69.30, while the out-of-corpus ones land at 23.53 / 12.96 / 17.86 and
   a nonsense-question control at 15.54 — three real out-of-corpus questions sit *above* the
   threshold, i.e. the distributions overlap and no single cut-off splits them. (Only the
   fully-gibberish control, 4.23, falls below.) Raising the threshold would just abstain on

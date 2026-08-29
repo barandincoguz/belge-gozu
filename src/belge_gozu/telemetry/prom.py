@@ -11,6 +11,7 @@ from prometheus_client import (
     generate_latest,
 )
 
+from belge_gozu.config import BM25_SCALE, pipelines_on_scale
 from belge_gozu.telemetry.schema import RequestEvent
 
 REQUEST_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30)
@@ -31,9 +32,12 @@ BM25_SCORE_BUCKETS = (0, 5, 10, 10.6, 15, 20, 30, 45, 70, 100)
 BM25_MARGIN_BUCKETS = (0, 0.5, 1, 2, 5, 10, 20, 40)
 TPS_BUCKETS = (5, 10, 20, 40, 80, 160)
 
-# Skorun ölçeğini pipeline belirler (config.PIPELINE_SCORE_SCALE); telemetri
-# yönlendirmesi bu kümeye bakar. Olay künyesi zaten `pipeline` taşıyor.
-BM25_SCALE_PIPELINES = frozenset({"hybrid"})
+# Skorun ölçeğini pipeline belirler; yönlendirme bunu `config`ten TÜRETİR,
+# kopya sabit TUTMAZ (review M1). Elle yazılmış bir kopya, ölçeği BM25 olan
+# yeni bir pipeline eklendiğinde sessizce eskir ve o kolun skorları normalize
+# [-1,1] histogramına dökülür — commit'in önlemek için yazıldığı T14 hatasının
+# aynısı. Olay künyesi zaten `pipeline` taşıyor.
+BM25_SCALE_PIPELINES = pipelines_on_scale(BM25_SCALE)
 
 _STAGE_COLS = {
     "query_encode": "encode_ms",

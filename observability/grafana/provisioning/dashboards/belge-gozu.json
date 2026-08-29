@@ -286,7 +286,7 @@
     },
     {
       "id": 5,
-      "title": "Top skor dağılımı",
+      "title": "Top skor dağılımı — BM25 (hibrit, varsayılan)",
       "type": "heatmap",
       "datasource": {
         "type": "prometheus",
@@ -297,6 +297,74 @@
         "w": 12,
         "x": 0,
         "y": 16
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (le) (rate(bg_retrieval_top_score_bm25_bucket[5m]))",
+          "refId": "A",
+          "legendFormat": "{{le}}",
+          "format": "heatmap"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.1.0",
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "steps": 64,
+          "reverse": false,
+          "exponent": 0.5,
+          "fill": "dark-orange"
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "unit": "short"
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "legend": {
+          "show": true
+        },
+        "tooltip": {
+          "show": true,
+          "yHistogram": false
+        },
+        "filterValues": {
+          "le": 1e-09
+        }
+      },
+      "description": "BM25 ölçeği (kalibre edilmemiş, üst sınırsız; ölçülen top-1 bandı ~4-70). Eşik 10.6 bir bucket sınırıdır, çalışma noktası doğrudan okunur. `quantization` etiketi YOK: BM25 skoru indeks temsiline bağlı değil."
+    },
+    {
+      "id": 10,
+      "title": "Top skor dağılımı — görsel ölçek (exhaustive/two-stage)",
+      "type": "heatmap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
       },
       "targets": [
         {
@@ -349,7 +417,8 @@
         "filterValues": {
           "le": 1e-09
         }
-      }
+      },
+      "description": "Normalize [-1,1] MaxSim skorları. YALNIZ görsel-ölçek pipeline'larında dolar (BG_RETRIEVAL_PIPELINE=exhaustive|two-stage); varsayılan hibrit yolda boş kalması DOĞRUDUR — o örnekler BM25 panelinde. Bkz. docs/research/metrics-catalog.md."
     },
     {
       "id": 6,

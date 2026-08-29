@@ -15,7 +15,12 @@ tek tek parçalar "iyileştirilirse" ölçüm geçersiz olur:
 | + bigram shingle | 0.6279 | DISCARDED |
 | + sabit işlev-kelime listesi | 0.7674 | KEPT (R@20 0.884->0.907, MRR+) |
 | + mutlak doküman-adı bölümleme | 0.7907 | DISCARDED (R@20 gerilemesi, veto) |
-| + pencere-içi (top-20) yönlendirme | **0.8140** | KEPT |
+| + pencere-içi (top-20) yönlendirme | 0.8140 | KEPT |
+| pencere 20 -> 50 (round 2, exp8) | **0.8372** | KEPT (R@20 0.907 -> 0.9302) |
+
+Round 2 ayrıca üç füzyon biçimini daha ölçüp REDDETTİ (küresel eşit-RRF 0.395,
+mutlak bölümleme guardrail vetosu, pencere-içi RRF 0.535) — bu korpusta hayatta
+kalan tek birleşim sözcüksel-birincil + kural yönlendirmesi (journal #10).
 
 Görsel kanal F5'ten sonra top-5'e BENZERSİZ hiçbir soru katmıyor (bulgu 3),
 ama serve'de telemetri/gösterim ve P2 kalibrasyon verisi için KORUNUYOR —
@@ -47,10 +52,14 @@ STOPWORDS = frozenset(
     "az her ise olan olarak üzere ancak ama fakat yoksa değil nedir sayılı".split()
 )
 
-# Pencere = 20, R@20 guardrail'iyle BİLİNÇLİ hizalı (veriye ayar değil):
-# yeniden sıralama yalnız pencerenin İÇİNDE yapıldığı için pencere KÜMESİ
-# yapısal olarak değişmez, yani R@20 tanım gereği korunur.
-WINDOW = 20
+# Yönlendirme penceresi. exp7'de 20'ydi ve R@20 guardrail'iyle YAPISAL olarak
+# hizalıydı (pencere kümesi değişmediği için R@20 tanım gereği korunuyordu).
+# exp8 (autoresearch round 2, journal #8) bunu 50'ye çıkardı: yapısal garanti
+# artık YOK, yerine ÖLÇÜM var — R@20 korunmadı, **yükseldi** (0.907 -> 0.9302),
+# R@5 0.8140 -> 0.8372 (+c214), MRR 0.655, vitrin sorguları 2/2. Pencere-İÇİ
+# yeniden sıralama sözleşmesi (küme değişmez, pencere sonrası dokunulmaz)
+# window değerinden BAĞIMSIZ olarak yapısaldır ve aynen geçerlidir.
+WINDOW = 50
 
 # Doküman adından atılan jenerik parçalar (F5-kırpık): bunlar tek başına
 # kalırsa neredeyse her sorgu her kanunu "yönlendirir".
@@ -169,17 +178,18 @@ def extract_doc_name_tokens(page_ids: list[str], texts: list[str]) -> dict[str, 
 def route_window(ranking: list[str], routed_docs: set[str], window: int = WINDOW) -> list[str]:
     """İlk `window` girdiyi YENİDEN SIRALAR: yönlendirilen dokümanların sayfaları öne.
 
-    Sözleşme (yapısal, ölçüme bağlı değil):
-      * ilk `window` girdinin KÜMESİ değişmez (yalnız kendi içinde sıralanır),
-        bu yüzden R@window guardrail'i tanım gereği korunur;
+    Sözleşme (yapısal, `window` değerinden bağımsız):
+      * ilk `window` girdinin KÜMESİ değişmez (yalnız kendi içinde sıralanır);
       * `window`'dan sonrası hiç dokunulmaz;
       * her iki grup içinde göreli sıra (BM25 sırası) korunur.
 
     exp6'nın MUTLAK bölümlemesi (aday kümesini değiştiren sürüm) tam da bu
     sözleşmeyi deldiği için veto edildi: R@5 0.7907'ye çıkarken R@20
-    0.907->0.837'ye geriliyordu. Pencere-içi sürüm R@5 0.8140 + R@20 0.907.
+    0.907->0.837'ye geriliyordu. Pencere-içi sürüm exp7'de R@5 0.8140 + R@20
+    0.907; exp8'de pencere 50'ye çıkınca R@5 0.8372 + R@20 0.9302.
 
-    autoresearch exp7 reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md.
+    autoresearch exp7/exp8 reçetesi; ölçüm: findings
+    2026-08-29-autoresearch-text-channel.md + research/journal.md #8.
     """
     if not routed_docs:
         return list(ranking)

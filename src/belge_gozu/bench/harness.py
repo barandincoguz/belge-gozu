@@ -13,7 +13,6 @@ from belge_gozu.index.store import binarize_pack
 from belge_gozu.provenance import git_commit  # geriye dönük re-export (eski ev buradaydı)
 from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever, hamming_matrix
 from belge_gozu.retrieval.hybrid import HybridRetriever
-from belge_gozu.retrieval.text import route_window
 
 
 class StageRecord(BaseModel):
@@ -115,6 +114,13 @@ class HybridDiagnosticAdapter:
     `top_scores` her aşamada O AŞAMANIN kendi ölçeğindedir: `visual`
     normalize [-1,1], diğer ikisi BM25 birimi. Tek bir kolona iki ölçek
     karıştırmamak için ayrı aşamalar olarak tutulur (T14 dersi).
+
+    GECİKME ATFI (review L7): `visual.latency_ms` YALNIZ `score_all`ı ölçer,
+    `encode_query` HARİÇTİR — üretimde de `query_encode` ayrı bir aşamadır,
+    yani bu sayı üretimin `exhaustive_maxsim`'iyle karşılaştırılabilir.
+    `route_fuse` nihai sırayı `HybridRetriever.rank` ile kurar (kompozisyonun
+    burada yeniden yazılması, üretim sırası değiştiğinde bench'in sessizce
+    başka bir şey ölçmesi demekti).
     """
 
     name = "hybrid"
@@ -128,8 +134,8 @@ class HybridDiagnosticAdapter:
             raise RuntimeError("encoder yapılandırılmamış")
         page_ids = self.retriever.index.page_ids
 
-        t0 = time.perf_counter()
         q_emb = self.retriever.encoder.encode_query(question)
+        t0 = time.perf_counter()  # encode HARİÇ: üretimde ayrı aşama
         visual = self.retriever.index.score_all(q_emb, chunk_tokens=self.retriever.CHUNK_TOKENS)
         t1 = time.perf_counter()
         vis_order = np.argsort(-visual, kind="stable")[: self.record_top]
@@ -143,8 +149,7 @@ class HybridDiagnosticAdapter:
 
         bm25 = self.retriever.text.scores(question)
         t2 = time.perf_counter()
-        bm_order = np.argsort(-bm25, kind="stable")
-        bm_top = bm_order[: self.record_top]
+        bm_top = np.argsort(-bm25, kind="stable")[: self.record_top]
         text_rec = StageRecord(
             stage="text_bm25",
             gold_ranks={},
@@ -153,8 +158,7 @@ class HybridDiagnosticAdapter:
             latency_ms=(t2 - t1) * 1000,
         )
 
-        routed = self.retriever.routed_docs(question)
-        ranked = route_window([page_ids[i] for i in bm_order], routed, self.retriever.window)
+        ranked, _routed = self.retriever.rank(question, bm25)
         t3 = time.perf_counter()
         by_id = dict(zip(page_ids, bm25.tolist(), strict=True))
         fuse_rec = StageRecord(
