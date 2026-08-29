@@ -63,9 +63,11 @@ Adlandırma: `bg_` öneki, taban birim saniye. Registry ve tanımlar
 | `bg_http_requests_total` | Counter | `endpoint`, `status` | istek | `prom.py: self.requests` | trafik + sonuç dağılımı; hata oranı = `status="error"`/toplam | 1 |
 | `bg_request_duration_seconds` | Histogram | `endpoint` | saniye | `prom.py: self.duration`, bucket'lar `REQUEST_BUCKETS` | uçtan uca gecikme; p50/p95/p99 buradan (`histogram_quantile`) | 1 |
 | `bg_inflight_requests` | Gauge | `endpoint` | adet | `prom.py: self.inflight_g` (context manager `inflight()`) | anlık eşzamanlılık / doyma sinyali | 1 |
-| `bg_stage_duration_seconds` | Histogram | `stage` ∈ {query_encode, stage1_hamming, stage2_maxsim, answerer} | saniye | `prom.py: self.stage`, bucket'lar `STAGE_BUCKETS` | darboğaz ayrıştırması: "gecikme nerede birikiyor?" | 1 |
-| `bg_retrieval_top_score` | Histogram | `quantization` | skor (normalize ~[-1,1]) | `prom.py: self.top_score`, bucket'lar `SCORE_BUCKETS` | skor dağılımı; eşik kalibrasyonu + zaman içi drift | 1 |
-| `bg_retrieval_score_margin` | Histogram | `quantization` | skor farkı (aynı ölçek) | `prom.py: self.margin`, bucket'lar `MARGIN_BUCKETS` | top1−top2; retrieval kararlılığı | 1 |
+| `bg_stage_duration_seconds` | Histogram | `stage` ∈ {query_encode, exhaustive_maxsim, text_bm25, route_fuse, stage1_hamming, stage2_maxsim, answerer} | saniye | `prom.py: self.stage`, bucket'lar `STAGE_BUCKETS` | darboğaz ayrıştırması: "gecikme nerede birikiyor?" | 1 |
+| `bg_retrieval_top_score` | Histogram | `quantization` | skor (normalize ~[-1,1]) | `prom.py: self.top_score`, bucket'lar `SCORE_BUCKETS` | skor dağılımı; eşik kalibrasyonu + zaman içi drift — **yalnız görsel-ölçek pipeline'ları** (`exhaustive`/`two-stage`) | 1 |
+| `bg_retrieval_score_margin` | Histogram | `quantization` | skor farkı (aynı ölçek) | `prom.py: self.margin`, bucket'lar `MARGIN_BUCKETS` | top1−top2; retrieval kararlılığı — yalnız görsel-ölçek pipeline'ları | 1 |
+| `bg_retrieval_top_score_bm25` | Histogram | — | skor (BM25 birimi, üst sınırsız; ölçülen bant ~4-70) | `prom.py: self.top_score_bm25`, bucket'lar `BM25_SCORE_BUCKETS` | hibrit (P1) pipeline'ın skor dağılımı; eşik 10.6 bucket sınırı olarak var, çalışma noktası doğrudan okunur | 1 |
+| `bg_retrieval_score_margin_bm25` | Histogram | — | skor farkı (BM25 birimi) | `prom.py: self.margin_bm25`, bucket'lar `BM25_MARGIN_BUCKETS` | hibrit pipeline'da top1−top2 | 1 |
 | `bg_abstain_total` | Counter | `reason` ∈ {threshold, degraded} | adet | `prom.py: self.abstain` (`observe()` içindeki dallanma) | halüsinasyon freninin sağlığı; `degraded` = kota/servis hatası görünürlüğü | 1 |
 | `bg_honest_miss_total` | Counter | — | adet | `prom.py: self.honest_miss` | **HEURISTIC üstüne kurulu sayaç** — bkz. §1 `honest_miss` satırı | 1 |
 | `bg_llm_tokens_total` | Counter | `direction` ∈ {input, output} | token | `prom.py: self.tokens` | hacim; maliyet tabanı | 1 |
@@ -88,12 +90,16 @@ Adlandırma: `bg_` öneki, taban birim saniye. Registry ve tanımlar
 | `bg_stage_duration_seconds` | `0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20` (saniye) |
 | `bg_retrieval_top_score` | `0.30, 0.40, 0.45, 0.50, 0.55, 0.58, 0.60, 0.65, 0.70, 0.80` |
 | `bg_retrieval_score_margin` | `0.0, 0.005, 0.01, 0.02, 0.04, 0.08` |
+| `bg_retrieval_top_score_bm25` | `0, 5, 10, 10.6, 15, 20, 30, 45, 70, 100` |
+| `bg_retrieval_score_margin_bm25` | `0, 0.5, 1, 2, 5, 10, 20, 40` |
 | `bg_llm_tokens_per_second` | `5, 10, 20, 40, 80, 160` (token/sn) |
 
 Kaynak: `src/belge_gozu/telemetry/prom.py` — `REQUEST_BUCKETS`, `STAGE_BUCKETS`,
 `SCORE_BUCKETS`, `MARGIN_BUCKETS`, `TPS_BUCKETS`.
 
 Skor/marj bucket'ları T14'te normalize [-1,1] ölçeğine taşındı; geçiş öncesi seriler ve `events` satırları eski binary ölçeğindedir (0-128) ve `bg_app_info`'nun `index_revision` etiketi (olay tablosunda `index_revision` kolonu) ile bu iki histogramın `quantization` etiketinden ayırt edilir.
+
+**BM25 ölçeği (P1).** Hibrit pipeline'da sıralamayı ve dolayısıyla `top_score`'u BM25 metin kanalı üretir: kalibre edilmemiş, ÜST SINIRSIZ birim (canary'de cevaplanabilir top-1'ler min 10.53 / medyan 26.05 / maks 69.30). Bu örnekler normalize [-1,1] serilerinde toplansaydı hepsi son bucket'a düşer ve quantile'lar anlamsızlaşırdı, bu yüzden `PromMetrics.observe` olayın `pipeline` künyesine bakıp AYRI `*_bm25` serilerine yönlendirir (`prom.py: BM25_SCALE_PIPELINES`). `quantization` etiketi bu serilerde YOKTUR: BM25 skoru metin katmanından gelir, indeks temsiline bağlı değildir. Aşama serisine (`bg_stage_duration_seconds`) hibritin `text_bm25`/`route_fuse` adları `detail.stages` fallback'iyle kendiliğinden akar — prom.py'de aşama adı listesi tutulmaz.
 
 ### Türetilmiş metrikler (SQL/pandas — analiz katmanı, kod değil)
 

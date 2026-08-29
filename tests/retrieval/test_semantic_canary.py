@@ -8,7 +8,9 @@ Dört kilit:
   * G0.8 — kısa sorgunun gold'u top-5'te (P0'ın ana davranış düzelmesi; bu
     kırılırsa P0 sessizce regresse olmuş demektir).
   * rank cırcırı — uzun sorgunun tam-korpus sırası yalnız SIKILAŞTIRILABİLİR
-    (düşürülebilir), asla sessizce gevşetilemez (yükseltilemez).
+    (düşürülebilir), asla sessizce gevşetilemez (yükseltilemez). Cırcır
+    PIPELINE'a göre anahtarlı (`canary_expectations.json`): sırayı hangi
+    kanalın kurduğu sonucu tamamen değiştirir.
   * abstain kilidi — korpus-dışı sorularda top-1 skoru yapılandırılmış eşiğin
     ALTINDA kalır (yoksa "halüsinasyon freni" iddiası ölçülmemiş bir yorum).
 
@@ -91,12 +93,14 @@ def test_canary_gold_pages_covered(prod_retriever):
 def test_short_query_gold_in_top5(prod_retriever):
     """G0.8: P0'ın ana davranış düzelmesinin regresyon kilidi.
 
-    Üretim yolunda (bugün: exhaustive + train-compat-v1 + train-compat doc
-    prompt, `data/index-traincompat-int8`) kısa sorgu gold'u top-5 içinde
-    döndürmeli. Ölçüm (2026-08-29, int8 indeks, MPS): gold rank 4, top-1
-    skoru 0.7450 (normalize [-1,1] ölçek — 1-bit'teki 73.17 ile aynı şey
-    DEĞİL, farklı temsil ve farklı ölçek). Bu test kırılırsa P0'ın
-    retrieval düzeltmesi sessizce regresse olmuş demektir.
+    Üretim yolunda (bugün: hibrit — BM25 metin kanalı + doküman-adı
+    yönlendirmesi, `data/index-traincompat-int8` + page_texts.parquet) kısa
+    sorgu gold'u top-5 içinde döndürmeli. Ölçüm (2026-08-29, hibrit): gold
+    rank 1, top-1 skoru 10.71 (BM25 ölçeği — P0'daki 0.7450 normalize MaxSim
+    ile aynı şey DEĞİL). P0 ölçümü aynı sorguda rank 4'tü.
+
+    Metin kanalı DETERMİNİSTİK (model yok): bu test kırılırsa reçete ya da
+    metin artefaktı sessizce değişmiş demektir.
     """
     hits = prod_retriever.search(Q_SHORT, k=5)
     ranked = [(h.page_id, round(h.score, 2)) for h in hits]
@@ -109,60 +113,63 @@ def test_short_query_gold_in_top5(prod_retriever):
 def test_long_query_rank_ratchet(prod_retriever):
     """Uzun sorgunun tam-korpus gold sırası: yalnız SIKILAŞTIRILABİLİR cırcır.
 
-    P1'in hibrit retrieval'ı bu sırayı iyileştirene kadar top-5'te (hatta
-    top-N'de) olması BEKLENMİYOR — bugünkü ölçüm (2026-08-29,
-    `data/index-traincompat-int8`, exhaustive): rank 664/4222 (1-bit'te
-    1221'di). `canary_expectations.json`'daki eşik yalnızca bilinçli,
-    ölçülmüş bir iyileşmeyle DÜŞÜRÜLEBİLİR; asla sessizce
-    YÜKSELTİLMEMELİDİR.
+    Ölçüm (2026-08-29, `data/index-traincompat-int8`): hibrit yolda rank
+    2/4222 — P0'ın exhaustive yolunda 664, ondan önce 1-bit'te 1221'di.
+    `canary_expectations.json`'daki eşik yalnızca bilinçli, ölçülmüş bir
+    iyileşmeyle DÜŞÜRÜLEBİLİR; asla sessizce YÜKSELTİLMEMELİDİR.
 
-    Cırcır TEMSİLE göre anahtarlanmıştır: sıra kuantizasyona bağlı
-    (int8 664 vs 1-bit 1221), bu yüzden başka bir temsile karşı
-    uygulanması sessizce yanlış bir iddia olurdu.
+    Cırcır PIPELINE'a göre anahtarlanmıştır: sırayı hangi kanalın kurduğu
+    (BM25 vs görsel MaxSim) sonucu tamamen değiştirir, bu yüzden bir kolun
+    eşiğini diğerine uygulamak ölçülmemiş bir iddia olurdu. Görsel kolda
+    ayrıca TEMSİL de (int8 vs 1-bit) sırayı değiştirir; o kontrol korundu.
     """
-    if not hasattr(prod_retriever, "score_all"):
+    s = get_settings()
+    block = _expectations().get(s.retrieval_pipeline)
+    if block is None:
         pytest.skip(
-            "rank cırcırı tam-korpus score_all gerektirir; "
-            f"{type(prod_retriever).__name__} bunu sağlamıyor "
-            "(retrieval_pipeline != 'exhaustive')"
+            f"cırcır bu pipeline'da ölçülmemiş: {s.retrieval_pipeline} "
+            "(tests/retrieval/canary_expectations.json)"
         )
-    expectations = _expectations()
-    manifest = prod_retriever.index.manifest
-    measured_on = expectations["quantization"]
-    assert manifest is not None and manifest.quantization == measured_on, (
-        f"cırcır başka temsilde ölçülmüş: beklenen quantization={measured_on}, "
-        f"yüklü={manifest.quantization if manifest else None}. Sıra kuantizasyona "
-        "bağlıdır (int8 664 vs 1-bit 1221); eşiği başka bir temsile uygulamak "
-        "ölçülmemiş bir iddiadır. Temsil bilinçli değiştiyse cırcır yeniden "
-        "ölçülüp tests/retrieval/canary_expectations.json güncellenmelidir."
-    )
-    q_emb = prod_retriever.encoder.encode_query(Q_LONG)
-    scores = prod_retriever.score_all(q_emb)
-    rank = rank_of(scores, prod_retriever.index.page_ids, GOLD)
-    max_allowed = expectations["long_query_gold_rank_max"]
+    if s.retrieval_pipeline == "hybrid":
+        # Metin kanalı tam sıralamayı kendisi verir (model gerektirmez).
+        ranking = prod_retriever.rank_all(Q_LONG)
+        rank = ranking.index(GOLD) + 1 if GOLD in ranking else len(ranking) + 1
+    else:
+        manifest = prod_retriever.index.manifest
+        measured_on = block["quantization"]
+        assert manifest is not None and manifest.quantization == measured_on, (
+            f"cırcır başka temsilde ölçülmüş: beklenen quantization={measured_on}, "
+            f"yüklü={manifest.quantization if manifest else None}. Sıra kuantizasyona "
+            "bağlıdır (int8 664 vs 1-bit 1221); eşiği başka bir temsile uygulamak "
+            "ölçülmemiş bir iddiadır. Temsil bilinçli değiştiyse cırcır yeniden "
+            "ölçülüp tests/retrieval/canary_expectations.json güncellenmelidir."
+        )
+        q_emb = prod_retriever.encoder.encode_query(Q_LONG)
+        rank = rank_of(prod_retriever.score_all(q_emb), prod_retriever.index.page_ids, GOLD)
+    max_allowed = block["long_query_gold_rank_max"]
     assert rank <= max_allowed, (
-        f"uzun sorgu için gold {GOLD} tam-korpus sırası {rank} > cırcır {max_allowed}. "
-        "Bu cırcır yalnızca BİLİNÇLİ bir commit'le (tests/retrieval/canary_expectations.json) "
-        "DÜŞÜRÜLEBİLİR; asla sessizce YÜKSELTİLMEMELİDİR."
+        f"uzun sorgu için gold {GOLD} tam-korpus sırası {rank} > cırcır {max_allowed} "
+        f"(pipeline={s.retrieval_pipeline}). Bu cırcır yalnızca BİLİNÇLİ bir commit'le "
+        "(tests/retrieval/canary_expectations.json) DÜŞÜRÜLEBİLİR; asla sessizce "
+        "YÜKSELTİLMEMELİDİR."
     )
 
 
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "ÖLÇÜLDÜ (2026-08-29, data/index-traincompat-int8, exhaustive, MPS): "
-        "eşik 0.58 AYIRMIYOR — korpus-dışı c003/c004/c005 top-1 skorları "
-        "0.6550/0.6866/0.6516 ve anlamsız-ood c006 0.6678, yani dördü de eşiğin "
-        "ÜSTÜNDE (yalnız c007 0.5679 altında kalıyor: 5'te 4'ü geçiyor). Tüm "
-        "canary'de cevaplanabilir n=43 (min 0.5767 / medyan 0.6250 / maks 0.7450) "
-        "ile cevaplanamaz n=5 (min 0.5679 / medyan 0.6550 / maks 0.6866) "
-        "dağılımları iç içe geçmiş durumda: hiçbir tek eşik bu ikisini ayırmıyor. "
-        "0.58 eski binary 60.0'ın MEKANİK ölçek taşımasıdır (aynı çalışma "
-        "noktası: 42/43 + 4/5), kalibrasyon DEĞİL — artefakt: "
-        "data/bench/results/int8-threshold-transfer.json. Kalibrasyon P2'nin işi "
-        "(spec). strict=True: eşik gerçekten kalibre edilip bu iddia tuttuğunda "
-        "test KIRMIZI olur ve xfail'in kaldırılmasını zorlar — abstain sözü "
-        "sessizce ne bozulabilir ne de düzelmiş sayılabilir."
+        "ÖLÇÜLDÜ (2026-08-29, data/index-traincompat-int8 + page_texts.parquet, "
+        "hibrit/BM25 ölçeği): eşik 10.6 AYIRMIYOR — korpus-dışı c003/c004/c005 "
+        "top-1 skorları 23.53/12.96/17.86, yani ÜÇÜ DE eşiğin ÜSTÜNDE (c007 15.54 "
+        "de üstünde; yalnız anlamsız c006 4.23 altında kalıyor: 5'te 4'ü geçiyor — "
+        "P0'daki 4/5 ile aynı çalışma noktası). Tüm canary'de cevaplanabilir n=43 "
+        "(min 10.53 / medyan 26.05 / maks 69.30) ile cevaplanamazların bandı iç içe "
+        "geçmiş durumda: hiçbir tek eşik bu ikisini ayırmıyor. 10.6, int8@0.58'in "
+        "(o da binary@60.0'ın) MEKANİK ölçek taşımasıdır — çalışma noktasını veren "
+        "bant (10.528, 10.712] — kalibrasyon DEĞİL. Kalibrasyon P2'nin işi (spec). "
+        "strict=True: eşik gerçekten kalibre edilip bu iddia tuttuğunda test KIRMIZI "
+        "olur ve xfail'in kaldırılmasını zorlar — abstain sözü sessizce ne "
+        "bozulabilir ne de düzelmiş sayılabilir."
     ),
 )
 def test_out_of_corpus_canary_scores_below_threshold(prod_retriever):
@@ -173,13 +180,13 @@ def test_out_of_corpus_canary_scores_below_threshold(prod_retriever):
     kaldığı doğrulanır: yani bu sorular LLM'e hiç gitmeden abstain'e düşmeli.
 
     İddia BİLEREK gevşetilmedi: ölçüm bugün de tutmuyor (bkz. xfail reason),
-    bu yüzden `xfail(strict=True)` ile MEVCUT GERÇEK kilitlenir. T14'ün skor
-    normalizasyonu bunu DEĞİŞTİRMEDİ ve değiştirmesi de beklenmiyordu: ölçek
-    taşıması monotonik bir dönüşümdür, iki dağılımın ÖRTÜŞMESİNİ kaldırmaz —
-    0.58 eşiği eski 60.0'ın aynı çalışma noktasıdır (42/43 cevaplanabilir +
-    4/5 cevaplanamaz geçer). Eşiği yükseltmek de çözüm değil: cevaplanabilir
-    dağılım aynı bantta (medyan 0.6250), yani yükseltmek gerçek soruları
-    abstain'e düşürür. Gerçek düzeltme kalibrasyondur (P2).
+    bu yüzden `xfail(strict=True)` ile MEVCUT GERÇEK kilitlenir. P1'in hibrit
+    geçişi bunu DEĞİŞTİRMEDİ ve değiştirmesi de beklenmiyordu: metin kanalı
+    SIRALAMAYI düzeltiyor (R@5 0.2326 -> 0.8140), skoru bir güven ölçüsüne
+    ÇEVİRMİYOR — korpus-dışı bir soru da korpusta geçen kelimeler içerdiği
+    sürece yüksek BM25 alır. Eşiği yükseltmek de çözüm değil: cevaplanabilir
+    dağılımın alt ucu 10.53, yani yükseltmek gerçek soruları abstain'e
+    düşürür. Gerçek düzeltme kalibrasyondur (P2).
     """
     if not CANARY_PATH.exists():
         pytest.skip(f"canary seti yok: {CANARY_PATH}")

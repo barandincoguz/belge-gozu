@@ -12,7 +12,12 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from belge_gozu.answer.base import Answer, AskService
-from belge_gozu.config import THRESHOLD_CALIBRATED_ON, Settings, get_settings
+from belge_gozu.config import (
+    PIPELINE_SCORE_SCALE,
+    THRESHOLD_CALIBRATED_ON,
+    Settings,
+    get_settings,
+)
 from belge_gozu.index.compat import IndexCompatibilityError, check_compatibility
 from belge_gozu.index.loader import load_scorable_index
 from belge_gozu.index.manifest import (
@@ -25,6 +30,8 @@ from belge_gozu.index.manifest import (
 )
 from belge_gozu.index.store import PackedIndex
 from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
+from belge_gozu.retrieval.hybrid import HybridRetriever
+from belge_gozu.retrieval.text import BM25Index, extract_doc_name_tokens
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import StageCollector, collecting
 from belge_gozu.telemetry.prom import PromMetrics
@@ -56,9 +63,54 @@ def resolve_formats(s: Settings) -> tuple[QueryFormat, str | None]:
     )
 
 
-def build_retriever(
-    s: Settings, encoder
-) -> tuple[ExhaustiveRetriever | TwoStageRetriever, IndexManifest | None]:
+Retriever = ExhaustiveRetriever | TwoStageRetriever | HybridRetriever
+
+
+def build_text_channel(s: Settings, index) -> tuple[BM25Index, dict[str, frozenset[str]]]:
+    """`<index_dir>/page_texts.parquet` -> (BM25 indeksi, doküman-adı token'ları).
+
+    Artefakt `belge-gozu index build-text` ile üretilir ve indeks dizininde
+    durur: metin kanalı görsel indeksin SAYFA SIRASINA bağlıdır, ayrı bir
+    dizinde tutulmak ikisinin sessizce ayrışmasına davetiye olurdu. Sıra
+    burada ayrıca DOĞRULANIR (bir satır kayması yanlış sayfayı döndürür ve
+    hiçbir yerde hata vermez).
+    """
+    texts_path = s.index_dir / "page_texts.parquet"
+    if not texts_path.exists():
+        raise IndexCompatibilityError(
+            f"hibrit pipeline metin kanalı artefaktı gerektirir ama {texts_path} yok. "
+            "Çözüm: `uv run belge-gozu index build-text` (model gerekmez, saniyeler sürer). "
+            "Alternatif: BG_RETRIEVAL_PIPELINE=exhaustive ile yalnız-görsel yola dönün "
+            "(eşiği de o ölçeğe taşımayı unutmayın)."
+        )
+    df = pd.read_parquet(texts_path)
+    file_ids = df["page_id"].tolist()
+    if file_ids != list(index.page_ids):
+        missing = sorted(set(index.page_ids) - set(file_ids))
+        extra = sorted(set(file_ids) - set(index.page_ids))
+        detail = (
+            f"indekste olup metinde olmayan={len(missing)} {missing[:3]}; "
+            f"metinde olup indekste olmayan={len(extra)} {extra[:3]}"
+            if (missing or extra)
+            else "aynı küme, farklı SIRA (listeler birebir eşleşmeli)"
+        )
+        raise IndexCompatibilityError(
+            f"page_texts.parquet indeksle hizalı değil: indeks n={len(index.page_ids)} "
+            f"metin n={len(file_ids)} — {detail}. Çözüm: `uv run belge-gozu index build-text` "
+            "ile yeniden üretin."
+        )
+    texts = df["text"].fillna("").tolist()
+    t0 = time.perf_counter()
+    bm25 = BM25Index(list(index.page_ids), texts)
+    logger.info(
+        "BM25 metin indeksi kuruldu: %d sayfa, %.2f sn",
+        len(index.page_ids),
+        time.perf_counter() - t0,
+    )
+    return bm25, extract_doc_name_tokens(list(index.page_ids), texts)
+
+
+def build_retriever(s: Settings, encoder) -> tuple[Retriever, IndexManifest | None]:
     """İndeksi yükler, uyumluluğu doğrular ve yapılandırılmış getiriciyi kurar.
 
     `create_app` ile slow canary fixture'ı (tests/retrieval/
@@ -107,8 +159,11 @@ def build_retriever(
             raise IndexCompatibilityError(msg)
         logger.warning("BG_ALLOW_INDEX_MISMATCH=true ile devam ediliyor — %s", msg)
 
-    retriever: ExhaustiveRetriever | TwoStageRetriever
-    if s.retrieval_pipeline == "exhaustive":
+    retriever: Retriever
+    if s.retrieval_pipeline == "hybrid":
+        bm25, doc_names = build_text_channel(s, index)
+        retriever = HybridRetriever(index, meta, encoder, bm25, doc_names)
+    elif s.retrieval_pipeline == "exhaustive":
         retriever = ExhaustiveRetriever(index, meta, encoder)
     else:
         # two-stage mean-sign eleme YALNIZ paketli bit vektörleri üstünde
@@ -132,22 +187,62 @@ def create_app(
 ) -> FastAPI:
     s = settings or get_settings()
 
-    # Ölçek korkuluğu (T14): skorlar artık normalize [-1,1] (sorgu jetonu
-    # başına ortalama MaxSim). Eski binary ölçeğinde (0-128) kalmış bir eşik
-    # — ör. 60.0 — yeni ölçekte HİÇBİR ZAMAN aşılamaz, yani servis her
-    # soruya sessizce "dayanak bulamadım" derdi. Bu, ölçek geçişinin
-    # üreteceği en sessiz hatadır; burada fail-fast'e çevriliyor.
-    # (Testler -1e9 gibi "kapalı eşik" değerleri kullanır: negatif taraf
-    # kasten serbest.)
+    # Ölçek korkuluğu — PIPELINE'A DUYARLI (P1). Eşiğin anlamı skor ölçeğine
+    # bağlıdır ve ölçeği artık pipeline belirler (config: PIPELINE_SCORE_SCALE):
+    #
+    #   * hybrid  -> BM25 birimi, üst sınırsız (ölçülen bant ~4-70). Buraya
+    #     düşmüş bir GÖRSEL-ÖLÇEK eşiği (ör. 0.58) her soruyu geçirir: fren
+    #     sessizce tamamen devre dışı kalır.
+    #   * exhaustive/two-stage -> normalize [-1,1]. Buraya düşmüş bir BM25 ya
+    #     da eski binary (0-128) eşiği HİÇBİR ZAMAN aşılamaz: servis her
+    #     soruya sessizce "dayanak bulamadım" der.
+    #
+    # İki yön de sessizdir, ikisi de fail-fast'e çevriliyor. NEGATİF eşikler
+    # ("her zaman cevapla" — testlerin -1e9'u) her pipeline'da SERBEST: kasıtlı
+    # olarak kapatılmış bir frendir, ölçek kalıntısı değil.
     #
     # EN BAŞTA çalışır (review M6): saf config kontrolüdür, hiçbir şeye
     # bağımlı değildir — VLM ağırlıklarını ve 474 MB'lık indeksi yükledikten
     # sonra patlamasının hiçbir faydası yok.
-    if s.min_score_threshold > 1.5:
+    threshold_scale = PIPELINE_SCORE_SCALE[s.retrieval_pipeline]
+    if threshold_scale == "hybrid-bm25":
+        if 0 < s.min_score_threshold <= 1.5:
+            raise IndexCompatibilityError(
+                f"min_score_threshold={s.min_score_threshold} görsel-ölçek kalıntısı "
+                f"görünüyor (normalize [-1,1]); {s.retrieval_pipeline} pipeline bm25 "
+                "ölçeği ~5-70 üzerinde skorlar ve bu eşik orada HER soruyu geçirir "
+                "(fren devre dışı). Taşınmış değer: 10.6."
+            )
+        if s.min_score_threshold > 200:
+            raise IndexCompatibilityError(
+                f"min_score_threshold={s.min_score_threshold} bm25 ölçeğinin çok "
+                "üstünde (ölçülen top-1 bandı ~4-70); bu eşik hiçbir soruyu geçirmez"
+            )
+    elif s.min_score_threshold > 1.5:
         raise IndexCompatibilityError(
             f"min_score_threshold={s.min_score_threshold} eski binary ölçeği (0-128) "
-            "kalıntısı görünüyor; skorlar artık normalize [-1,1] — bkz. "
+            f"ya da bm25 ölçeği kalıntısı görünüyor; {s.retrieval_pipeline} pipeline'da "
+            "skorlar normalize [-1,1] — bkz. "
             "data/bench/results/int8-threshold-transfer.json"
+        )
+
+    # Eşik-taşınabilirlik uyarısı (review I1, P1'de pipeline eksenine taşındı):
+    # `min_score_threshold` hibrit BM25 dağılımı üzerinde taşındı. Başka bir
+    # pipeline başka bir ÖLÇEKTE skorlar; korkuluk bariz kalıntıları keser ama
+    # "ölçek doğru, dağılım farklı" durumunu KESEMEZ (bir operatör exhaustive
+    # kolunda 0.58'i geri koyabilir — geçerli ama BU eşik değildir).
+    # Başlatmayı ENGELLEMEZ (pipeline seçimi meşru bir ablasyon; per-pipeline
+    # eşik config'i P2 kalibrasyonunun işi, ruling R19), yalnız sessiz kalmaz.
+    if threshold_scale != THRESHOLD_CALIBRATED_ON:
+        logger.warning(
+            "eşik taşınabilirlik uyarısı: min_score_threshold=%s %s ölçeği üzerinde "
+            "taşındı, etkin pipeline=%s ise %s ölçeğinde skorluyor — bu kolda çalışma "
+            "noktası DOĞRULANMAMIŞTIR (P0 ölçümü o ölçekte 0.58'di). Eşiği bu "
+            "pipeline'da yeniden ölçmeden üretimde kullanmayın.",
+            s.min_score_threshold,
+            THRESHOLD_CALIBRATED_ON,
+            s.retrieval_pipeline,
+            threshold_scale,
         )
 
     resolved_query_format, resolved_doc_prompt = resolve_formats(s)
@@ -183,23 +278,6 @@ def create_app(
         query_format_id = None
         quantization = None
 
-    # Eşik-taşınabilirlik uyarısı (review I1): `min_score_threshold` int8
-    # DAĞILIMI üzerinde taşındı. Ortak [-1,1] ölçeği temsilleri
-    # karşılaştırılabilir yapar ama dağılımlarını eşitlemez — aynı 0.58
-    # canary'de int8'te 42/43 cevaplanabilir soruyu geçirirken 1-bit'te 1/43.
-    # Başlatmayı ENGELLEMEZ (temsil seçimi meşru bir ablasyon; per-temsil eşik
-    # config'i P2 kalibrasyonunun işi, ruling R19), yalnız sessiz kalmaz.
-    if quantization != THRESHOLD_CALIBRATED_ON:
-        logger.warning(
-            "eşik taşınabilirlik uyarısı: min_score_threshold=%s %s dağılımı üzerinde "
-            "taşındı, yüklü indeks quantization=%s — bu temsilde çalışma noktası "
-            "DOĞRULANMAMIŞTIR (ölçüm: 0.58 int8'te 42/43, 1-bit'te 1/43 cevaplanabilir "
-            "soruyu geçirir; 1-bit'te aynı nokta ~0.47). Eşiği bu temsilde yeniden "
-            "ölçmeden üretimde kullanmayın.",
-            s.min_score_threshold,
-            THRESHOLD_CALIBRATED_ON,
-            quantization,
-        )
     service = AskService(retriever, answerer, s.min_score_threshold, load_image)
 
     rec = recorder or EventRecorder(s.data_dir / "requests.sqlite")
@@ -261,6 +339,14 @@ def create_app(
         honest_miss = None
         if answer is not None and not answer.abstained:
             honest_miss = "bulamadım" in answer.text.lower()  # sezgisel (spec §5)
+        # Getirici kendi künyesini sunuyorsa (hibrit: iki kanalın top-1'i +
+        # yönlendirilen dokümanlar) olaya karışır. `getattr` korumalı:
+        # exhaustive/two-stage kolları etkilenmez, künye üretmeyen bir
+        # getirici olayı düşürmez.
+        retrieval_detail: dict = {"query_format": query_format_id, "quantization": quantization}
+        extra = getattr(retriever, "last_retrieval_meta", None)
+        if isinstance(extra, dict):
+            retrieval_detail.update(extra)
         return RequestEvent(
             ts=datetime.now(UTC).isoformat(),
             endpoint=endpoint,
@@ -297,7 +383,7 @@ def create_app(
                 "device": s.device,
                 "app_version": app_version,
                 "stages": dict(col.stages),
-                "retrieval": {"query_format": query_format_id, "quantization": quantization},
+                "retrieval": retrieval_detail,
             },
         )
 
@@ -314,15 +400,16 @@ def create_app(
     @app.get("/healthz")
     def healthz() -> dict:
         # `index` bloğu (T14): eşik ile hangi TEMSİLİN servis edildiği tek
-        # yerde görünür. Eşik ölçeği kuantizasyona bağlı olduğu için
-        # ("0.58 normalize" vs "60.0 binary") ikisini ayrı ayrı sormak
-        # yanlış okumaya açıktı; `revision` telemetrideki `index_revision`
-        # ile aynı dizedir (olay kayıtlarıyla eşleştirilebilir).
+        # yerde görünür. `pipeline` (P1) aynı gerekçenin ikinci ekseni: eşiğin
+        # ÖLÇEĞİ artık pipeline'a bağlı ("10.6 bm25" vs "0.58 normalize"), bu
+        # yüzden eşikle birlikte okunmalı. `revision` telemetrideki
+        # `index_revision` ile aynı dizedir (olay kayıtlarıyla eşleştirilebilir).
         return {
             "status": "ok",
             "pages": len(index.page_ids),
             "threshold": s.min_score_threshold,
             "top_k": s.top_k,
+            "pipeline": s.retrieval_pipeline,
             "index": {"quantization": quantization, "revision": index_revision},
         }
 

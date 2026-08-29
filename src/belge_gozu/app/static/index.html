@@ -262,7 +262,7 @@
 </main>
 
 <footer>
-  <p class="inner">ColSmol-500M görsel dizin · bütün korpusta exhaustive MaxSim (geç-etkileşim) ·
+  <p class="inner">ColSmol-500M görsel dizin · bütün korpusta hibrit arama: BM25 metin kanalı + doküman-adı yönlendirme (görsel MaxSim telemetride) ·
      Gemini Flash yanıtlayıcı · kaynaklar sayfa kartlarında</p>
 </footer>
 
@@ -277,12 +277,13 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 1) => n.toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* Skorlar normalize [-1,1] (sorgu jetonu başına ortalama MaxSim), bu yüzden
-   eşik de o bantta: 0.58 = config.py'deki varsayılan (eski binary 60.0'ın
-   MEKANİK ölçek taşıması; bkz. data/bench/results/int8-threshold-transfer.json).
-   /healthz'e ulaşılamazsa kullanılan yedek değer de aynı bantta olmalı —
-   eski 60.0 yedeği grafikteki tüm çubukları ~%1 genişliğe çökertirdi. */
-let THRESHOLD = 0.58;
+/* Skorlar hibrit yolda BM25 ölçeğinde (kalibre edilmemiş, tipik 5-70), bu
+   yüzden eşik de o bantta: 10.6 = config.py'deki varsayılan (int8@0.58'in
+   MEKANİK ölçek taşıması). /healthz'e ulaşılamazsa kullanılan yedek değer de
+   AYNI bantta olmalı — bant dışı bir yedek (eski 0.58 ya da daha eski 60.0)
+   grafikte eşik çizgisini yanlış yere koyar ve tüm çubukları "eşik üstü"
+   gösterirdi. */
+let THRESHOLD = 10.6;
 let TOP_K = 5;
 
 fetch("/healthz").then(r => r.json()).then(h => {
@@ -364,7 +365,7 @@ function renderChart(hits) {
   c.appendChild(rows);
   const foot = document.createElement("p");
   foot.className = "chart-foot";
-  foot.textContent = "skor: kalibre edilmemiş benzerlik (MaxSim, sorgu jetonu başına ortalama, ~[-1..1]) — güven ya da doğruluk yüzdesi DEĞİLDİR";
+  foot.textContent = "skor: BM25 (kalibre edilmemiş, tipik 5-70) — güven ya da doğruluk yüzdesi DEĞİLDİR";
   c.appendChild(foot);
 }
 function hl(pid, on) {

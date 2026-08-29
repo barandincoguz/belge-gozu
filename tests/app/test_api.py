@@ -38,9 +38,15 @@ class BoomRecorder(EventRecorder):
         raise RuntimeError("boom")
 
 
-def make_client(tiny_corpus) -> TestClient:
+def make_client(tiny_corpus, **overrides) -> TestClient:
+    """Varsayılan (hibrit) pipeline ile istemci; `overrides` ile kol değiştirilir.
+
+    Eşik -1e9 ("her zaman cevapla") KASITLI: negatif eşik her pipeline'da
+    serbesttir, yani bu fikstür ölçek korkuluğuna takılmaz."""
     data_dir, enc, _ = tiny_corpus
-    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    settings = Settings(
+        data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9, **overrides
+    )
     app = create_app(settings=settings, encoder=enc, answerer=StubAnswerer())
     return TestClient(app)
 
@@ -48,9 +54,10 @@ def make_client(tiny_corpus) -> TestClient:
 def test_healthz(tiny_corpus):
     """Gövde TAM eşitlikle kilitli: UI eşiği ve sayfa sayısını buradan okur.
 
-    T14'te `index` bloğu eklendi (hangi TEMSİLİN servis edildiği) — eşiğin
-    ölçeği kuantizasyona bağlı olduğu için ikisi birlikte okunmalı. `revision`
-    telemetrideki `index_revision` ile aynı dizedir."""
+    T14'te `index` bloğu eklendi (hangi TEMSİLİN servis edildiği); P1'de
+    `pipeline` eklendi — eşiğin ÖLÇEĞİ pipeline'a bağlı olduğu için ikisi
+    birlikte okunmalı. `revision` telemetrideki `index_revision` ile aynı
+    dizedir."""
     from belge_gozu.index.manifest import read_manifest
 
     data_dir, _, _ = tiny_corpus
@@ -64,11 +71,18 @@ def test_healthz(tiny_corpus):
         "pages": 3,
         "threshold": -1e9,
         "top_k": 5,
+        "pipeline": "hybrid",
         "index": {
             "quantization": "sign-1bit",
             "revision": f"{m.corpus_checksum[:12]}/train-compat-v1/sign-1bit",
         },
     }
+
+
+def test_healthz_reports_active_pipeline(tiny_corpus):
+    """UI eşiği bu alanla birlikte okur: 10.6 (bm25) ile 0.58 (görsel) ayrımı."""
+    c = make_client(tiny_corpus, retrieval_pipeline="exhaustive")
+    assert c.get("/healthz").json()["pipeline"] == "exhaustive"
 
 
 def test_search_returns_hits(tiny_corpus):
@@ -181,25 +195,41 @@ def test_events_row_written_for_ask(tiny_corpus):
     assert "device" in detail and detail["app_version"]
 
 
-def test_search_detail_records_exhaustive_stage_timing(tiny_corpus):
-    """Varsayılan pipeline ("exhaustive"): exhaustive_maxsim süresi detail.stages'e düşer."""
-    data_dir, _, _ = tiny_corpus
-    c = make_client(tiny_corpus)
-    c.post("/search", json={"query": "deneme sorgusu"})
+def _last_detail(data_dir, endpoint: str = "/search") -> dict:
     row = (
         sqlite3.connect(data_dir / "requests.sqlite")
-        .execute("SELECT detail FROM events WHERE endpoint='/search' ORDER BY id DESC")
+        .execute("SELECT detail FROM events WHERE endpoint=? ORDER BY id DESC", (endpoint,))
         .fetchone()
     )
-    detail = json.loads(row[0])
+    return json.loads(row[0])
+
+
+def test_search_detail_records_exhaustive_stage_timing(tiny_corpus):
+    """ "exhaustive" kolu: exhaustive_maxsim süresi detail.stages'e düşer."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus, retrieval_pipeline="exhaustive")
+    c.post("/search", json={"query": "deneme sorgusu"})
+    detail = _last_detail(data_dir)
     assert "stages" in detail
     assert "exhaustive_maxsim" in detail["stages"]
+
+
+def test_search_detail_records_hybrid_stage_timings(tiny_corpus):
+    """Hibrit kol: metin kanalının aşama adları da detail.stages'e düşmeli.
+
+    Bu, aşama adlarının Prometheus'a (`bg_stage_duration_seconds`) taşınma
+    yoludur — prom.py `_STAGE_COLS` dışındaki adları detail'den okur."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)  # varsayılan: hibrit
+    c.post("/search", json={"query": "yerleşim yeri nedir"})
+    stages = _last_detail(data_dir)["stages"]
+    assert {"query_encode", "exhaustive_maxsim", "text_bm25", "route_fuse"} <= set(stages)
 
 
 def test_search_records_pipeline_and_index_revision(tiny_corpus):
     """T13: pipeline + index_revision doldurulur; detail.retrieval kimlik alanlarını taşır."""
     data_dir, _, _ = tiny_corpus
-    c = make_client(tiny_corpus)
+    c = make_client(tiny_corpus, retrieval_pipeline="exhaustive")
     c.post("/search", json={"query": "deneme sorgusu"})
     row = (
         sqlite3.connect(data_dir / "requests.sqlite")
@@ -212,8 +242,36 @@ def test_search_records_pipeline_and_index_revision(tiny_corpus):
     assert row[0] == "exhaustive"
     assert row[1] is not None and "train-compat-v1" in row[1]
     detail = json.loads(row[2])
+    # görsel kollarda getirici künye SUNMAZ: blok birebir aynı kalır
     assert detail["retrieval"] == {"query_format": "train-compat-v1", "quantization": "sign-1bit"}
     assert "candidates" not in detail["retrieval"]
+
+
+def test_hybrid_search_records_channel_tops_and_routing(tiny_corpus):
+    """Hibrit kol: iki kanalın top-1'i + yönlendirilen dokümanlar olaya girer.
+
+    Bu, P2 kalibrasyonunun girdisidir — iki ölçek AYRI alanlarda durur, tek
+    bir kolonda karışmaz."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    # "meden" (Türk Medeni Kanunu adı) sorguda geçiyor -> d0 yönlendirilir
+    c.post("/search", json={"query": "Medeni Kanuna göre yerleşim yeri"})
+    row = (
+        sqlite3.connect(data_dir / "requests.sqlite")
+        .execute(
+            "SELECT pipeline, top_score, detail FROM events "
+            "WHERE endpoint='/search' ORDER BY id DESC"
+        )
+        .fetchone()
+    )
+    assert row[0] == "hybrid"
+    detail = json.loads(row[2])
+    assert detail["retrieval"]["query_format"] == "train-compat-v1"
+    assert detail["retrieval"]["routed_docs"] == ["d0"]
+    assert detail["retrieval"]["bm25_top1"] > 0
+    assert isinstance(detail["retrieval"]["visual_top1"], float)
+    # servis edilen top-1 BM25 ölçeğinde (görsel normalize banda değil)
+    assert row[1] == detail["hits"][0]["score"]
 
 
 def test_query_text_flag_off_hashes_only(tiny_corpus):

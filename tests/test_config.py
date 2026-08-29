@@ -11,21 +11,36 @@ def test_defaults():
     assert s.request_delay_s == 1.0
 
 
-def test_production_index_and_threshold_defaults():
-    """İki varsayılan BİRLİKTE kilitlenir: temsil + o temsile ait eşik.
+def test_production_index_pipeline_and_threshold_defaults():
+    """Üç varsayılan BİRLİKTE kilitlenir: temsil + pipeline + o ölçeğe ait eşik.
 
-    Bu iki alan eskiden hiç assert edilmiyordu — tam da bu yüzden bir ölçek
+    Bu alanlar eskiden hiç assert edilmiyordu — tam da bu yüzden bir ölçek
     kayması (indeks int8'e geçerken eşiğin binary 60.0'da kalması gibi)
-    testlerde görünmezdi. İkisi birbirine bağlıdır: eşik yalnız normalize
-    [-1,1] skor ölçeğinde anlamlıdır ve o ölçek indeksin temsiliyle gelir.
+    testlerde görünmezdi. P1'de eksen bir daha kaydı: eşiğin ölçeği artık
+    PIPELINE'a bağlı (hibrit -> BM25 birimi), bu yüzden üçü birlikte okunur.
 
-    Gerekçe ve ölçümler: config.py'deki yorumlar +
-    data/bench/results/int8-threshold-transfer.json."""
+    Gerekçe ve ölçümler: config.py'deki yorumlar + findings
+    2026-08-29-autoresearch-text-channel.md."""
     s = Settings()
     assert s.index_dir == Path("data/index-traincompat-int8")
-    assert s.min_score_threshold == 0.58
-    # ölçek korkuluğunun (app/main.py) reddettiği banda düşmemeli
-    assert s.min_score_threshold <= 1.5
+    assert s.retrieval_pipeline == "hybrid"
+    assert s.min_score_threshold == 10.6
+    # ölçek korkuluğunun (app/main.py) hibrit kolda reddettiği banda düşmemeli
+    assert not (0 < s.min_score_threshold <= 1.5) and s.min_score_threshold <= 200
+
+
+def test_threshold_calibration_scale_matches_default_pipeline():
+    """`THRESHOLD_CALIBRATED_ON` varsayılan pipeline'ın ÖLÇEĞİ olmalı.
+
+    İkisi ayrışırsa `create_app` üretim yapılandırmasında kalıcı bir
+    "taşınabilirlik uyarısı" basar ve uyarı gürültüye dönüp anlamını yitirir."""
+    from belge_gozu.config import PIPELINE_SCORE_SCALE, THRESHOLD_CALIBRATED_ON
+
+    s = Settings()
+    assert PIPELINE_SCORE_SCALE[s.retrieval_pipeline] == THRESHOLD_CALIBRATED_ON
+    # her pipeline'ın bir ölçek künyesi olmalı (yeni bir kol eklenip
+    # burada unutulursa korkuluk KeyError'a düşerdi)
+    assert set(PIPELINE_SCORE_SCALE) == {"hybrid", "exhaustive", "two-stage"}
 
 
 def test_env_override(monkeypatch):

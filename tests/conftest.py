@@ -10,6 +10,18 @@ from belge_gozu.index.manifest import corpus_checksum, write_manifest
 from belge_gozu.index.store import PackedIndex
 from tests.index.test_manifest import make_manifest
 
+# Metin kanalı (P1) fikstür metinleri — page_id -> sayfa metni.
+# 1. sayfa başlık satırları KASITLI olarak gerçek biçimde: `extract_doc_name_tokens`
+# bu satırlardan doküman adı türetir (d0 -> {"meden"}, d1 -> {"iş"}, d2 -> {"ceza"}),
+# yani doküman-adı yönlendirmesi de bu fikstürle sınanabilir.
+TINY_TEXTS = {
+    "d0:1": (
+        "TÜRK MEDENİ KANUNU\nYerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir.\n"
+    ),
+    "d1:1": ("İŞ KANUNU\nYıllık ücretli izin süresi hizmet süresine göre belirlenir.\n"),
+    "d2:1": "TÜRK CEZA KANUNU\nKimseye suçu olmadan ceza verilemez.\n",
+}
+
 
 @pytest.fixture
 def tiny_corpus(tmp_path: Path):
@@ -21,6 +33,11 @@ def tiny_corpus(tmp_path: Path):
     `create_app` uyumluluk kontrolü config'ten çözülen üretim değerlerine düşer
     (final review IMPORTANT-2) — yani bu fikstürle kurulan her app testi artık
     kontrolü gerçekten çalıştırır.
+
+    P1: indeks dizinine ayrıca `page_texts.parquet` yazılır (hibrit pipeline'ın
+    metin kanalı artefaktı) — varsayılan pipeline hibrit olduğu için bu dosya
+    olmadan hiçbir app testi ayağa kalkamazdı. `corpus_checksum` bu dosyayı
+    OKUMAZ, dolayısıyla manifest'i geçersizleştirmez.
     """
     enc = FakeEncoder()
     images, ids, records = [], [], []
@@ -49,6 +66,9 @@ def tiny_corpus(tmp_path: Path):
     idx_dir = tmp_path / "index"
     idx.save(idx_dir)
     meta.to_parquet(idx_dir / "meta.parquet", index=False)
+    pd.DataFrame({"page_id": ids, "text": [TINY_TEXTS[i] for i in ids]}).to_parquet(
+        idx_dir / "page_texts.parquet", index=False
+    )
     write_manifest(
         idx_dir, make_manifest(corpus_checksum=corpus_checksum(idx_dir), n_pages=3, n_tokens=24)
     )

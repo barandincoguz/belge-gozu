@@ -23,7 +23,17 @@ STAGE_BUCKETS = (0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20)
 # `quantization` etiketinden ayırt edilir.
 SCORE_BUCKETS = (0.30, 0.40, 0.45, 0.50, 0.55, 0.58, 0.60, 0.65, 0.70, 0.80)
 MARGIN_BUCKETS = (0.0, 0.005, 0.01, 0.02, 0.04, 0.08)
+# P1: hibrit yolda skoru BM25 üretir — kalibre edilmemiş, ÜST SINIRSIZ birim
+# (ölçülen top-1 bandı ~4-70). Normalize [-1,1] bucket'larıyla aynı seride
+# toplanamaz (hepsi son bucket'a düşer, quantile'lar anlamsızlaşır), bu yüzden
+# AYRI seri: eşik 10.6 çevresinde sıklaştırılmış.
+BM25_SCORE_BUCKETS = (0, 5, 10, 10.6, 15, 20, 30, 45, 70, 100)
+BM25_MARGIN_BUCKETS = (0, 0.5, 1, 2, 5, 10, 20, 40)
 TPS_BUCKETS = (5, 10, 20, 40, 80, 160)
+
+# Skorun ölçeğini pipeline belirler (config.PIPELINE_SCORE_SCALE); telemetri
+# yönlendirmesi bu kümeye bakar. Olay künyesi zaten `pipeline` taşıyor.
+BM25_SCALE_PIPELINES = frozenset({"hybrid"})
 
 _STAGE_COLS = {
     "query_encode": "encode_ms",
@@ -72,6 +82,21 @@ class PromMetrics:
             "top1-top2 farkı",
             ["quantization"],
             buckets=MARGIN_BUCKETS,
+            registry=r,
+        )
+        # P1 hibrit kolun BM25-ölçekli karşılıkları. `quantization` etiketi
+        # YOK: BM25 skoru indeks temsilinden bağımsızdır (metin katmanından
+        # gelir), etiket burada yanıltıcı olurdu.
+        self.top_score_bm25 = Histogram(
+            "bg_retrieval_top_score_bm25",
+            "En iyi skor (BM25 ölçeği, hibrit pipeline)",
+            buckets=BM25_SCORE_BUCKETS,
+            registry=r,
+        )
+        self.margin_bm25 = Histogram(
+            "bg_retrieval_score_margin_bm25",
+            "top1-top2 farkı (BM25 ölçeği, hibrit pipeline)",
+            buckets=BM25_MARGIN_BUCKETS,
             registry=r,
         )
         self.abstain = Counter("bg_abstain", "Abstain sayısı", ["reason"], registry=r)
@@ -130,13 +155,24 @@ class PromMetrics:
         for stage_name, ms in ev.detail.get("stages", {}).items():
             if stage_name not in _STAGE_COLS and ms is not None:
                 self.stage.labels(stage=stage_name).observe(ms / 1000.0)
-        # Olayın kendi künyesinden okunur (app/main.py `detail.retrieval`'i
-        # manifest'ten doldurur); künye taşımayan olaylar "unknown"a düşer.
-        quant = str((ev.detail.get("retrieval") or {}).get("quantization") or "unknown")
-        if ev.top_score is not None:
-            self.top_score.labels(quantization=quant).observe(ev.top_score)
-        if ev.margin_1_2 is not None:
-            self.margin.labels(quantization=quant).observe(ev.margin_1_2)
+        # Skor ÖLÇEĞİ pipeline'a bağlı (P1): hibrit BM25 birimi, görsel kollar
+        # normalize [-1,1]. İkisi aynı seride toplanırsa geri dönülemez biçimde
+        # karışır (T14'te aynı hata kuantizasyon ekseninde yaşandı), bu yüzden
+        # olayın kendi `pipeline` künyesine göre AYRI serilere yönlendirilir.
+        if ev.pipeline in BM25_SCALE_PIPELINES:
+            if ev.top_score is not None:
+                self.top_score_bm25.observe(ev.top_score)
+            if ev.margin_1_2 is not None:
+                self.margin_bm25.observe(ev.margin_1_2)
+        else:
+            # Görsel ölçek: değer TEMSİLE göre etiketlenir (app/main.py
+            # `detail.retrieval`'i manifest'ten doldurur); künye taşımayan
+            # olaylar "unknown"a düşer.
+            quant = str((ev.detail.get("retrieval") or {}).get("quantization") or "unknown")
+            if ev.top_score is not None:
+                self.top_score.labels(quantization=quant).observe(ev.top_score)
+            if ev.margin_1_2 is not None:
+                self.margin.labels(quantization=quant).observe(ev.margin_1_2)
         if ev.status == "degraded":
             self.abstain.labels(reason="degraded").inc()
         elif ev.abstained:

@@ -93,6 +93,50 @@ def test_score_histograms_carry_quantization_label():
     assert 'bg_retrieval_top_score_bucket{le="0.58",quantization="int8"} 0.0' in text
 
 
+def test_hybrid_scores_go_to_the_bm25_series():
+    """Skor ÖLÇEĞİ pipeline'a bağlı (P1): hibrit örnekler AYRI seriye düşer.
+
+    Aynı histogramda toplanırlarsa geri dönülemez biçimde karışırlar — BM25
+    (üst sınırsız, ~4-70) normalize [-1,1] bucket'larının hepsini aşar ve
+    quantile'ları anlamsızlaştırır."""
+    pm = PromMetrics()
+    pm.observe(
+        _ask_ev(
+            pipeline="hybrid",
+            top_score=26.05,
+            margin_1_2=3.4,
+            detail={"retrieval": {"query_format": "train-compat-v1", "quantization": "int8"}},
+        )
+    )
+    text = pm.render()[0].decode()
+    assert 'bg_retrieval_top_score_bm25_bucket{le="30.0"} 1.0' in text
+    assert 'bg_retrieval_top_score_bm25_bucket{le="20.0"} 0.0' in text
+    # eşik 10.6 bucket sınırı olarak var (çalışma noktası doğrudan okunabilsin)
+    assert 'bg_retrieval_top_score_bm25_bucket{le="10.6"} 0.0' in text
+    assert 'bg_retrieval_score_margin_bm25_bucket{le="5.0"} 1.0' in text
+    # görsel-ölçek serisine HİÇ örnek düşmemeli (etiketli seri hiç doğmaz)
+    assert "bg_retrieval_top_score_bucket" not in text
+    assert "bg_retrieval_score_margin_bucket" not in text
+
+
+def test_visual_pipelines_keep_using_the_normalized_series():
+    """Karşı taraf: görsel kollar eski seride kalır (etiketiyle birlikte)."""
+    pm = PromMetrics()
+    pm.observe(
+        _ask_ev(
+            pipeline="exhaustive",
+            top_score=0.62,
+            margin_1_2=0.01,
+            detail={"retrieval": {"query_format": "train-compat-v1", "quantization": "int8"}},
+        )
+    )
+    text = pm.render()[0].decode()
+    assert 'bg_retrieval_top_score_bucket{le="0.65",quantization="int8"} 1.0' in text
+    # BM25 serisi (etiketsiz) hep render edilir; ÖRNEK ALMAMIŞ olmalı
+    assert "bg_retrieval_top_score_bm25_count 0.0" in text
+    assert "bg_retrieval_score_margin_bm25_count 0.0" in text
+
+
 def test_score_histogram_without_identity_falls_back_to_unknown():
     """Künye taşımayan olay (eski satır / enjekte edilmiş olay) düşürülmez."""
     pm = PromMetrics()
@@ -130,7 +174,12 @@ def test_observe_records_uncovered_stage_names():
 
 def test_metrics_endpoint_exposes_exhaustive_stage_and_index_revision(tiny_corpus):
     data_dir, enc, _ = tiny_corpus
-    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        retrieval_pipeline="exhaustive",
+        min_score_threshold=-1e9,
+    )
     app = create_app(settings=settings, encoder=enc, answerer=_StubAnswerer())
     c = TestClient(app)
     c.post("/search", json={"query": "deneme sorgusu"})
@@ -139,3 +188,18 @@ def test_metrics_endpoint_exposes_exhaustive_stage_and_index_revision(tiny_corpu
     assert r.status_code == 200
     assert 'bg_stage_duration_seconds_bucket{le="+Inf",stage="exhaustive_maxsim"}' in text
     assert "index_revision=" in text
+
+
+def test_metrics_endpoint_exposes_hybrid_stages_end_to_end(tiny_corpus):
+    """Uçtan uca: yeni aşama adları detail.stages fallback'inden Prometheus'a
+    kendiliğinden akıyor (prom.py'de aşama adı listesi TUTULMUYOR) ve skor
+    BM25 serisine düşüyor."""
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=_StubAnswerer()))
+    c.post("/search", json={"query": "yerleşim yeri nedir"})
+    text = c.get("/metrics").text
+    assert 'bg_stage_duration_seconds_bucket{le="+Inf",stage="text_bm25"}' in text
+    assert 'bg_stage_duration_seconds_bucket{le="+Inf",stage="route_fuse"}' in text
+    assert 'bg_stage_duration_seconds_bucket{le="+Inf",stage="exhaustive_maxsim"}' in text
+    assert "bg_retrieval_top_score_bm25_bucket" in text

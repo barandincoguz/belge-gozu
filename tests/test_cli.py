@@ -160,6 +160,82 @@ def test_index_build_refuses_to_overwrite_prod_index_with_other_quantization(tmp
     assert not (index_dir / "tokens.npy").exists()  # hiçbir şey yazılmadı
 
 
+# --- P1: index build-text (hibrit metin kanalı artefaktı) --------------------
+
+
+def _built_index(tmp_path: Path, monkeypatch, pages: int = 2) -> Path:
+    """`corpus render` + `index build --fake` ile küçük bir üretim indeksi."""
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BG_INDEX_DIR", str(tmp_path / "index"))
+    (tmp_path / "manifest").mkdir(parents=True)
+    (tmp_path / "manifest" / "v0_manifest.csv").write_text(CSV, encoding="utf-8")
+    (tmp_path / "pdf").mkdir()
+    make_pdf(tmp_path / "pdf" / "d1.pdf", pages=pages)
+    assert runner.invoke(app, ["corpus", "render", "--dpi", "72"]).exit_code == 0
+    assert runner.invoke(app, ["index", "build", "--fake"]).exit_code == 0
+    return tmp_path / "index"
+
+
+def test_index_build_text_writes_aligned_parquet(tmp_path: Path, monkeypatch):
+    import pandas as pd
+
+    index_dir = _built_index(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["index", "build-text"])
+    assert result.exit_code == 0, result.output
+    assert "2 sayfa" in result.output and "boş" in result.output
+
+    df = pd.read_parquet(index_dir / "page_texts.parquet")
+    page_ids = json.loads((index_dir / "page_ids.json").read_text(encoding="utf-8"))
+    assert df["page_id"].tolist() == page_ids  # serve tarafı bunu birebir arar
+    assert "Sayfa 1" in df["text"][0]
+
+
+def test_index_build_text_does_not_invalidate_manifest(tmp_path: Path, monkeypatch):
+    """Artefakt indeks dizinine yazılır ama `corpus_checksum`u DEĞİŞTİRMEMELİ —
+    aksi halde her build-text serve'ü uyumsuzluk hatasına düşürürdü."""
+    from belge_gozu.config import Settings
+    from belge_gozu.index.compat import check_compatibility
+    from belge_gozu.index.manifest import read_manifest
+
+    index_dir = _built_index(tmp_path, monkeypatch)
+    assert runner.invoke(app, ["index", "build-text"]).exit_code == 0
+    s = Settings()
+    problems = check_compatibility(
+        read_manifest(index_dir),
+        model_name=s.retriever_model,
+        model_revision=None,
+        query_format_id=s.query_format_id,
+        index_dir=index_dir,
+    )
+    assert problems == []
+
+
+def test_index_build_text_refuses_without_index(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BG_INDEX_DIR", str(tmp_path / "yok"))
+    result = runner.invoke(app, ["index", "build-text"])
+    assert result.exit_code != 0 and "page_ids.json" in result.output
+
+
+def test_index_build_text_refuses_without_manifest(tmp_path: Path, monkeypatch):
+    index_dir = _built_index(tmp_path, monkeypatch)
+    (index_dir / "manifest.json").unlink()
+    result = runner.invoke(app, ["index", "build-text"])
+    assert result.exit_code != 0 and "manifest.json" in result.output
+
+
+def test_bench_pipeline_default_follows_settings():
+    """`bench run --pipeline` varsayılanı config'ten gelmeli: sabit bir literal
+    olsaydı üretim hibrite geçtiğinde bench sessizce ESKİ yolu ölçerdi."""
+    from belge_gozu.cli import DEFAULT_PIPELINE
+    from belge_gozu.config import Settings
+
+    assert DEFAULT_PIPELINE.value == Settings().retrieval_pipeline
+    result = runner.invoke(app, ["bench", "run", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "hybrid" in "".join(result.output.split())
+
+
 def test_index_derive_rejects_float16_quant(tmp_path):
     """`Quantization` T14'te float16 üyesini kazandı; `derive` onu türetemez.
 

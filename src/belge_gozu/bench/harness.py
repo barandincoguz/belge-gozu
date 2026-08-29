@@ -12,10 +12,14 @@ from belge_gozu.index.manifest import IndexManifest
 from belge_gozu.index.store import binarize_pack
 from belge_gozu.provenance import git_commit  # geriye dönük re-export (eski ev buradaydı)
 from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever, hamming_matrix
+from belge_gozu.retrieval.hybrid import HybridRetriever
+from belge_gozu.retrieval.text import route_window
 
 
 class StageRecord(BaseModel):
-    stage: str  # "exhaustive-binary" | "stage1" | "stage2" | (P1: kanal adları) | "final"
+    # "exhaustive-binary" | "stage1" | "stage2" | P1 kanalları:
+    # "visual" | "text_bm25" | "route_fuse"
+    stage: str
     gold_ranks: dict[str, int]  # page_id -> 1-tabanlı sıra; listede yoksa -1
     top_ids: list[str]  # ilk record_top eleman
     top_scores: list[float]
@@ -95,6 +99,72 @@ class ExhaustiveDiagnosticAdapter:
             latency_ms=latency_ms,
         )
         return ranked, [rec]
+
+
+class HybridDiagnosticAdapter:
+    """HybridRetriever sarar (P1 üretim yolu) — üç kanalı ayrı ayrı kaydeder.
+
+    Aşama kayıtları üretimin `search()` yolunun aynısını izler:
+      * `visual` — görsel MaxSim sıralaması. Nihai sıraya GİRMEZ (ölçüm: F5
+        sonrası top-5'e benzersiz katkısı sıfır soru), ama kanal başına gold
+        sırası burada kayda geçer; P2 kalibrasyonunun ve "görsel ne zaman
+        yardımcı olurdu?" sorusunun verisi budur.
+      * `text_bm25` — yönlendirme ÖNCESİ saf BM25 sırası.
+      * `route_fuse` — nihai sıra (pencere-içi doküman yönlendirmesi sonrası).
+
+    `top_scores` her aşamada O AŞAMANIN kendi ölçeğindedir: `visual`
+    normalize [-1,1], diğer ikisi BM25 birimi. Tek bir kolona iki ölçek
+    karıştırmamak için ayrı aşamalar olarak tutulur (T14 dersi).
+    """
+
+    name = "hybrid"
+
+    def __init__(self, retriever: HybridRetriever, record_top: int = 200):
+        self.retriever = retriever
+        self.record_top = record_top
+
+    def run(self, question: str) -> tuple[list[str], list[StageRecord]]:
+        if self.retriever.encoder is None:
+            raise RuntimeError("encoder yapılandırılmamış")
+        page_ids = self.retriever.index.page_ids
+
+        t0 = time.perf_counter()
+        q_emb = self.retriever.encoder.encode_query(question)
+        visual = self.retriever.index.score_all(q_emb, chunk_tokens=self.retriever.CHUNK_TOKENS)
+        t1 = time.perf_counter()
+        vis_order = np.argsort(-visual, kind="stable")[: self.record_top]
+        visual_rec = StageRecord(
+            stage="visual",
+            gold_ranks={},
+            top_ids=[page_ids[i] for i in vis_order],
+            top_scores=[float(visual[i]) for i in vis_order],
+            latency_ms=(t1 - t0) * 1000,
+        )
+
+        bm25 = self.retriever.text.scores(question)
+        t2 = time.perf_counter()
+        bm_order = np.argsort(-bm25, kind="stable")
+        bm_top = bm_order[: self.record_top]
+        text_rec = StageRecord(
+            stage="text_bm25",
+            gold_ranks={},
+            top_ids=[page_ids[i] for i in bm_top],
+            top_scores=[float(bm25[i]) for i in bm_top],
+            latency_ms=(t2 - t1) * 1000,
+        )
+
+        routed = self.retriever.routed_docs(question)
+        ranked = route_window([page_ids[i] for i in bm_order], routed, self.retriever.window)
+        t3 = time.perf_counter()
+        by_id = dict(zip(page_ids, bm25.tolist(), strict=True))
+        fuse_rec = StageRecord(
+            stage="route_fuse",
+            gold_ranks={},
+            top_ids=ranked[: self.record_top],
+            top_scores=[by_id[pid] for pid in ranked[: self.record_top]],
+            latency_ms=(t3 - t2) * 1000,
+        )
+        return ranked, [visual_rec, text_rec, fuse_rec]
 
 
 class TwoStageDiagnosticAdapter:

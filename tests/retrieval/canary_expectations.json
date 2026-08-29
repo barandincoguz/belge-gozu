@@ -1,5 +1,14 @@
 {
-  "quantization": "int8",
-  "long_query_gold_rank_max": 664,
-  "_measured": "2026-08-29, data/index-traincompat-int8, exhaustive, canary c001; önceki: 1221 (1-bit)"
+  "_note": "Cırcır PIPELINE'a göre anahtarlıdır: sıra hangi kanalın sıraladığına bağlı (hibrit BM25 vs görsel MaxSim). Eşikler yalnız BİLİNÇLİ, ÖLÇÜLMÜŞ bir iyileşmeyle DÜŞÜRÜLEBİLİR; asla sessizce YÜKSELTİLMEMELİDİR.",
+  "hybrid": {
+    "pipeline": "hybrid",
+    "long_query_gold_rank_max": 2,
+    "_measured": "2026-08-29, data/index-traincompat-int8 + page_texts.parquet, hibrit (BM25+doküman yönlendirme), canary c001; önceki: 664 (exhaustive/int8)"
+  },
+  "exhaustive": {
+    "pipeline": "exhaustive",
+    "quantization": "int8",
+    "long_query_gold_rank_max": 664,
+    "_measured": "2026-08-29, data/index-traincompat-int8, exhaustive, canary c001; önceki: 1221 (1-bit)"
+  }
 }

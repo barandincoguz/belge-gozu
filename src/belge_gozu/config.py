@@ -5,11 +5,22 @@ from typing import Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# `min_score_threshold`ın ÜZERİNDE ÖLÇÜLDÜĞÜ temsil. Eşik dağılıma bağlıdır,
-# ölçeğe değil: aynı normalize [-1,1] bandında bile 0.58 int8'te 42/43,
-# 1-bit'te 1/43 cevaplanabilir soruyu geçirir. `app/main.py` yüklü indeks
-# bundan farklıysa uyarır (bkz. aşağıdaki eşik yorumu).
-THRESHOLD_CALIBRATED_ON = "int8"
+# `min_score_threshold`ın ÜZERİNDE TAŞINDIĞI SKOR ÖLÇEĞİ. P1'de eşiğin
+# bağlandığı eksen KUANTİZASYONDAN PIPELINE'A geçti: hibrit yolda sıralamayı
+# ve dolayısıyla eşikle karşılaştırılan skoru BM25 metin kanalı üretir
+# (kalibre edilmemiş, üst sınırsız, ölçülen bant ~4-70) — int8/1-bit ayrımı bu
+# skoru etkilemez. `app/main.py` etkin pipeline'ın ölçeği bundan farklıysa
+# UYARIR ve ölçek dışı bir eşikte fail-fast yapar.
+THRESHOLD_CALIBRATED_ON = "hybrid-bm25"
+
+# Hangi pipeline hangi skor ölçeğinde skorlar. Ölçek karışımı bu projenin en
+# sessiz hata sınıfıdır (T14: binary 0-128 -> normalize [-1,1]); tek yerde
+# tutulur ki korkuluk, uyarı ve telemetri yönlendirmesi aynı kaynağa baksın.
+PIPELINE_SCORE_SCALE: dict[str, str] = {
+    "hybrid": "hybrid-bm25",  # BM25 birimi, üst sınırsız (~4-70 gözlendi)
+    "exhaustive": "visual-normalized",  # sorgu jetonu başına ortalama MaxSim, ~[-1,1]
+    "two-stage": "visual-normalized",
+}
 
 
 class Settings(BaseSettings):
@@ -55,47 +66,50 @@ class Settings(BaseSettings):
     doc_prompt_id: Literal["processor-default", "train-compat"] = "train-compat"
     stage1_candidates: int = 200
     top_k: int = 5
-    # exhaustive: her arama tüm korpusu tarar (kesin, varsayılan). two-stage:
-    # mean-sign Hamming ile aday eleme + kesin MaxSim (ablasyon-only; spec §1.1
-    # karşı-örneği nedeniyle üretimde kullanılmaz).
-    retrieval_pipeline: Literal["exhaustive", "two-stage"] = "exhaustive"
+    # hybrid (VARSAYILAN, P1): sıralamayı PDF metin katmanı üzerindeki BM25 +
+    # doküman-adı pencere-içi yönlendirmesi belirler; görsel MaxSim kanalı
+    # koşmaya devam eder ama sıralamaya girmez (telemetri + P2 kalibrasyon
+    # verisi). Ölçüm (canary answerable n=43, autoresearch exp7): R@5 0.2326 ->
+    # 0.8140, vitrin sorgularının gold sıraları 664->2 ve 137->2 — findings
+    # 2026-08-29-autoresearch-text-channel.md. exhaustive: yalnız görsel kanal,
+    # her arama tüm korpusu tarar (P0 üretim yolu; artık ablasyon/karşılaştırma
+    # kolu). two-stage: mean-sign Hamming ile aday eleme + kesin MaxSim
+    # (ablasyon-only; spec §1.1 karşı-örneği nedeniyle üretimde kullanılmaz).
+    #
+    # DİKKAT: pipeline değiştirmek SKOR ÖLÇEĞİNİ değiştirir (bkz.
+    # PIPELINE_SCORE_SCALE) — `min_score_threshold` da birlikte taşınmalıdır.
+    retrieval_pipeline: Literal["hybrid", "exhaustive", "two-stage"] = "hybrid"
     # MEKANİK ÖLÇEK TAŞIMASI — KALİBRASYON DEĞİL.
     #
-    # T14'te skorlar tek bir normalize ölçeğe alındı: sorgu jetonu başına
-    # ortalama MaxSim, ~[-1,1] (binary kol EMBED_DIM'e bölünerek int8/float16
-    # dot-product bandına taşındı). Eski eşik 60.0 ESKİ binary ölçeğindeydi
-    # (0-128) ve yeni ölçekte hiçbir zaman aşılamazdı.
+    # P1'de sıralamayı BM25 metin kanalı üretiyor, yani eşiğin karşılaştırdığı
+    # skor artık normalize [-1,1] MaxSim değil BM25 birimi (üst sınırsız).
+    # Eski 0.58 bu ölçekte her soruyu geçirirdi — tıpkı T14 öncesi 60.0'ın yeni
+    # ölçekte hiçbir soruyu geçirmemesi gibi, aynı hatanın simetriği.
     #
-    # 0.58, o eski 60.0'ın ÇALIŞMA NOKTASINI SAYICA yeniden üretir: canary'de
-    # binary@60.0 cevaplanabilirlerin 42/43'ünü ve cevaplanamazların 4/5'ini
-    # geçiriyordu; int8'te 0.58 de aynı sayıları verir (0.5767 kalır, 0.5860+
-    # geçer; 0.5679 kalır, kalan 4 geçer). Yani bu bir dönüştürme, yeni bir
-    # karar DEĞİL.
+    # 10.6, T14'ün 0.58'i gibi, bir öncekinin ÇALIŞMA NOKTASINI SAYICA yeniden
+    # üretir. Ölçüm (canary, BM25 ölçeği): cevaplanabilir n=43 top-1'ler min
+    # 10.53 / medyan 26.05 / maks 69.30; cevaplanamaz top-1'ler 4.23 (c006
+    # anlamsız), 12.96 (c004), 15.54 (c007), 17.86 (c005), 23.53 (c003).
+    # binary@60 / int8@0.58'in çalışma noktası "42/43 cevaplanabilir + 4/5
+    # cevaplanamaz geçer"di; bu ölçekte o noktayı veren eşik bandı
+    # (10.528, 10.712] — 10.6 o bandın içinden seçildi. Yani mekanik ölçek
+    # taşıması, kalibrasyon değil.
     #
-    # AMA soru-soruya AYNI KÜME değil (review I3): iki satır taraf değiştirir —
-    # c306 (1-bit ham 59.85 -> eşiğin altındaydı; int8 0.5965 -> artık geçiyor)
-    # ve c211 (1-bit ham 61.78 -> geçiyordu; int8 0.5767 -> artık altında).
-    # int8 ile binary aynı soruları aynı sırayla skorlamadığı için beklenen bir
-    # sonuç; sayı korunur, kimlikler birebir korunmaz.
-    #
-    # TAŞINABİLİRLİK: eşik int8 DAĞILIMI üzerinde taşınmıştır; başka bir
-    # temsile geçerken (BG_INDEX_DIR ya da two-stage ablasyonu) yeniden taşıma
-    # ölçümü gerekir — ortak [-1,1] ölçeği temsilleri karşılaştırılabilir
-    # yapar, dağılımlarını eşitlemez. Ölçüm: aynı canary'de 1-bit top-1'leri
-    # min 0.4676 / medyan 0.4953 / maks 0.6133, yani 0.58 orada 43 sorunun
-    # yalnız 1'ini geçirir (aynı çalışma noktası 1-bit'te ~0.47'ye denk gelir).
-    # `create_app` int8 dışı bir temsil yüklendiğinde UYARI loglar.
+    # TAŞINABİLİRLİK: eşik artık KUANTİZASYONA değil PIPELINE'a bağlı (bkz.
+    # PIPELINE_SCORE_SCALE). BG_RETRIEVAL_PIPELINE=exhaustive/two-stage'e
+    # geçmek skoru görsel normalize bandına geri döndürür ve 10.6 orada asla
+    # aşılamaz; o kollarda eşik yeniden taşınmalıdır (P0 değeri 0.58'di).
+    # `create_app` ölçek dışı bir eşikte FAIL-FAST yapar, ölçek uyuşmazlığında
+    # UYARI loglar.
     #
     # Skor hâlâ bir güven/olasılık ölçüsü DEĞİLDİR ve eşik hâlâ AYIRMIYOR:
-    # 2026-08-29 canary ölçümü (data/index-traincompat-int8, MPS) cevaplanabilir
-    # n=43 min 0.5767 / medyan 0.6250 / maks 0.7450; cevaplanamaz n=5 min 0.5679
-    # / medyan 0.6550 / maks 0.6866 — dağılımlar hâlâ iç içe, korpus-dışı
-    # sorular hâlâ eşiği geçiyor. Artefakt:
-    # data/bench/results/int8-threshold-transfer.json. Bu durum
-    # tests/retrieval/test_semantic_canary.py::
+    # yukarıdaki iki dağılım hâlâ iç içe (cevaplanabilir alt sınır 10.53,
+    # cevaplanamaz üst sınır 23.53 — üç korpus-dışı soru eşiğin ÜSTÜNDE).
+    # Eşiği yükseltmek de çözüm değil: cevaplanabilir dağılımın alt yarısı
+    # birlikte abstain'e düşer. Bu durum tests/retrieval/test_semantic_canary.py::
     # test_out_of_corpus_canary_scores_below_threshold ile xfail(strict) olarak
     # kilitlidir. Gerçek kalibrasyon P2'nin işi.
-    min_score_threshold: float = 0.58
+    min_score_threshold: float = 10.6
     request_delay_s: float = 1.0
     # Tahmini birim fiyatlar (USD / 1M token). Kesin değildir; runbook'taki
     # doğrulama adımıyla güncellenir, env ile geçersiz kılınır.

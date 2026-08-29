@@ -225,6 +225,7 @@ def _int8_index_dir(tiny_corpus) -> Path:
     out = data_dir / "index-int8"
     i8.save(out)
     shutil.copy(data_dir / "meta.parquet", out / "meta.parquet")
+    shutil.copy(data_dir / "index" / "page_texts.parquet", out / "page_texts.parquet")
     write_manifest(
         out,
         make_manifest(
@@ -238,7 +239,7 @@ def _int8_index_dir(tiny_corpus) -> Path:
 
 
 def test_create_app_rejects_binary_scale_threshold(tiny_corpus):
-    """Eski binary ölçeğinde (0-128) kalmış bir eşik fail-fast olmalı.
+    """Görsel kolda eski binary ölçeğinde (0-128) kalmış bir eşik fail-fast olmalı.
 
     Skorlar T14'ten sonra normalize [-1,1]; 60.0 gibi bir eşik asla
     aşılamaz, yani servis HER soruya sessizce "dayanak bulamadım" derdi.
@@ -247,8 +248,111 @@ def test_create_app_rejects_binary_scale_threshold(tiny_corpus):
     from belge_gozu.config import Settings
 
     data_dir, enc, _ = tiny_corpus
-    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=60.0)
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        retrieval_pipeline="exhaustive",
+        min_score_threshold=60.0,
+    )
     with pytest.raises(IndexCompatibilityError, match="binary ölçeği"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+
+
+# --- P1 korkulukları: eşik ölçeği PIPELINE'a bağlı ---------------------
+
+
+def test_visual_scale_threshold_on_hybrid_is_rejected(tiny_corpus):
+    """Hibrit kolda görsel-ölçek eşiği (0.58) HER soruyu geçirir -> fail-fast.
+
+    Bu, binary-kalıntı hatasının SİMETRİĞİ: orada fren hiç açılmıyordu,
+    burada fren hiç kapanmaz — ikisi de sessiz."""
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        retrieval_pipeline="hybrid",
+        min_score_threshold=0.58,
+    )
+    with pytest.raises(IndexCompatibilityError, match="bm25 ölçeği"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+
+
+def test_bm25_scale_threshold_on_exhaustive_is_rejected(tiny_corpus):
+    """Karşı yön: BM25 eşiği (10.6) görsel kolda asla aşılamaz -> fail-fast."""
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        retrieval_pipeline="exhaustive",
+        min_score_threshold=10.6,
+    )
+    with pytest.raises(IndexCompatibilityError, match="binary ölçeği"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+
+
+def test_absurdly_high_threshold_on_hybrid_is_rejected(tiny_corpus):
+    """BM25 bandının (ölçülen ~4-70) çok üstü de sessizce her soruyu düşürürdü."""
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=5000.0)
+    with pytest.raises(IndexCompatibilityError, match="bm25 ölçeğinin çok üstünde"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+
+
+@pytest.mark.parametrize("pipeline", ["hybrid", "exhaustive"])
+def test_negative_threshold_allowed_on_every_pipeline(tiny_corpus, pipeline):
+    """NEGATİF eşik ("her zaman cevapla") ölçek kalıntısı DEĞİL, kasıtlı bir
+    kapatmadır — hiçbir pipeline'da reddedilmemeli (testlerin -1e9'u budur)."""
+    from fastapi.testclient import TestClient
+
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        retrieval_pipeline=pipeline,
+        min_score_threshold=-1e9,
+    )
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=object()))
+    assert c.get("/healthz").json()["pipeline"] == pipeline
+
+
+def test_hybrid_without_text_artifact_fails_fast(tiny_corpus):
+    """Metin kanalı artefaktı yoksa hibrit AÇILMAZ — sessizce yalnız-görsele
+    düşmek ölçülen reçeteyi kaybetmenin en sessiz yolu olurdu."""
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    (data_dir / "index" / "page_texts.parquet").unlink()
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    with pytest.raises(IndexCompatibilityError, match="index build-text"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+
+
+def test_hybrid_with_misaligned_text_artifact_fails_fast(tiny_corpus):
+    """page_texts.parquet indeksle BİREBİR hizalı olmalı: bir satır kayması
+    yanlış sayfayı döndürür ve hiçbir yerde hata vermezdi."""
+    import pandas as pd
+
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    path = data_dir / "index" / "page_texts.parquet"
+    pd.read_parquet(path).iloc[::-1].to_parquet(path, index=False)  # aynı küme, ters SIRA
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    with pytest.raises(IndexCompatibilityError, match="hizalı değil"):
         create_app(settings=settings, encoder=enc, answerer=object())
 
 
@@ -270,29 +374,34 @@ def test_two_stage_on_int8_index_raises_cleanly(tiny_corpus):
         create_app(settings=settings, encoder=enc, answerer=object())
 
 
-def test_non_int8_index_warns_about_threshold_portability(tiny_corpus, caplog):
-    """Eşik int8 DAĞILIMI üzerinde taşındı; başka temsilde doğrulanmamıştır.
+def test_non_calibrated_pipeline_warns_about_threshold_portability(tiny_corpus, caplog):
+    """Eşik hibrit BM25 ÖLÇEĞİ üzerinde taşındı; başka kolda doğrulanmamıştır.
 
-    Ortak [-1,1] ölçeği temsilleri karşılaştırılabilir yapar ama dağılımlarını
-    eşitlemez: aynı 0.58 canary'de int8'te 42/43, 1-bit'te 1/43 cevaplanabilir
-    soruyu geçirir (review I1). Başlatma ENGELLENMEZ — temsil seçimi meşru bir
-    ablasyon, per-temsil eşik config'i P2'nin işi (ruling R19) — ama sessiz de
+    Korkuluk bariz ölçek kalıntılarını keser ama "ölçek doğru, dağılım farklı"
+    durumunu kesemez (görsel kolda 0.58 geçerli bir değerdir — ama BU eşik
+    değildir). Başlatma ENGELLENMEZ — pipeline seçimi meşru bir ablasyon,
+    per-pipeline eşik config'i P2'nin işi (ruling R19) — ama sessiz de
     kalınmaz."""
     import logging
 
     from belge_gozu.app.main import create_app
     from belge_gozu.config import Settings
 
-    data_dir, enc, _ = tiny_corpus  # fikstür indeksi sign-1bit
-    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        retrieval_pipeline="exhaustive",
+        min_score_threshold=-1e9,
+    )
     with caplog.at_level(logging.WARNING, logger="belge_gozu.app.main"):
         create_app(settings=settings, encoder=enc, answerer=object())
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("eşik taşınabilirlik" in w and "sign-1bit" in w for w in warnings), warnings
+    assert any("eşik taşınabilirlik" in w and "exhaustive" in w for w in warnings), warnings
 
 
-def test_int8_index_does_not_warn_about_threshold_portability(tiny_corpus, caplog):
-    """Karşı taraf: üretim temsilinde (int8) uyarı ÇIKMAMALI — aksi halde
+def test_hybrid_pipeline_does_not_warn_about_threshold_portability(tiny_corpus, caplog):
+    """Karşı taraf: üretim kolunda (hibrit) uyarı ÇIKMAMALI — aksi halde
     uyarı gürültüye dönüşür ve anlamını yitirir."""
     import logging
 
@@ -320,6 +429,7 @@ def test_threshold_guard_runs_before_index_load(tiny_corpus):
     settings = Settings(
         data_dir=data_dir,
         index_dir=data_dir / "boyle-bir-dizin-yok",
+        retrieval_pipeline="exhaustive",
         min_score_threshold=60.0,
     )
     with pytest.raises(IndexCompatibilityError, match="binary ölçeği"):
@@ -337,7 +447,10 @@ def test_exhaustive_on_int8_index_serves(tiny_corpus):
 
     data_dir, enc, _ = tiny_corpus
     settings = Settings(
-        data_dir=data_dir, index_dir=_int8_index_dir(tiny_corpus), min_score_threshold=-1e9
+        data_dir=data_dir,
+        index_dir=_int8_index_dir(tiny_corpus),
+        retrieval_pipeline="exhaustive",
+        min_score_threshold=-1e9,
     )
     c = TestClient(create_app(settings=settings, encoder=enc, answerer=object()))
     assert c.get("/healthz").json()["index"]["quantization"] == "int8"

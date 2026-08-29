@@ -49,6 +49,7 @@ DEFAULT_MANIFEST = Path("data/manifest/v0_manifest.csv")
 
 
 class Pipeline(StrEnum):
+    hybrid = "hybrid"
     exhaustive = "exhaustive"
     two_stage = "two-stage"
 
@@ -82,6 +83,11 @@ PRECISION_QUANTIZATION: dict[Precision, Quantization] = {
 _CLI_DEFAULTS = Settings()
 DEFAULT_QUERY_FORMAT = QueryFormatChoice(_CLI_DEFAULTS.query_format_id)
 DEFAULT_DOC_PROMPT = DocPromptChoice(_CLI_DEFAULTS.doc_prompt_id)
+# Aynı gerekçe `bench run --pipeline` için de geçerli (P1): sabit bir literal
+# olsaydı üretim varsayılanı hibrite geçtiğinde bench sessizce ESKİ yolu
+# ölçmeye devam ederdi — yani "bench" ile "servis edilen" iki farklı sistem
+# olurdu. Bayrak hâlâ elle geçersiz kılınabilir (ablasyon koşumları).
+DEFAULT_PIPELINE = Pipeline(_CLI_DEFAULTS.retrieval_pipeline)
 
 
 def _settings() -> Settings:
@@ -248,6 +254,44 @@ def index_build(
     )
     write_manifest(out_dir, manifest)
     typer.echo(f"{len(ids)} sayfa indekslendi -> {out_dir}")
+
+
+@index_app.command("build-text")
+def index_build_text() -> None:
+    """PDF metin katmanını indeksin sayfa sırasıyla hizalı parquet'e yazar (hibrit kanal).
+
+    Model GEREKTİRMEZ (saniyeler sürer): `data/pdf` altındaki PDF'lerin metin
+    katmanı okunur ve `<index_dir>/page_texts.parquet` olarak yazılır. Artefakt
+    indeks dizinine yazılır çünkü GÖRSEL İNDEKSİN SAYFA SIRASINA bağlıdır;
+    `corpus_checksum` yalnız page_ids.json + meta.parquet'i okuduğu için
+    manifest'i geçersiz KILMAZ (serve tarafı hizalamayı ayrıca doğrular).
+    """
+    from belge_gozu.corpus.text import extract_page_texts
+
+    s = _settings()
+    ids_path = s.index_dir / "page_ids.json"
+    if not ids_path.exists():
+        raise typer.BadParameter(
+            f"indeks dizininde page_ids.json yok: {s.index_dir} — önce indeksi "
+            "kurun/indirin (`belge-gozu index build` ya da `index pull`)"
+        )
+    if read_manifest(s.index_dir) is None:
+        raise typer.BadParameter(
+            f"{s.index_dir} indeksinde manifest.json yok; metin kanalı hangi korpusa "
+            "hizalandığı bilinmeyen bir indeks için üretilmemeli"
+        )
+    pdf_dir = s.data_dir / "pdf"
+    if not pdf_dir.is_dir():
+        raise typer.BadParameter(
+            f"PDF dizini yok: {pdf_dir} — metin katmanı kaynak PDF'lerden okunur "
+            "(`belge-gozu corpus download`)"
+        )
+    page_ids = json.loads(ids_path.read_text(encoding="utf-8"))
+    df = extract_page_texts(pdf_dir, page_ids)
+    out = s.index_dir / "page_texts.parquet"
+    df.to_parquet(out, index=False)
+    empty = int((df["text"].str.strip() == "").sum())
+    typer.echo(f"{len(df)} sayfa, {empty} metin katmanı boş -> {out}")
 
 
 @index_app.command("derive")
@@ -424,18 +468,20 @@ def _load_bench_mode(bench: Path, only_verified: bool) -> tuple[list, bool]:
 @bench_app.command("run")
 def bench_run(
     bench: Path = typer.Option(Path("data/bench/canary_v1.jsonl")),  # noqa: B008
-    pipeline: Pipeline = typer.Option(Pipeline.exhaustive, "--pipeline"),  # noqa: B008
+    pipeline: Pipeline = typer.Option(DEFAULT_PIPELINE, "--pipeline"),  # noqa: B008
     only_verified: bool = typer.Option(False, "--only-verified/--all"),  # noqa: B008
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
 ) -> None:
     from belge_gozu.bench.harness import (
         ExhaustiveDiagnosticAdapter,
+        HybridDiagnosticAdapter,
         TwoStageDiagnosticAdapter,
         run_retrieval_eval,
     )
     from belge_gozu.index.encode import ColSmolEncoder
     from belge_gozu.index.loader import load_scorable_index
     from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
+    from belge_gozu.retrieval.hybrid import HybridRetriever
 
     s = _settings()
     # T14: serve ile AYNI yükleyici — bench, üretimin skorladığı temsilin
@@ -445,8 +491,15 @@ def bench_run(
     query_format = idx.manifest.query_format if idx.manifest else CPE_0_3_18
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=query_format)
 
-    adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter
-    if pipeline == Pipeline.two_stage:
+    adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter | HybridDiagnosticAdapter
+    if pipeline == Pipeline.hybrid:
+        # serve ile AYNI metin kanalı kurulumu (app/main.py::build_text_channel):
+        # artefakt yoksa bench sessizce yalnız-görsel ölçmemeli.
+        from belge_gozu.app.main import build_text_channel
+
+        bm25, doc_names = build_text_channel(s, idx)
+        adapter = HybridDiagnosticAdapter(HybridRetriever(idx, meta, encoder, bm25, doc_names))
+    elif pipeline == Pipeline.two_stage:
         # app/main.py'deki aynı korkuluk: mean-sign eleme yalnız paketli
         # bit vektörleri üstünde tanımlı (int8/float16'da page_vecs yok).
         if not isinstance(idx, PackedIndex):

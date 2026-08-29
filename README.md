@@ -1,10 +1,14 @@
 # Belge-Gözü
 
-**Visual document RAG for Turkish legal documents — no OCR, no text parsing.**
-Pages are indexed as *images*. A ColPali-class vision-language model retrieves the
-right pages straight from pixels, and a swappable VLM answerer looks at those page
-images and answers strictly from what it sees — citing pages, or admitting it doesn't
-know — instead of hallucinating an article number.
+**Hybrid document RAG for Turkish legal documents — no OCR.**
+Pages are indexed as *images* by a ColPali-class vision-language model, and a swappable
+VLM answerer looks at those page images and answers strictly from what it sees — citing
+pages, or admitting it doesn't know — instead of hallucinating an article number.
+Retrieval was visual-only in v0/P0; **P1 measured that channel against a Turkish-tuned
+BM25 pass over the PDF text layer and the text channel won by 3.5x** (canary Recall@5
+0.233 → 0.814), so ranking is now hybrid. The visual channel still runs on every query,
+kept for telemetry and P2 calibration — the honest result, not the one that fit the
+original pitch.
 
 v0 corpus: 4,222 pages across 50 core Turkish statutes (Anayasa, TBK, TCK, İş Kanunu,
 KVKK, TTK, TMK, tax and finance law, and more) plus 6 historical Official Gazette scans
@@ -36,17 +40,23 @@ flowchart TD
     D --> R["Renderer (render.py)<br/>PDF -> WebP page image<br/>+ meta.parquet (page ids)"]
     R --> E["Encoder: ColSmol-500M (vision-language model)<br/>each page -> ~1000 tokens x 128-dim vectors"]
     E --> P["f16 master (float_store.py)<br/>-> int8 (476MB, shipped) or 1-bit (58MB, ablation)<br/>quantize.py / store.py"]
+    D --> T["Text extractor (corpus/text.py)<br/>PDF text layer -> page_texts.parquet<br/>(index build-text; 4,221/4,222 pages have text)"]
   end
 
   P -->|"belge-gozu index push"| HUB[("HF Datasets - free storage<br/>barandincoguz/belge-gozu-index")]
+  T --> TXT
 
   subgraph ON["2 - ONLINE SERVICE (Docker, CPU)"]
     IDX["In-memory index<br/>int8 (shipped), mmap"]
+    TXT["BM25 text index<br/>page_texts.parquet (PDF text layer)<br/>Turkish F5 + stoplist, built at startup"]
     U["User<br/>single-page web UI"] -->|"question"| API["FastAPI (app/main.py)"]
     API --> QE["Query encoder<br/>same VLM, on CPU"]
-    QE --> S2["Exhaustive MaxSim (late interaction)<br/>per-token max-similarity over the int8 index<br/>whole corpus -> top-5 pages (~0.24s/query, 4,222 pages)"]
+    QE --> S2["Exhaustive MaxSim (late interaction)<br/>whole corpus, ~0.24s/query — telemetry only,<br/>does NOT decide the ranking (P1)"]
     IDX --> S2
-    S2 --> G{"score >= threshold?"}
+    API --> BM["BM25 + document-name routing<br/>ranks the corpus -> top-5 pages (~2-8 ms)"]
+    TXT --> BM
+    S2 --> G
+    BM --> G{"score >= threshold?"}
     G -->|"no"| AB["Says 'not found'<br/>hallucination brake"]
     G -->|"yes"| ANS["Answerer (pluggable)<br/>Gemini Flash: top-5 page IMAGES + question<br/>-> Turkish answer with page citations"]
     ANS --> API
@@ -58,7 +68,34 @@ flowchart TD
   HUB -->|"pull + mmap at startup"| IDX
 ```
 
-Retrieval is exhaustive: every query is scored against the whole corpus with
+**Retrieval is hybrid (P1 default).** Ranking is decided by a **BM25 text channel** over
+the PDF text layer, with Turkish-specific handling measured one step at a time: `İ/I`-aware
+lowercasing, a fixed Turkish function-word stoplist applied before stemming, F5 prefix
+truncation (first 5 characters — Turkish is agglutinative), and a **document-name routing**
+pass that re-orders *only inside* the BM25 top-20 window when every non-generic token of a
+statute's own title (derived from its page-1 heading, so no hand-written name table and no
+benchmark leakage) appears in the query. The visual MaxSim channel still runs on every
+query but no longer decides the ranking — it is kept for telemetry and as the input to P2
+calibration (both channels' top-1 scores are logged side by side in
+`detail.retrieval`). Measured on the same 43 answerable canary questions
+(`research/journal.md`, [findings](docs/research/findings/2026-08-29-autoresearch-text-channel.md)):
+
+| pipeline | Recall@5 | Recall@20 | MRR | demo chip 1 gold rank | demo chip 2 gold rank |
+|---|---|---|---|---|---|
+| visual only (P0, exhaustive int8) | 0.233 | 0.302 | 0.149 | 664 / 4222 | 137 / 4222 |
+| **hybrid (P1, shipped)** | **0.814** | **0.907** | **0.652** | **2** | **2** |
+
+Two negative results are part of that recipe and are worth as much as the positive one:
+**equal-weight RRF fusion of the two channels made things worse** (0.674 → 0.395 — the weak
+channel's cover-page noise sank the strong channel's wins), and after F5 truncation the
+visual channel contributed **zero unique top-5 questions**. Latency-wise BM25 is
+negligible — ~2-8 ms/query on 4,222 pages, against ~0.24 s for the visual channel it runs
+alongside — and building the BM25 index at startup takes ~0.4 s (one-off, after the
+`page_texts.parquet` artifact is built by `belge-gozu index build-text`).
+The visual-only path remains available as an ablation (`BG_RETRIEVAL_PIPELINE=exhaustive`)
+— **but the threshold does not come with it**, see below.
+
+The visual channel itself is exhaustive: every query is scored against the whole corpus with
 late-interaction MaxSim — no elimination pass — which takes ~0.24 s/query over the
 current 4,222-page int8 index (CPU, idle machine). An earlier two-stage design first narrowed the corpus to ~200 candidates with
 a cheap mean-sign Hamming filter before re-ranking with MaxSim; that filter turned out
@@ -79,15 +116,7 @@ int8 vs. 918 MB for float16). **int8 is now what ships**: serving was the only m
 piece (the retriever previously accepted the packed 1-bit index only), and it is now
 representation-agnostic, so the measured winner is also the served one. 1-bit remains
 available as the ablation / disk-budget option (`data/index-traincompat-1bit`, 58 MB)
-via `BG_INDEX_DIR` — **but the threshold does not come with it.** `BG_MIN_SCORE_THRESHOLD`
-was transferred on the *int8* score distribution; the shared [-1, 1] scale makes the
-representations comparable, not distributionally identical. On the same canary set the
-1-bit top-1 scores run min 0.4676 / median 0.4953 / max 0.6133, so the shipped 0.58 clears
-only **1 of 43** answerable questions there (the equivalent 42/43 operating point is
-≈0.47). Switching representation — via `BG_INDEX_DIR` or the two-stage ablation, whose
-scores land in the same 1-bit band — therefore requires re-deriving the threshold, or the
-service will abstain on nearly everything. The server logs a warning at startup when the
-loaded index is not int8. Full tables:
+via `BG_INDEX_DIR`. Full tables:
 [`docs/research/findings/2026-08-27-p0-baseline.md`](docs/research/findings/2026-08-27-p0-baseline.md)
 and
 [`docs/research/findings/2026-08-27-p0-gate.md`](docs/research/findings/2026-08-27-p0-gate.md).
@@ -106,18 +135,27 @@ and because the verifying model is the same family that drafted the questions,
 correlated blind spots are possible. Full provenance, limitations and the list of
 defects found: [`data/bench/canary_v1.README.md`](data/bench/canary_v1.README.md).
 
-The resulting score is itself
-an **uncalibrated similarity** — the per-query-token average MaxSim, normalized to
-roughly [-1, 1] so that every representation (int8, float16, 1-bit) reports on one
-scale — not a confidence or probability. If it doesn't clear a threshold, the
-service returns "I couldn't find grounds for this in the corpus" *before* ever calling
+The score that reaches the abstain gate is itself an **uncalibrated similarity** — under the
+hybrid default it is a raw **BM25 score** (unbounded; answerable canary top-1s run min 10.53 /
+median 26.05 / max 69.30), not a confidence or probability. If it doesn't clear a threshold,
+the service returns "I couldn't find grounds for this in the corpus" *before* ever calling
 the LLM — the abstain path costs nothing and can't hallucinate. The threshold
-(`BG_MIN_SCORE_THRESHOLD=0.58`) is a **mechanical transfer** of the old binary-scale
-60.0 onto that normalized scale — it reproduces the same operating point *by count*
-(the same number of questions on each side), though not question-for-question: two rows
-swap sides (`c306` now clears it, `c211` no longer does), because int8 and 1-bit do not
-score or rank identically. It is therefore still uncalibrated and still non-separating (see
+(`BG_MIN_SCORE_THRESHOLD=10.6`) is a **mechanical transfer** of the previous int8 `0.58`
+(itself a transfer of the older binary-scale `60.0`) onto the BM25 scale: it reproduces the
+same operating point *by count* — 42 of 43 answerable and 4 of 5 unanswerable canary
+questions clear it, exactly as before — which makes it a unit change, not a recalibration.
+The band of thresholds giving that operating point is `(10.528, 10.712]`; 10.6 is picked
+from inside it. It is therefore still uncalibrated and still non-separating (see
 [v0 limitations](#v0-limitations)); real calibration is P2 work.
+
+**The threshold's scale is tied to the pipeline, not to the index representation.** Switching
+to `BG_RETRIEVAL_PIPELINE=exhaustive` (or the two-stage ablation) puts scores back on the
+normalized [-1, 1] MaxSim band, where 10.6 can never be cleared and the service would abstain
+on everything; the P0 value for that band was `0.58`, and even there it was int8-specific
+(on the 1-bit index the same questions score 0.4676-0.6133, so 0.58 clears only 1 of 43).
+The server **fails fast** at startup on an out-of-band threshold in either direction, and logs
+a warning when the active pipeline's scale differs from the one the threshold was transferred
+on.
 
 ## Example queries
 
@@ -135,7 +173,7 @@ Runs against the local server, v0 pipeline, before the P0 changes:
 |---|---|
 | *"Kişisel Verilerin Korunması Kanunu'na göre açık rızanın geçerlilik şartları nelerdir?"* (KVKK: conditions for valid explicit consent) | **Substantive, correctly cited.** Retrieval put the actual KVKK pages at rank 1-2; the answer states the three real statutory conditions (specific to a matter, based on being informed, freely given) with citations. |
 | *"Katma Değer Vergisi Kanunu'na göre KDV oranını belirlemeye kim yetkilidir?"* (who sets the VAT rate) | **Abstained** — the top score fell under the 60.0 threshold. Read at the time as the hallucination brake working; the P0 measurements show the threshold does not actually separate answerable from unanswerable questions, so this outcome cannot be credited to a working brake. |
-| *"Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"* (definition of legal domicile) | **Abstained**, same mechanism — and this is the query P0 used as its root-cause probe: the correct page (`k4721:4`) was ranked 3127/4222 by the old Stage-1. It is now at rank 1221 under the current pipeline; still not in the top-5, which is P1's target. |
+| *"Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"* (definition of legal domicile) | **Abstained**, same mechanism — and this is the query P0 used as its root-cause probe: the correct page (`k4721:4`) was ranked 3127/4222 by the old Stage-1, then 1221 (1-bit) and 664 (int8) under exhaustive MaxSim. Under the shipped hybrid pipeline it ranks **2**. |
 
 Those were honestly representative of v0, not the best 3 out of hundreds: across 17 varied
 legal questions tried in that session (see [v0 limitations](#v0-limitations)), 1 produced
@@ -156,8 +194,18 @@ uv run belge-gozu --help
 # serves data/index-traincompat-int8 by default (int8, 476 MB — see BG_INDEX_DIR)
 BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index BG_DEVICE=cpu \
   uv run belge-gozu serve --pull
+
+# the hybrid (default) pipeline also needs the BM25 text-channel artifact,
+# extracted from the corpus PDFs into <BG_INDEX_DIR>/page_texts.parquet.
+# No model, no GPU, ~9 s for 4,222 pages -> 5.5 MB:
+uv run belge-gozu corpus download    # only if you don't have data/pdf/ yet
+uv run belge-gozu index build-text
 # -> http://localhost:7860
 ```
+
+Serving refuses to start with `BG_RETRIEVAL_PIPELINE=hybrid` (the default) if that file is
+missing or is not row-for-row aligned with the index's `page_ids.json` — a silent fallback to
+visual-only retrieval would quietly give up the measured recipe.
 
 To reproduce the corpus from scratch instead of pulling the published index:
 
@@ -168,6 +216,7 @@ uv run belge-gozu index build --precision f16 --out data/index-traincompat-f16
                                    # ColSmol-500M embeddings -> f16 master (918 MB)
 uv run belge-gozu index derive --from data/index-traincompat-f16 \
   --quant int8 --out data/index-traincompat-int8      # what serving loads (476 MB)
+uv run belge-gozu index build-text  # BM25 text channel -> <index>/page_texts.parquet
 uv run belge-gozu index push        # optional: publish index/ + images/ to your own HF dataset repo
 uv run belge-gozu serve
 ```
@@ -185,9 +234,12 @@ and token counters, in-flight gauge, `bg_app_info`). `make obs-up` starts a loca
 Prometheus + Grafana (`http://localhost:3001`, anonymous access, dashboard `belge-gozu`
 pre-provisioned) reading that endpoint; `make obs-down` tears it down.
 The event table's `stage1_ms`/`stage2_ms` columns are a leftover of the removed
-two-stage pipeline and stay `NULL` under the default (`exhaustive`) one — the
-exhaustive stage's latency is recorded in the event's `detail.stages` map (as
-`exhaustive_maxsim`) and exported to Prometheus in `bg_stage_duration_seconds`.
+two-stage pipeline and stay `NULL` under the default (`hybrid`) one — the hybrid stages'
+latencies are recorded in the event's `detail.stages` map (`exhaustive_maxsim`,
+`text_bm25`, `route_fuse`) and exported to Prometheus in `bg_stage_duration_seconds`.
+Because the hybrid pipeline scores on the BM25 scale, its top-score/margin samples go to
+separate `bg_retrieval_top_score_bm25` / `bg_retrieval_score_margin_bm25` histograms rather
+than mixing into the normalized `[-1, 1]` series (see `docs/research/metrics-catalog.md`).
 `uv run belge-gozu metrics summary` prints a quick p95/abstain/cost readout from the
 SQLite log; `uv run belge-gozu metrics export --out <path>.parquet` dumps the raw event
 table for offline analysis. See `docs/research/` for a real baseline measurement session
@@ -198,31 +250,28 @@ found while running it).
 
 This is a working end-to-end system, not a finished product — v0's known gaps, honestly:
 
-- **Retrieval precision on natural-language queries is the weak link, not answer
-  honesty.** In this session's own live testing, correct-law pages sometimes ranked
-  just outside the top-5 window (or well outside it) even though the relevant statute
-  is in the corpus; the answerer and the score-threshold abstain both behaved correctly
-  every time (no fabricated citations observed), but a narrow top-5 with no reranking
-  means real answers get missed. Query rewriting and a VLM reranking pass are planned
-  next, along with a proper retrieval benchmark (v0 has none — the numbers above are a
-  qualitative session log, not a scored eval).
-- **The score threshold (`BG_MIN_SCORE_THRESHOLD=0.58`) is a rough calibration** from a
-  handful of observed scores, not a tuned operating point — and after the T11 query/
-  document format change it no longer separates answerable from unanswerable questions
-  at all. The 0.58 is a *mechanical* transfer of the old binary-scale 60.0 onto the
-  normalized score scale, reproducing the same operating point (42/43 answerable and
-  4/5 unanswerable questions clear it, exactly as before) — a unit change, not a
-  recalibration. Measured on the canary set (2026-08-29, production int8 index; 3/48 rows
-  human-verified, 45 model-cross-checked — see the provenance caveat above):
-  answerable top-1 scores run min 0.5767 / median 0.6250 / max 0.7450, unanswerable ones
-  min 0.5679 / median 0.6550 / max 0.6866 — overlapping distributions, so no single
-  cut-off splits them, and all three out-of-corpus questions currently clear 0.58.
-  The 0.58 is also **specific to the int8 index**: on 1-bit the same questions score
-  0.4676-0.6133, where 0.58 would abstain on 42 of 43 answerable questions.
-  Raising the threshold would just abstain on real questions instead. Proper
-  calibration (and probably score normalization) is P2 work; the current state is
-  pinned by an `xfail(strict=True)` canary test so it can neither rot further nor be
-  quietly declared fixed.
+- **Retrieval precision on natural-language queries was the weak link — P1 fixed most of
+  it, and the remaining misses are known.** The hybrid text channel took canary Recall@5
+  from 0.233 to 0.814, but 8 of 43 questions still miss the top-5: article-number queries
+  ("madde 7", `c214` — no article-number channel yet), abbreviation queries (`c206`, "KVKK"
+  is never spelled out in the title, so document-name routing can't fire), a partial-title
+  case (`c209`, Anayasa), and one question the visual channel used to win alone (`c202`)
+  that the text-only recipe loses — a deliberate, measured cost of not fusing the channels.
+  No query rewriting and no reranking pass yet.
+- **The score threshold (`BG_MIN_SCORE_THRESHOLD=10.6`) is a mechanical scale transfer,
+  not a calibration** — and it still does not separate answerable from unanswerable
+  questions. It reproduces the previous operating point by count (42/43 answerable and
+  4/5 unanswerable questions clear it, exactly as under 0.58 and 60.0 before it) — a unit
+  change on a new score scale, not a recalibration. Measured on the canary set (2026-08-29,
+  production int8 index + hybrid pipeline; 3/48 rows human-verified, 45 model-cross-checked
+  — see the provenance caveat above): answerable BM25 top-1 scores run min 10.53 /
+  median 26.05 / max 69.30, while the out-of-corpus ones land at 23.53 / 12.96 / 17.86 and
+  a nonsense-question control at 15.54 — three real out-of-corpus questions sit *above* the
+  threshold, i.e. the distributions overlap and no single cut-off splits them. (Only the
+  fully-gibberish control, 4.23, falls below.) Raising the threshold would just abstain on
+  real questions instead: the answerable band starts at 10.53. Proper calibration is P2
+  work; the current state is pinned by an `xfail(strict=True)` canary test so it can
+  neither rot further nor be quietly declared fixed.
 - **P0 root-cause investigation found the old two-stage Stage-1 filter was discarding
   good candidates, not just approximating the ranking.** For the query *"Türk Medeni
   Kanunu'na göre yerleşim yeri nasıl tanımlanır?"*, the correct page (`k4721:4`) ranked
@@ -244,9 +293,8 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
   Recall at every k and an identical top-20 list for 42 of the 43 questions versus the
   old, padded index. Independently, the encoder's retrieval training data is
   English-only, which is the likely reason Turkish paraphrase queries score weaker
-  than queries that name the statute explicitly. A hybrid text+visual retrieval path
-  is the planned fix (P1); a full retrieval benchmark is in progress to quantify where
-  things stand today.
+  than queries that name the statute explicitly. That diagnosis is what P1 acted on:
+  the text channel now ranks, and the same query's gold page moved from 664 to **2**.
 - **Single retrieval mode, single answerer.** No query rewriting, no agentic
   multi-step retrieval, no local-VLM fallback — Gemini Flash is the only answerer
   implemented, behind a pluggable `Answerer` protocol.
@@ -267,7 +315,8 @@ Source URLs for every document are recorded in `data/manifest/v0_manifest.csv` a
 
 ## Tech stack
 
-Python 3.12 · FastAPI + uvicorn · PyMuPDF (PDF -> image rendering, no OCR) ·
+Python 3.12 · FastAPI + uvicorn · PyMuPDF (PDF -> image rendering + text-layer extraction
+for the BM25 channel; no OCR) ·
 colpali-engine / ColSmol-500M (visual late-interaction retrieval) · PyTorch (MPS/CUDA/CPU) ·
 NumPy (int8 index, memory-mapped) · Gemini API via `google-genai` (pluggable
 answerer) · Hugging Face Hub (dataset storage + Space hosting) · pandas/pyarrow ·
