@@ -3,10 +3,10 @@
 Sözleşme (research/program.md): rank_pages(q) -> sıralı page_id listesi.
 q: query_text, page_ids, visual_scores (float32[n]), page_texts.
 
-EXP-3 (bm25-f5): exp1 + F5 ön-ek kırpması — her token ilk 5 karaktere kırpılır.
-Türkçe eklemeli dilde 5-karakter ön-ek eşleşmesi, tam kök çıkarmaya yakın
-performans verir (Can vd., Turkish IR literatürü); ayarlanmış değil, sabit seçim.
-Tek değişken: tokenizasyon (BM25 parametreleri ve kanal aynı).
+EXP-5 (bm25-f5-stop): exp3 + sabit Türkçe işlev-kelimesi listesi (iki tarafta:
+indeks + sorgu). Liste standart dilbilgisi işlev kelimeleri — canary'ye
+AYARLANMADI; içerikle çakışabilenler ("zaman" → zamanaşımı, "iş") bilinçli
+dışarıda. Tek değişken: tokenizasyon filtresi.
 """
 
 from __future__ import annotations
@@ -20,13 +20,21 @@ import numpy as np
 _WORD = re.compile(r"\w+", re.UNICODE)
 F5 = 5  # Türkçe ön-ek kırpma uzunluğu
 
+# Standart Türkçe işlev kelimeleri (tam-kelime, kırpmadan ÖNCE uygulanır).
+STOPWORDS = frozenset(
+    "ve veya ile için gibi göre kadar sonra önce bir bu şu o ne nasıl neden "
+    "niçin hangi kaç kim mi mı mu mü midir mıdır mudur müdür da de ki en çok "
+    "az her ise olan olarak üzere ancak ama fakat yoksa değil nedir sayılı".split()
+)
+
 
 def tr_lower(s: str) -> str:
     return s.replace("İ", "i").replace("I", "ı").lower()
 
 
 def tokenize(s: str) -> list[str]:
-    return [t[:F5] for t in _WORD.findall(tr_lower(s)) if len(t) > 1]
+    words = [t for t in _WORD.findall(tr_lower(s)) if len(t) > 1 and t not in STOPWORDS]
+    return [t[:F5] for t in words]
 
 
 class BM25:

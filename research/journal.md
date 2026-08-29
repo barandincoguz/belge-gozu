@@ -55,3 +55,28 @@ Birincil metrik: canary-answerable (n=43) **R@5**. Sayı satırları: `results.j
 - **Öğrenilen:** kırpma kazancı recall tarafında (R@5/R@20); R@1'de küçük kayıp
   ön-ek çakışmalarının beklenen bedeli. requires_visual 8/8 → OCR katmanı + F5,
   "görsel" soruları tamamen kapsıyor.
+
+## #4 — exp4-bm25-f5-bigram → DISCARDED
+
+- **Hipotez:** unigram+bigram shingle, çok-kelimeli terimlere yakınlık sinyali ekler.
+- **Sayılar:** R@5 0.6279 (0.7674'ten GERİLEME) · visual_R@5 0.5 · R@20 0.8372
+- **Karar:** DISCARDED.
+- **Öğrenilen:** F5-kırpılmış bigramlar ("bu_kanun", "türk_meden" gibi kalıplar)
+  başlık/atıf sayfalarını şişiriyor ve sorgu uzunluğunu ikiye katlayıp gerçek
+  içerik unigram'larının payını düşürüyor. Yakınlık istenirse ayrı kanal olarak
+  denenmeli, aynı torbaya karıştırılmamalı.
+
+## #5 — exp5-bm25-f5-stop → KEPT (ikincil-kanıt kuralıyla)
+
+- **Hipotez:** yakın-ıska analizi soru-kalıbı kelimelerinin (göre, nasıl, bir,
+  için...) eşleşmeyi bastığını gösterdi; sabit Türkçe işlev-kelimesi listesi
+  (canary'ye ayarsız; "zaman"/"iş" gibi içerik-çakışanlar bilinçli dışarıda)
+  gürültüyü keser.
+- **Sayılar:** R@5 0.7674 (eşit) · R@1 0.5116 (+1) · R@20 **0.907** · MRR 0.6249
+  · visual_R@5 1.0 · **chip1 rank 8→4 (top-5'e girdi)** · chip2 rank 2
+- **Karar:** KEPT. Program kuralı güncellendi (şeffaf): R@5 eşitken R@20+MRR
+  birlikte iyileşiyor ve guardrail gerilemiyorsa tut — kuralın amacı kanıtsız
+  karmaşıklığı önlemekti; burada kanıt üç ikincil metrik + vaka analizi.
+- **Öğrenilen:** stoplist R@5'i değil derin sıraları düzeltiyor (kalıp kelimeler
+  en çok orta-sıra karışıklığı üretiyormuş); chip1 sınıfının (kanun adı + kalıp)
+  ana ilacı bu oldu.

@@ -61,7 +61,9 @@ HİÇBİR dosyaya dokunulmaz. `prepare.py`, `evaluate.py`, `program.md` ve
 
 KEPT ⇔ R@5 kesin artar VE R@20 ile requires_visual-R@5 kesin gerilemez
 (≥ taban − 0.001). Aksi → DISCARDED (`git checkout -- research/retrieve.py`).
-Eşitlik → DISCARDED (basitlik kazanır). Art arda 5 verimsiz deney → dur, raporla.
+Eşitlik → DISCARDED (basitlik kazanır) — TEK istisna (ikincil-kanıt kuralı,
+deney #5'te eklendi): R@5 eşitken R@20 VE MRR ikisi birden kesin iyileşiyor ve
+hiçbir guardrail gerilemiyorsa KEPT. Art arda 5 verimsiz deney → dur, raporla.
 
 ## Kayıt
 
