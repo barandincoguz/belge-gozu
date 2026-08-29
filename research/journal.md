@@ -130,3 +130,30 @@ Atılanlar: eşit-RRF (0.395 — zayıf kanal gürültüsü), bigram (0.628), mu
 - **Karar:** KEPT — guardrail gerilemedi, aksine yönlendirme bir gold'u top-20'ye çekti.
 - **Öğrenilen:** pencere büyümesi bu korpusta güvenli çıktı; üretim portu (WINDOW=20)
   için güncelleme adayı — rapor devrine not.
+
+## #9 — exp9-distinctive-token → DISCARDED
+
+- **Hipotez:** korpus çapında tek dokümana özgü ad token'ı tek başına yönlendirsin (c209 "Anayasa").
+- **Sayılar:** R@5 0.8372 (eşit) · R@1 0.5116→0.4651 (−2) · MRR 0.655→0.6219
+- **Karar:** DISCARDED (ikincil-kanıt kuralı sağlanmadı; tersine gerileme).
+- **Öğrenilen:** tek-token tetikleme fazla ateşliyor; üstelik hedef c209 zaten
+  kanun adı İÇERMEYEN bir paraphrase — hipotez veri okunmadan kurulmuştu (ders).
+
+## #10 — exp10-window-rrf → DISCARDED
+
+- **Hipotez:** görsel kanala yalnız top-50 penceresi İÇİNDE RRF ile söz hakkı (c202 vis rank 5).
+- **Sayılar:** R@5 **0.5349** (büyük gerileme) · MRR 0.3852 · visual_R@5 0.75
+- **Karar:** DISCARDED.
+- **Öğrenilen:** ÜÇÜNCÜ füzyon biçimi de ölçümle reddedildi (küresel eşit-RRF 0.395,
+  mutlak bölümleme guardrail vetosu, pencere-RRF 0.535). Görsel kanalın başlık-sayfası
+  çekimi her granülaritede metin gold'larını eziyor. Bu korpustaki net sonuç:
+  sözcüksel-birincil + kural yönlendirme, hayatta kalan TEK birleşim.
+
+## ROUND 2 SONU — durma: kalan ıskalar kural-dışı (anlamsal)
+
+Final: **exp8, R@5 0.8372 (36/43) · R@20 0.9302 · MRR 0.655 · chip'ler 2/2.**
+Kalan 7 ıskanın TAMAMI kanun adı/kısaltma içermeyen saf anlamsal paraphrase
+(dilim kırılımı: paraphrase 2/7 — sözcüksel tavan). Sonraki sıçrama dense metin
+kanalı ister (P1 backlog T7; model seçimi bu döngünün bütçe kuralları dışında).
+Sağlamlık: k1/b ve F5 platoları geniş (robustness.json); bootstrap ΔR@5 %95 GA
+[0.42, 0.74] (taban→exp7); k1=1.8'in +1'i bilinçli ALINMADI (canary'ye ayar olur).
