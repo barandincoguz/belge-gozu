@@ -217,6 +217,17 @@ P0 tamamlandı; kapı raporu `docs/research/findings/2026-08-27-p0-gate.md` (KO�
 | D5 | Benchmark insan doğrulaması (canary 48 satır hâlâ `draft`) | Bütün kapı sayıları bu nedenle geçicidir; mekanizma kapıları (G0.1/G0.4/G0.5/G0.6) etkilenmez, recall tabanlı olanlar yeniden hesaplanmalı. | — |
 | D6 | colpali-engine ↔ Sentence Transformers arası ~%0.8 sign farkı | CPU/fp32'de de sürüyor (dtype değil implementasyon kaynaklı); mean cosine ≥ 0.9995. Binary indeksin referans-sadakati açık soru. | — |
 
+**Güncelleme (2026-08-29, commit `b790f6c`):** D1 ve D4 KAPANDI — üretim int8'e geçti
+(`load_scorable_index` manifest dispatch'i, tek normalize skor ölçeği ≈[−1,1], generic
+`ExhaustiveRetriever`; `FloatIndex` → `index/float_store.py`). D2 güncellendi: eşik 0.58'e
+MEKANİK ölçek taşımasıyla geçirildi (kalibrasyon değil; binary@60 çalışma noktası birebir),
+int8'de de ayırmıyor (answerable medyan 0.6250 / unanswerable 0.6550 — örtüşme temsilden
+bağımsız), xfail kilidi int8 sayılarıyla duruyor. D3 güncellendi: uzun sorgu int8'de 1221→**664**
+(cırcır `canary_expectations.json` quantization anahtarıyla 664'e çekildi); top-5 için hibrit
+kanal gereksinimi değişmedi. D5 güncellendi: 48/48 satır doğrulandı (3 insan + 45
+model-cross-check — insan-doğrulanmış SAYILMAZ, künye `canary_v1.README.md`). Eşlik eden
+bağlaşım denetimi: `docs/research/findings/2026-08-29-config-coupling-audit.md`.
+
 **P1 giriş koşulu güncellemesi:** P1'in F1 kanal ablasyonu, görsel kanalı **int8 üzerinde**
 ölçmelidir (1-bit değil) — aksi halde görsel kanal kendi tavanının 7 puan altında
 raporlanır ve hibrit füzyon kararı çarpıtılır.

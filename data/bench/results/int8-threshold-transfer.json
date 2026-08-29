@@ -1,0 +1,487 @@
+{
+ "künye": {
+  "tarih": "2026-08-29",
+  "indeks": "data/index-traincompat-int8",
+  "manifest_quant": "int8",
+  "cihaz": "mps",
+  "amaç": "eşik ölçek taşıması (binary 60.0 -> normalize int8); KALİBRASYON DEĞİL"
+ },
+ "answerable_top1": [
+  0.5767,
+  0.586,
+  0.5893,
+  0.5956,
+  0.5962,
+  0.5965,
+  0.5979,
+  0.5995,
+  0.6009,
+  0.6014,
+  0.6017,
+  0.6071,
+  0.6074,
+  0.6107,
+  0.6119,
+  0.6144,
+  0.6154,
+  0.6189,
+  0.6226,
+  0.6234,
+  0.6248,
+  0.625,
+  0.6256,
+  0.6281,
+  0.6284,
+  0.6287,
+  0.6297,
+  0.642,
+  0.6481,
+  0.6489,
+  0.6493,
+  0.6533,
+  0.6539,
+  0.6554,
+  0.6558,
+  0.6603,
+  0.6636,
+  0.6653,
+  0.6682,
+  0.6845,
+  0.7036,
+  0.7099,
+  0.745
+ ],
+ "unanswerable_top1": [
+  0.5679,
+  0.6516,
+  0.655,
+  0.6678,
+  0.6866
+ ],
+ "rows": [
+  {
+   "qid": "c001",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.6682,
+   "gold_ranks": {
+    "k4721:4": 664
+   }
+  },
+  {
+   "qid": "c002",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.745,
+   "gold_ranks": {
+    "k4721:4": 4
+   }
+  },
+  {
+   "qid": "c003",
+   "answerable": false,
+   "slice": "korpus-disi",
+   "top1": 0.655,
+   "gold_ranks": {}
+  },
+  {
+   "qid": "c004",
+   "answerable": false,
+   "slice": "korpus-disi",
+   "top1": 0.6866,
+   "gold_ranks": {}
+  },
+  {
+   "qid": "c005",
+   "answerable": false,
+   "slice": "korpus-disi",
+   "top1": 0.6516,
+   "gold_ranks": {}
+  },
+  {
+   "qid": "c006",
+   "answerable": false,
+   "slice": "anlamsiz-ood",
+   "top1": 0.6678,
+   "gold_ranks": {}
+  },
+  {
+   "qid": "c007",
+   "answerable": false,
+   "slice": "anlamsiz-ood",
+   "top1": 0.5679,
+   "gold_ranks": {}
+  },
+  {
+   "qid": "c101",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.7099,
+   "gold_ranks": {
+    "k4721:3": 386
+   }
+  },
+  {
+   "qid": "c102",
+   "answerable": true,
+   "slice": "ayni-kanun-hard-negative",
+   "top1": 0.6281,
+   "gold_ranks": {
+    "k4721:4": 123
+   }
+  },
+  {
+   "qid": "c103",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.6845,
+   "gold_ranks": {
+    "k4721:5": 1
+   }
+  },
+  {
+   "qid": "c104",
+   "answerable": true,
+   "slice": "paraphrase",
+   "top1": 0.6493,
+   "gold_ranks": {
+    "k4721:6": 707
+   }
+  },
+  {
+   "qid": "c105",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.6248,
+   "gold_ranks": {
+    "k6098:2": 1
+   }
+  },
+  {
+   "qid": "c106",
+   "answerable": true,
+   "slice": "ayni-kanun-hard-negative",
+   "top1": 0.6234,
+   "gold_ranks": {
+    "k6098:4": 2
+   }
+  },
+  {
+   "qid": "c107",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.6481,
+   "gold_ranks": {
+    "k6098:4": 122
+   }
+  },
+  {
+   "qid": "c108",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.6287,
+   "gold_ranks": {
+    "k6098:5": 807
+   }
+  },
+  {
+   "qid": "c109",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.6636,
+   "gold_ranks": {
+    "k5237:6": 66
+   }
+  },
+  {
+   "qid": "c110",
+   "answerable": true,
+   "slice": "paraphrase",
+   "top1": 0.6189,
+   "gold_ranks": {
+    "k5237:8": 276
+   }
+  },
+  {
+   "qid": "c111",
+   "answerable": true,
+   "slice": "paraphrase",
+   "top1": 0.6489,
+   "gold_ranks": {
+    "k5237:7": 713
+   }
+  },
+  {
+   "qid": "c112",
+   "answerable": true,
+   "slice": "ayni-kanun-hard-negative",
+   "top1": 0.6653,
+   "gold_ranks": {
+    "k5237:7": 269
+   }
+  },
+  {
+   "qid": "c201",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.6539,
+   "gold_ranks": {
+    "k6698:2": 4
+   }
+  },
+  {
+   "qid": "c202",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.625,
+   "gold_ranks": {
+    "k213:5": 5
+   }
+  },
+  {
+   "qid": "c203",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.586,
+   "gold_ranks": {
+    "k4857:3": 92
+   }
+  },
+  {
+   "qid": "c204",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.6009,
+   "gold_ranks": {
+    "k4857:4": 16
+   }
+  },
+  {
+   "qid": "c205",
+   "answerable": true,
+   "slice": "dogrudan-madde",
+   "top1": 0.7036,
+   "gold_ranks": {
+    "k2709:6": 1
+   }
+  },
+  {
+   "qid": "c206",
+   "answerable": true,
+   "slice": "paraphrase",
+   "top1": 0.6119,
+   "gold_ranks": {
+    "k6698:3": 1487
+   }
+  },
+  {
+   "qid": "c207",
+   "answerable": true,
+   "slice": "paraphrase",
+   "top1": 0.6014,
+   "gold_ranks": {
+    "k213:6": 2549
+   }
+  },
+  {
+   "qid": "c208",
+   "answerable": true,
+   "slice": "paraphrase",
+   "top1": 0.5962,
+   "gold_ranks": {
+    "k4857:5": 116
+   }
+  },
+  {
+   "qid": "c209",
+   "answerable": true,
+   "slice": "paraphrase",
+   "top1": 0.6533,
+   "gold_ranks": {
+    "k2709:6": 155
+   }
+  },
+  {
+   "qid": "c210",
+   "answerable": true,
+   "slice": "madde-numarali",
+   "top1": 0.5956,
+   "gold_ranks": {
+    "k6698:2": 1191
+   }
+  },
+  {
+   "qid": "c211",
+   "answerable": true,
+   "slice": "madde-numarali",
+   "top1": 0.5767,
+   "gold_ranks": {
+    "k6698:3": 290
+   }
+  },
+  {
+   "qid": "c212",
+   "answerable": true,
+   "slice": "madde-numarali",
+   "top1": 0.6071,
+   "gold_ranks": {
+    "k213:7": 307
+   }
+  },
+  {
+   "qid": "c213",
+   "answerable": true,
+   "slice": "madde-numarali",
+   "top1": 0.6017,
+   "gold_ranks": {
+    "k213:8": 183,
+    "k213:9": 211
+   }
+  },
+  {
+   "qid": "c214",
+   "answerable": true,
+   "slice": "madde-numarali",
+   "top1": 0.6144,
+   "gold_ranks": {
+    "k4857:5": 852
+   }
+  },
+  {
+   "qid": "c215",
+   "answerable": true,
+   "slice": "madde-numarali",
+   "top1": 0.5995,
+   "gold_ranks": {
+    "k2709:8": 658
+   }
+  },
+  {
+   "qid": "c301",
+   "answerable": true,
+   "slice": "tablo-layout",
+   "top1": 0.5979,
+   "gold_ranks": {
+    "k492:67": 2
+   }
+  },
+  {
+   "qid": "c302",
+   "answerable": true,
+   "slice": "tablo-layout",
+   "top1": 0.6284,
+   "gold_ranks": {
+    "k492:69": 1412
+   }
+  },
+  {
+   "qid": "c303",
+   "answerable": true,
+   "slice": "tablo-layout",
+   "top1": 0.6107,
+   "gold_ranks": {
+    "k193:154": 2838
+   }
+  },
+  {
+   "qid": "c304",
+   "answerable": true,
+   "slice": "tablo-layout",
+   "top1": 0.5893,
+   "gold_ranks": {
+    "k193:155": 4130
+   }
+  },
+  {
+   "qid": "c305",
+   "answerable": true,
+   "slice": "tarihi-tarama",
+   "top1": 0.6074,
+   "gold_ranks": {
+    "rg1965a:1": 12
+   }
+  },
+  {
+   "qid": "c306",
+   "answerable": true,
+   "slice": "tarihi-tarama",
+   "top1": 0.5965,
+   "gold_ranks": {
+    "rg1935a:1": 1
+   }
+  },
+  {
+   "qid": "c307",
+   "answerable": true,
+   "slice": "tarihi-tarama",
+   "top1": 0.6603,
+   "gold_ranks": {
+    "rg1975a:1": 3
+   }
+  },
+  {
+   "qid": "c308",
+   "answerable": true,
+   "slice": "tarihi-tarama",
+   "top1": 0.6154,
+   "gold_ranks": {
+    "rg1965a:3": 396
+   }
+  },
+  {
+   "qid": "c309",
+   "answerable": true,
+   "slice": "capraz-kanun-terim",
+   "top1": 0.642,
+   "gold_ranks": {
+    "k6098:29": 20
+   }
+  },
+  {
+   "qid": "c310",
+   "answerable": true,
+   "slice": "capraz-kanun-terim",
+   "top1": 0.6554,
+   "gold_ranks": {
+    "k6098:30": 368
+   }
+  },
+  {
+   "qid": "c311",
+   "answerable": true,
+   "slice": "capraz-kanun-terim",
+   "top1": 0.6297,
+   "gold_ranks": {
+    "k6098:29": 50
+   }
+  },
+  {
+   "qid": "c312",
+   "answerable": true,
+   "slice": "capraz-kanun-terim",
+   "top1": 0.6226,
+   "gold_ranks": {
+    "k5326:6": 26
+   }
+  },
+  {
+   "qid": "c313",
+   "answerable": true,
+   "slice": "ayni-kanun-hard-negative",
+   "top1": 0.6256,
+   "gold_ranks": {
+    "k5326:6": 267,
+    "k5326:7": 345
+   }
+  },
+  {
+   "qid": "c314",
+   "answerable": true,
+   "slice": "ayni-kanun-hard-negative",
+   "top1": 0.6558,
+   "gold_ranks": {
+    "k6098:30": 130
+   }
+  }
+ ]
+}
