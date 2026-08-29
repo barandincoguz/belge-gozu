@@ -304,7 +304,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (le) (rate(bg_retrieval_top_score_bucket[5m]))",
+          "expr": "sum by (le, quantization) (rate(bg_retrieval_top_score_bucket[5m]))",
           "refId": "A",
           "legendFormat": "{{le}}",
           "format": "heatmap"

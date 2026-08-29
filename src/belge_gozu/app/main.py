@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from belge_gozu.answer.base import Answer, AskService
-from belge_gozu.config import Settings, get_settings
+from belge_gozu.config import THRESHOLD_CALIBRATED_ON, Settings, get_settings
 from belge_gozu.index.compat import IndexCompatibilityError, check_compatibility
 from belge_gozu.index.loader import load_scorable_index
 from belge_gozu.index.manifest import (
@@ -57,11 +57,7 @@ def resolve_formats(s: Settings) -> tuple[QueryFormat, str | None]:
 
 
 def build_retriever(
-    s: Settings,
-    encoder,
-    *,
-    model_name: str,
-    model_revision: str | None,
+    s: Settings, encoder
 ) -> tuple[ExhaustiveRetriever | TwoStageRetriever, IndexManifest | None]:
     """İndeksi yükler, uyumluluğu doğrular ve yapılandırılmış getiriciyi kurar.
 
@@ -70,6 +66,12 @@ def build_retriever(
     mantığı kopyalıyordu ve bu yüzden üretim yapılandırmasından sessizce
     sapabiliyordu (nitekim doğrudan `PackedIndex.load` çağırdığı için
     varsayılan indeks int8'e döndüğünde kopya sürüm bozulurdu).
+
+    model_name/model_revision PARAMETRE DEĞİL, burada türetilir (review M5):
+    ikisi de `s` ve `encoder`'dan tek biçimde çıkar, dışarıdan geçirilmeleri
+    hem her çağrı yerinde aynı iki satırı tekrarlatıyordu hem de `s` ile
+    tutarsız bir `model_name` geçirip fonksiyonun VAR OLUŞ SEBEBİ olan
+    uyumluluk kontrolünü sessizce zayıflatmayı mümkün kılıyordu.
 
     T14: hangi kuantizasyonun diskte olduğu manifest'ten okunur (packed/
     int8/float16). Eskiden burada sabit `PackedIndex.load` vardı; ölçümde
@@ -93,8 +95,8 @@ def build_retriever(
     # ikinci bir `read_manifest` çağrısı aynı dosyayı tekrar ayrıştırırdı.
     problems = check_compatibility(
         index.manifest,
-        model_name=model_name,
-        model_revision=model_revision,
+        model_name=s.retriever_model,
+        model_revision=getattr(encoder, "model_revision", None),
         query_format_id=getattr(encoder, "query_format", resolved_query_format).format_id,
         doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", resolved_doc_prompt_sha256),
         index_dir=s.index_dir,
@@ -129,6 +131,25 @@ def create_app(
     recorder: EventRecorder | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
+
+    # Ölçek korkuluğu (T14): skorlar artık normalize [-1,1] (sorgu jetonu
+    # başına ortalama MaxSim). Eski binary ölçeğinde (0-128) kalmış bir eşik
+    # — ör. 60.0 — yeni ölçekte HİÇBİR ZAMAN aşılamaz, yani servis her
+    # soruya sessizce "dayanak bulamadım" derdi. Bu, ölçek geçişinin
+    # üreteceği en sessiz hatadır; burada fail-fast'e çevriliyor.
+    # (Testler -1e9 gibi "kapalı eşik" değerleri kullanır: negatif taraf
+    # kasten serbest.)
+    #
+    # EN BAŞTA çalışır (review M6): saf config kontrolüdür, hiçbir şeye
+    # bağımlı değildir — VLM ağırlıklarını ve 474 MB'lık indeksi yükledikten
+    # sonra patlamasının hiçbir faydası yok.
+    if s.min_score_threshold > 1.5:
+        raise IndexCompatibilityError(
+            f"min_score_threshold={s.min_score_threshold} eski binary ölçeği (0-128) "
+            "kalıntısı görünüyor; skorlar artık normalize [-1,1] — bkz. "
+            "data/bench/results/int8-threshold-transfer.json"
+        )
+
     resolved_query_format, resolved_doc_prompt = resolve_formats(s)
     if encoder is None:
         from belge_gozu.index.encode import ColSmolEncoder
@@ -144,27 +165,8 @@ def create_app(
 
         answerer = GeminiAnswerer(s.gemini_model, s.gemini_api_key)
 
-    retriever, manifest = build_retriever(
-        s,
-        encoder,
-        model_name=s.retriever_model,
-        model_revision=getattr(encoder, "model_revision", None),
-    )
+    retriever, manifest = build_retriever(s, encoder)
     index = retriever.index
-
-    # Ölçek korkuluğu (T14): skorlar artık normalize [-1,1] (sorgu jetonu
-    # başına ortalama MaxSim). Eski binary ölçeğinde (0-128) kalmış bir eşik
-    # — ör. 60.0 — yeni ölçekte HİÇBİR ZAMAN aşılamaz, yani servis her
-    # soruya sessizce "dayanak bulamadım" derdi. Bu, ölçek geçişinin
-    # üreteceği en sessiz hatadır; burada fail-fast'e çevriliyor.
-    # (Testler -1e9 gibi "kapalı eşik" değerleri kullanır: negatif taraf
-    # kasten serbest.)
-    if s.min_score_threshold > 1.5:
-        raise IndexCompatibilityError(
-            f"min_score_threshold={s.min_score_threshold} eski binary ölçeği (0-128) "
-            "kalıntısı görünüyor; skorlar artık normalize [-1,1] — bkz. "
-            "data/bench/results/int8-threshold-transfer.json"
-        )
 
     def load_image(image_path: str) -> bytes:
         return (s.data_dir / image_path).read_bytes()
@@ -180,6 +182,24 @@ def create_app(
         index_revision = None
         query_format_id = None
         quantization = None
+
+    # Eşik-taşınabilirlik uyarısı (review I1): `min_score_threshold` int8
+    # DAĞILIMI üzerinde taşındı. Ortak [-1,1] ölçeği temsilleri
+    # karşılaştırılabilir yapar ama dağılımlarını eşitlemez — aynı 0.58
+    # canary'de int8'te 42/43 cevaplanabilir soruyu geçirirken 1-bit'te 1/43.
+    # Başlatmayı ENGELLEMEZ (temsil seçimi meşru bir ablasyon; per-temsil eşik
+    # config'i P2 kalibrasyonunun işi, ruling R19), yalnız sessiz kalmaz.
+    if quantization != THRESHOLD_CALIBRATED_ON:
+        logger.warning(
+            "eşik taşınabilirlik uyarısı: min_score_threshold=%s %s dağılımı üzerinde "
+            "taşındı, yüklü indeks quantization=%s — bu temsilde çalışma noktası "
+            "DOĞRULANMAMIŞTIR (ölçüm: 0.58 int8'te 42/43, 1-bit'te 1/43 cevaplanabilir "
+            "soruyu geçirir; 1-bit'te aynı nokta ~0.47). Eşiği bu temsilde yeniden "
+            "ölçmeden üretimde kullanmayın.",
+            s.min_score_threshold,
+            THRESHOLD_CALIBRATED_ON,
+            quantization,
+        )
     service = AskService(retriever, answerer, s.min_score_threshold, load_image)
 
     rec = recorder or EventRecorder(s.data_dir / "requests.sqlite")

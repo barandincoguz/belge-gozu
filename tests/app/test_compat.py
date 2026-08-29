@@ -270,6 +270,62 @@ def test_two_stage_on_int8_index_raises_cleanly(tiny_corpus):
         create_app(settings=settings, encoder=enc, answerer=object())
 
 
+def test_non_int8_index_warns_about_threshold_portability(tiny_corpus, caplog):
+    """Eşik int8 DAĞILIMI üzerinde taşındı; başka temsilde doğrulanmamıştır.
+
+    Ortak [-1,1] ölçeği temsilleri karşılaştırılabilir yapar ama dağılımlarını
+    eşitlemez: aynı 0.58 canary'de int8'te 42/43, 1-bit'te 1/43 cevaplanabilir
+    soruyu geçirir (review I1). Başlatma ENGELLENMEZ — temsil seçimi meşru bir
+    ablasyon, per-temsil eşik config'i P2'nin işi (ruling R19) — ama sessiz de
+    kalınmaz."""
+    import logging
+
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus  # fikstür indeksi sign-1bit
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    with caplog.at_level(logging.WARNING, logger="belge_gozu.app.main"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("eşik taşınabilirlik" in w and "sign-1bit" in w for w in warnings), warnings
+
+
+def test_int8_index_does_not_warn_about_threshold_portability(tiny_corpus, caplog):
+    """Karşı taraf: üretim temsilinde (int8) uyarı ÇIKMAMALI — aksi halde
+    uyarı gürültüye dönüşür ve anlamını yitirir."""
+    import logging
+
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir, index_dir=_int8_index_dir(tiny_corpus), min_score_threshold=-1e9
+    )
+    with caplog.at_level(logging.WARNING, logger="belge_gozu.app.main"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+    assert not [r for r in caplog.records if "eşik taşınabilirlik" in r.getMessage()]
+
+
+def test_threshold_guard_runs_before_index_load(tiny_corpus):
+    """Ölçek korkuluğu SAF bir config kontrolüdür ve en başta çalışmalı
+    (review M6): var olmayan bir index_dir ile bile eşik hatası vermeli —
+    yani VLM/indeks yüklemesinden ÖNCE. Aksi halde yanlış yapılandırılmış bir
+    eşik ancak yüzlerce MB yüklendikten sonra patlar."""
+    from belge_gozu.app.main import create_app
+    from belge_gozu.config import Settings
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "boyle-bir-dizin-yok",
+        min_score_threshold=60.0,
+    )
+    with pytest.raises(IndexCompatibilityError, match="binary ölçeği"):
+        create_app(settings=settings, encoder=enc, answerer=object())
+
+
 def test_exhaustive_on_int8_index_serves(tiny_corpus):
     """Aynı int8 dizini VARSAYILAN (exhaustive) pipeline'da sorunsuz açılır —
     yukarıdaki hatanın temsile özgü olduğunu, int8'in genel olarak

@@ -30,9 +30,16 @@ def chunk_bounds(offsets: np.ndarray, chunk_tokens: int | None = None) -> list[i
     """Sayfa sınırlarına hizalı chunk başlangıç indeksleri (offsets üzerinden).
 
     `chunk_tokens=None` -> bu modülün global `CHUNK_TOKENS`'ı ÇAĞRI ANINDA
-    okunur (import zamanında bağlanmaz), böylece testler modül global'ini
-    monkeypatch'leyebilir. `None` kontrolü bilinçli olarak `or` DEĞİL: açıkça
-    verilen `0` sessizce varsayılana dönüşmemeli.
+    okunur (import zamanında bağlanmaz). `None` kontrolü bilinçli olarak `or`
+    DEĞİL: açıkça verilen `0` sessizce varsayılana dönüşmemeli.
+
+    DİKKAT (review M8): bu "çağrı anında oku" davranışı yalnız buraya `None`
+    ULAŞTIĞINDA geçerlidir. `PackedIndex`/`Int8Index` `CHUNK_TOKENS`'ı
+    import anında bağlanan bir `ClassVar`dan çözer ve buraya somut bir sayı
+    geçirir; yani modül global'ini monkeypatch'lemek onları ETKİLEMEZ —
+    `FloatIndex` (None'ı olduğu gibi ileten) ve doğrudan çağrılar etkilenir.
+    Sınıf tarafında test override'ı instance üstünden yapılır
+    (`idx.CHUNK_TOKENS = ...`), ki testler zaten bunu kullanıyor.
     """
     if chunk_tokens is None:
         chunk_tokens = CHUNK_TOKENS

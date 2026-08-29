@@ -10,6 +10,12 @@ sınıfı döner. Üç sınıf da aynı `ScorableIndex` sözleşmesini sağlar:
 `page_ids` + `score_all(q_emb, chunk_tokens=None)` -> normalize [-1,1]
 skorlar (bkz. `index/store.py::PackedIndex.score_all` — binary kol T14'te
 128'e bölünerek aynı banda taşındı).
+
+DİKKAT: ortak bant temsilleri KARŞILAŞTIRILABİLİR yapar, dağılımlarını
+EŞİTLEMEZ. `Settings.min_score_threshold` int8 dağılımı üzerinde taşındı;
+başka bir temsile geçmek eşiğin yeniden taşınmasını gerektirir (ölçüm:
+0.58 int8'te 42/43 cevaplanabilir soruyu geçirirken 1-bit'te yalnız 1/43'ünü
+geçirir). `create_app` int8 dışı bir temsil yüklendiğinde UYARI loglar.
 """
 
 from pathlib import Path
@@ -33,6 +39,14 @@ _LOADERS = {
     Quantization.float16: FloatIndex.load,
 }
 _SUPPORTED = sorted(q.value for q in _LOADERS)
+# Her temsilin "burada olduğunu" kanıtlayan dosyası — manifest ile diskteki
+# verinin çeliştiği durumu (yarım kopya, elle düzenlenmiş manifest) çıplak
+# bir `FileNotFoundError: codes.npy` yerine anlaşılır hataya çevirir (M10).
+_SIGNATURE_FILE = {
+    Quantization.sign_1bit: "tokens.npy",
+    Quantization.int8: "codes.npy",
+    Quantization.float16: "embs.npy",
+}
 
 
 class ScorableIndex(Protocol):
@@ -71,4 +85,12 @@ def load_scorable_index(dir: Path) -> PackedIndex | Int8Index | FloatIndex:
             f"indeks yüklenemedi: {dir} — manifest'teki quantization="
             f"{manifest.quantization!r} tanınmıyor; desteklenen: {_SUPPORTED}"
         ) from None
+    signature = _SIGNATURE_FILE[quant]
+    if not (dir / signature).exists():
+        raise IndexCompatibilityError(
+            f"indeks yüklenemedi: {dir} — manifest quantization={quant.value} diyor "
+            f"ama o temsilin veri dosyası ({signature}) yok. Manifest ile disk "
+            "çelişiyor (yarım kopya/pull ya da elle düzenlenmiş manifest); indeksi "
+            "yeniden indirin ya da `belge-gozu index derive` ile yeniden türetin."
+        )
     return _LOADERS[quant](dir)

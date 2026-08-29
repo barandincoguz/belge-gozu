@@ -35,7 +35,7 @@ flowchart TD
     M["Manifest CSV<br/>50 statutes + historical Official Gazette list"] --> D["Downloader (download.py)<br/>polite: 1s delay, resumable"]
     D --> R["Renderer (render.py)<br/>PDF -> WebP page image<br/>+ meta.parquet (page ids)"]
     R --> E["Encoder: ColSmol-500M (vision-language model)<br/>each page -> ~1000 tokens x 128-dim vectors"]
-    E --> P["f16 master (float_store.py)<br/>-> int8 (474MB, shipped) or 1-bit (58MB, ablation)<br/>quantize.py / store.py"]
+    E --> P["f16 master (float_store.py)<br/>-> int8 (476MB, shipped) or 1-bit (58MB, ablation)<br/>quantize.py / store.py"]
   end
 
   P -->|"belge-gozu index push"| HUB[("HF Datasets - free storage<br/>barandincoguz/belge-gozu-index")]
@@ -74,12 +74,20 @@ Recall@20** relative to float16 (0.233 vs. 0.302). 1-bit is also **slower, not
 faster**: scoring all 4,222 pages against a 40-token query takes 1.08 s at 1-bit vs.
 0.24 s at int8 vs. 0.08 s at float16 (CPU, idle machine), because int8/float16 hit a
 BLAS matmul path while the 1-bit path builds large temporaries for the popcount
-reduction. Index size is the one axis where 1-bit still wins (58 MB vs. 474 MB for
-int8 vs. 919 MB for float16). **int8 is now what ships**: serving was the only missing
+reduction. Index size is the one axis where 1-bit still wins (58 MB vs. 476 MB for
+int8 vs. 918 MB for float16). **int8 is now what ships**: serving was the only missing
 piece (the retriever previously accepted the packed 1-bit index only), and it is now
 representation-agnostic, so the measured winner is also the served one. 1-bit remains
 available as the ablation / disk-budget option (`data/index-traincompat-1bit`, 58 MB)
-via `BG_INDEX_DIR`. Full tables:
+via `BG_INDEX_DIR` — **but the threshold does not come with it.** `BG_MIN_SCORE_THRESHOLD`
+was transferred on the *int8* score distribution; the shared [-1, 1] scale makes the
+representations comparable, not distributionally identical. On the same canary set the
+1-bit top-1 scores run min 0.4676 / median 0.4953 / max 0.6133, so the shipped 0.58 clears
+only **1 of 43** answerable questions there (the equivalent 42/43 operating point is
+≈0.47). Switching representation — via `BG_INDEX_DIR` or the two-stage ablation, whose
+scores land in the same 1-bit band — therefore requires re-deriving the threshold, or the
+service will abstain on nearly everything. The server logs a warning at startup when the
+loaded index is not int8. Full tables:
 [`docs/research/findings/2026-08-27-p0-baseline.md`](docs/research/findings/2026-08-27-p0-baseline.md)
 and
 [`docs/research/findings/2026-08-27-p0-gate.md`](docs/research/findings/2026-08-27-p0-gate.md).
@@ -105,8 +113,10 @@ scale — not a confidence or probability. If it doesn't clear a threshold, the
 service returns "I couldn't find grounds for this in the corpus" *before* ever calling
 the LLM — the abstain path costs nothing and can't hallucinate. The threshold
 (`BG_MIN_SCORE_THRESHOLD=0.58`) is a **mechanical transfer** of the old binary-scale
-60.0 onto that normalized scale — it reproduces the same operating point, question for
-question — and is therefore still uncalibrated and still non-separating (see
+60.0 onto that normalized scale — it reproduces the same operating point *by count*
+(the same number of questions on each side), though not question-for-question: two rows
+swap sides (`c306` now clears it, `c211` no longer does), because int8 and 1-bit do not
+score or rank identically. It is therefore still uncalibrated and still non-separating (see
 [v0 limitations](#v0-limitations)); real calibration is P2 work.
 
 ## Example queries
@@ -143,7 +153,7 @@ uv sync --all-extras        # + ml deps (torch, colpali-engine) — needed for i
 uv run belge-gozu --help
 
 # serve straight from the published index + images (no local corpus needed)
-# serves data/index-traincompat-int8 by default (int8, 474 MB — see BG_INDEX_DIR)
+# serves data/index-traincompat-int8 by default (int8, 476 MB — see BG_INDEX_DIR)
 BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index BG_DEVICE=cpu \
   uv run belge-gozu serve --pull
 # -> http://localhost:7860
@@ -155,9 +165,9 @@ To reproduce the corpus from scratch instead of pulling the published index:
 uv run belge-gozu corpus download   # ~50 statutes + historical RG scans -> data/pdf/
 uv run belge-gozu corpus render     # PDF -> WebP page images + data/meta.parquet
 uv run belge-gozu index build --precision f16 --out data/index-traincompat-f16
-                                   # ColSmol-500M embeddings -> f16 master (919 MB)
+                                   # ColSmol-500M embeddings -> f16 master (918 MB)
 uv run belge-gozu index derive --from data/index-traincompat-f16 \
-  --quant int8 --out data/index-traincompat-int8      # what serving loads (474 MB)
+  --quant int8 --out data/index-traincompat-int8      # what serving loads (476 MB)
 uv run belge-gozu index push        # optional: publish index/ + images/ to your own HF dataset repo
 uv run belge-gozu serve
 ```
@@ -207,6 +217,8 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
   answerable top-1 scores run min 0.5767 / median 0.6250 / max 0.7450, unanswerable ones
   min 0.5679 / median 0.6550 / max 0.6866 — overlapping distributions, so no single
   cut-off splits them, and all three out-of-corpus questions currently clear 0.58.
+  The 0.58 is also **specific to the int8 index**: on 1-bit the same questions score
+  0.4676-0.6133, where 0.58 would abstain on 42 of 43 answerable questions.
   Raising the threshold would just abstain on real questions instead. Proper
   calibration (and probably score normalization) is P2 work; the current state is
   pinned by an `xfail(strict=True)` canary test so it can neither rot further nor be

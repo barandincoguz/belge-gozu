@@ -1,14 +1,22 @@
-from typing import ClassVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import pandas as pd
 
 from belge_gozu.index.chunking import CHUNK_TOKENS, EMBED_DIM
 from belge_gozu.index.encode import Encoder
-from belge_gozu.index.loader import ScorableIndex
 from belge_gozu.index.store import PackedIndex, as_u64, binarize_pack
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import stage
+
+if TYPE_CHECKING:
+    # Yalnız anotasyon için (review M9): runtime'da import edilirse
+    # `retrieval` -> `index.loader` -> `index.quantize` -> `index.float_store`
+    # zinciri her import'ta çekilir. Sözleşme iddiası tip denetiminde aynen
+    # geçerli, çalışma zamanı kenarı yok.
+    from belge_gozu.index.loader import ScorableIndex
 
 
 def hamming_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -66,8 +74,9 @@ class TwoStageRetriever:
                     page_id=row["page_id"],
                     # T14: ham MaxSim toplamı `n_q * EMBED_DIM`'e bölünür —
                     # üretim (exhaustive) yolunun ürettiği AYNI normalize
-                    # [-1,1] ölçek. Ablasyon kolu farklı bir ölçekte skor
-                    # yaymamalı: eşik (min_score_threshold) tek ve ortaktır.
+                    # [-1,1] ölçek, böylece iki kol karşılaştırılabilir olur.
+                    # DİKKAT: ortak ÖLÇEK, ortak EŞİK demek değildir — bu kol
+                    # 1-bit dağılımında skorlar (bkz. config.py eşik yorumu).
                     score=score / (n_q * EMBED_DIM),
                     doc_name=row["doc_name"],
                     page_no=int(row["page_no"]),
@@ -84,7 +93,13 @@ class ExhaustiveRetriever:
     Skorlar normalize [-1,1]: sorgu jetonu başına ortalama MaxSim. Hangi
     indeks yüklüyse (packed/int8/float) kendi `score_all`'unu uygular ve
     ÜÇÜ DE aynı bandı döner (binary kol T14'te 128'e bölünerek bu banda
-    taşındı) — böylece `Settings.min_score_threshold` tek ve ortak kalır.
+    taşındı).
+
+    Ortak bant = KARŞILAŞTIRILABİLİRLİK, kalibrasyon taşınabilirliği DEĞİL:
+    temsiller aynı ölçeğe girer ama aynı DAĞILIMA girmez (ölçüm: canary
+    top-1 medyanı int8 0.6250 vs 1-bit 0.4953). Bu yüzden tek bir
+    `min_score_threshold` yalnız üzerinde taşındığı temsilde geçerlidir —
+    ayrıntı config.py'deki eşik yorumunda.
 
     Mean-sign Stage-1 kaldırıldı: ölçülen top-200 kesişimi %11.5-19 ve rank-2
     sonucu 1768'e atma karşı-örneği (spec §1.1). TwoStageRetriever yalnız

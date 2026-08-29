@@ -166,6 +166,12 @@ def index_build(
     # sessizce int8 indeksin üstüne 1-bit yazar, manifest'i de "sign-1bit"e
     # çevirdiği için yükleyici hiçbir şey fark etmeden onu servis eder —
     # ölçümde kaybeden temsile sessiz geri dönüş. Fail-fast:
+    #
+    # (review M3: --out'suz f16 yukarıda zaten reddedildiği için burada
+    # `quantization` pratikte hep sign-1bit'tir. Karşılaştırma yine de
+    # değişken üzerinden yazılıyor: yakalaması gereken durum "hedefteki
+    # temsil bu build'in yazacağından farklı" ve o kural f16 kısıtı
+    # gevşetilirse de doğru kalmalı.)
     if out is None:
         existing = read_manifest(s.index_dir)
         if existing is not None and existing.quantization != quantization.value:

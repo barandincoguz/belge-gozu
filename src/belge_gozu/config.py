@@ -5,6 +5,12 @@ from typing import Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# `min_score_threshold`ın ÜZERİNDE ÖLÇÜLDÜĞÜ temsil. Eşik dağılıma bağlıdır,
+# ölçeğe değil: aynı normalize [-1,1] bandında bile 0.58 int8'te 42/43,
+# 1-bit'te 1/43 cevaplanabilir soruyu geçirir. `app/main.py` yüklü indeks
+# bundan farklıysa uyarır (bkz. aşağıdaki eşik yorumu).
+THRESHOLD_CALIBRATED_ON = "int8"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -60,11 +66,25 @@ class Settings(BaseSettings):
     # dot-product bandına taşındı). Eski eşik 60.0 ESKİ binary ölçeğindeydi
     # (0-128) ve yeni ölçekte hiçbir zaman aşılamazdı.
     #
-    # 0.58, o eski 60.0'ın ÇALIŞMA NOKTASINI birebir yeniden üretir: canary'de
+    # 0.58, o eski 60.0'ın ÇALIŞMA NOKTASINI SAYICA yeniden üretir: canary'de
     # binary@60.0 cevaplanabilirlerin 42/43'ünü ve cevaplanamazların 4/5'ini
-    # geçiriyordu; int8 ölçeğinde 0.58 tam olarak aynı bölmeyi verir (0.5767
-    # kalır, 0.5860+ geçer; 0.5679 kalır, kalan 4 geçer). Yani bu bir
-    # dönüştürme, yeni bir karar DEĞİL.
+    # geçiriyordu; int8'te 0.58 de aynı sayıları verir (0.5767 kalır, 0.5860+
+    # geçer; 0.5679 kalır, kalan 4 geçer). Yani bu bir dönüştürme, yeni bir
+    # karar DEĞİL.
+    #
+    # AMA soru-soruya AYNI KÜME değil (review I3): iki satır taraf değiştirir —
+    # c306 (1-bit ham 59.85 -> eşiğin altındaydı; int8 0.5965 -> artık geçiyor)
+    # ve c211 (1-bit ham 61.78 -> geçiyordu; int8 0.5767 -> artık altında).
+    # int8 ile binary aynı soruları aynı sırayla skorlamadığı için beklenen bir
+    # sonuç; sayı korunur, kimlikler birebir korunmaz.
+    #
+    # TAŞINABİLİRLİK: eşik int8 DAĞILIMI üzerinde taşınmıştır; başka bir
+    # temsile geçerken (BG_INDEX_DIR ya da two-stage ablasyonu) yeniden taşıma
+    # ölçümü gerekir — ortak [-1,1] ölçeği temsilleri karşılaştırılabilir
+    # yapar, dağılımlarını eşitlemez. Ölçüm: aynı canary'de 1-bit top-1'leri
+    # min 0.4676 / medyan 0.4953 / maks 0.6133, yani 0.58 orada 43 sorunun
+    # yalnız 1'ini geçirir (aynı çalışma noktası 1-bit'te ~0.47'ye denk gelir).
+    # `create_app` int8 dışı bir temsil yüklendiğinde UYARI loglar.
     #
     # Skor hâlâ bir güven/olasılık ölçüsü DEĞİLDİR ve eşik hâlâ AYIRMIYOR:
     # 2026-08-29 canary ölçümü (data/index-traincompat-int8, MPS) cevaplanabilir

@@ -44,8 +44,8 @@ from belge_gozu.bench.dataset import load_bench  # noqa: E402
 from belge_gozu.bench.harness import git_commit  # noqa: E402
 from belge_gozu.bench.metrics import mrr, recall_at_k  # noqa: E402
 from belge_gozu.bench.oracle import rank_of  # noqa: E402
+from belge_gozu.index.loader import load_scorable_index  # noqa: E402
 from belge_gozu.index.manifest import CPE_0_3_18, QueryFormat, read_manifest  # noqa: E402
-from belge_gozu.index.store import PackedIndex  # noqa: E402
 
 DEFAULT_MODEL = "vidore/colSmol-500M"
 RECALL_KS: tuple[int, ...] = (1, 5, 10, 20, 50)
@@ -110,7 +110,10 @@ def main() -> int:
         "--index",
         required=True,
         type=Path,
-        help="skorlanacak paketli (PackedIndex) indeks dizini — SABİT tutulur",
+        help=(
+            "skorlanacak indeks dizini — SABİT tutulur; temsil (packed/int8/float16) "
+            "manifest'ten çözülür"
+        ),
     )
     ap.add_argument(
         "--bench",
@@ -169,7 +172,7 @@ def main() -> int:
     if doc_prompt_sha256:
         print(f"doc_prompt_sha256 (bilgi amaçlı, encode'a geçilmiyor): {doc_prompt_sha256[:12]}...")
 
-    idx = PackedIndex.load(args.index)
+    idx = load_scorable_index(args.index)
     meta = pd.read_parquet(args.index / "meta.parquet")
     known_page_ids = set(idx.page_ids)
 
@@ -187,14 +190,14 @@ def main() -> int:
 
     # Model/torch dokunan importlar burada — `--help` bunlara hiç uğramaz.
     from belge_gozu.index.encode import ColSmolEncoder
-    from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever
+    from belge_gozu.retrieval.core import ExhaustiveRetriever
 
     print(f"encoder yükleniyor: model={model_name} device(istenen)={args.device}")
     encoder = ColSmolEncoder(model_name, args.device, query_format=aug_format)
     print(f"  gerçek cihaz={encoder.device}")
     # score_all encoder'a dokunmaz (embedding burada elle hesaplanıp geçiliyor);
     # cli.py'deki `bench oracle` komutuyla aynı desen (encoder=None).
-    retriever = ExhaustiveBinaryRetriever(idx, meta, None)
+    retriever = ExhaustiveRetriever(idx, meta, None)
 
     arms: dict[str, dict] = {}
     for arm_name, fmt in (("with-aug", aug_format), ("no-aug", no_aug_format)):

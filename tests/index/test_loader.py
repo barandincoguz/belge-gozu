@@ -110,3 +110,13 @@ def test_unknown_quantization_raises(tmp_path: Path):
     dir = _write(PackedIndex.build([f"d{i}:1" for i in range(4)], _embs()), tmp_path, "fp4")
     with pytest.raises(IndexCompatibilityError, match="tanınmıyor"):
         load_scorable_index(dir)
+
+
+def test_manifest_data_disagreement_raises_readable_error(tmp_path: Path):
+    """Manifest "int8" diyor ama diskte yalnız tokens.npy var (yarım kopya /
+    elle düzenlenmiş manifest): çıplak `FileNotFoundError: codes.npy` yerine
+    ne olduğunu söyleyen Türkçe hata (review M10)."""
+    dir = _write(PackedIndex.build([f"d{i}:1" for i in range(4)], _embs()), tmp_path, "int8")
+    assert (dir / "tokens.npy").exists() and not (dir / "codes.npy").exists()
+    with pytest.raises(IndexCompatibilityError, match="codes.npy"):
+        load_scorable_index(dir)

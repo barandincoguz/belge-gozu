@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from belge_gozu.bench.dataset import BenchQuestion
 from belge_gozu.bench.metrics import bootstrap_ci, mrr, ndcg_at_k, recall_at_k
+from belge_gozu.index.chunking import EMBED_DIM
 from belge_gozu.index.manifest import IndexManifest
 from belge_gozu.index.store import binarize_pack
 from belge_gozu.provenance import git_commit  # geriye dönük re-export (eski ev buradaydı)
@@ -142,7 +143,7 @@ class TwoStageDiagnosticAdapter:
             latency_ms=(t1 - t0) * 1000,
         )
 
-        # Aşama 2: adaylarda kesin binary MaxSim (RAW toplam `n_q * 128`'e
+        # Aşama 2: adaylarda kesin binary MaxSim (RAW toplam `n_q * EMBED_DIM`'e
         # bölünerek normalize edilir — ÜRETİMİN `TwoStageRetriever.search`
         # ile BİREBİR aynı ifadesi; teşhis kaydı üretim skorundan farklı bir
         # ölçekte olursa iki taraf sessizce ayrışır, bkz.
@@ -156,7 +157,7 @@ class TwoStageDiagnosticAdapter:
         t2 = time.perf_counter()
         n_q = max(1, q_emb.shape[0])
         stage2_ids = [page_ids[i] for i, _ in hits]
-        stage2_scores = [score / (n_q * 128) for _, score in hits]
+        stage2_scores = [score / (n_q * EMBED_DIM) for _, score in hits]
         stage2 = StageRecord(
             stage="stage2",
             gold_ranks={},

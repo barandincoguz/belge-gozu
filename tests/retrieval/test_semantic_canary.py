@@ -65,12 +65,7 @@ def prod_retriever():
         query_format=resolved_query_format,
         visual_prompt_override=resolved_doc_prompt,
     )
-    retriever, _ = build_retriever(
-        s,
-        encoder,
-        model_name=s.retriever_model,
-        model_revision=getattr(encoder, "model_revision", None),
-    )
+    retriever, _ = build_retriever(s, encoder)
     return retriever
 
 

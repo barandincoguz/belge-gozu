@@ -327,11 +327,15 @@ function renderChart(hits) {
   const c = $("chart");
   c.innerHTML = "";
   if (!hits.length) { c.innerHTML = '<p class="sec-sub">Hiç sayfa bulunamadı.</p>'; return; }
-  const maxV = Math.max(...hits.map(h => h.score), THRESHOLD) * 1.08;
   /* Skorlar artık NEGATİF olabilir (normalize [-1,1] bant): oran hesapları
-     %0'ın altına inebilir. CSS genişliği ve eşik çizgisinin konumu negatife
-     düşerse çubuk hiç çizilmez / çizgi grafikten kaçar — ikisi de 0'a kırpılır. */
-  const pct = (v) => Math.max(0, v / maxV * 100).toFixed(2) + "%";
+     %0'ın altına inebilir. İki ayrı tuzak var, ikisi de kapatılıyor:
+       1) tek bir negatif skor -> oran negatif -> Math.max(0, ...) yakalar;
+       2) TÜM skorlar VE eşik negatifse maxV'nin KENDİSİ negatif olur, bölme
+          işareti ters çevirir ve Math.max(0, ...) hiç devreye girmez
+          (ör. skorlar [-0.3,-0.9], eşik -0.2 -> çubuk %416). Bunun için
+          bölen kesin POZİTİF tutuluyor; sonuç ayrıca [0,100]'e kırpılıyor. */
+  const maxV = Math.max(...hits.map(h => h.score), THRESHOLD, 0.01) * 1.08;
+  const pct = (v) => Math.min(100, Math.max(0, v / maxV * 100)).toFixed(2) + "%";
   const thPct = pct(THRESHOLD);
   const rows = document.createElement("div");
   rows.className = "chart-rows";

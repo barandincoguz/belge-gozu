@@ -48,9 +48,30 @@ def test_exhaustive_recovers_what_stage1_loses():
     raise AssertionError("hiçbir karışık sorguda stage-1 sapması bulunamadı — fikstürü genişlet")
 
 
-def test_chunk_boundaries_do_not_change_scores():
+def test_chunk_boundaries_do_not_change_scores(monkeypatch):
+    """Skorlar chunk sınırından bağımsız VE getirici override'ı indekse ULAŞIR.
+
+    T14'te çekirdek indekse taşındı; getirici `chunk_tokens=self.CHUNK_TOKENS`
+    ile devrediyor. Yalnız eşitlik assert etmek bu devretmeyi kilitlemez
+    (chunklama sonucu zaten değiştiremez, yani devretme tamamen silinse de
+    test yeşil kalırdı — review M4). Casus, değerin gerçekten geçtiğini
+    doğrular."""
+    import belge_gozu.index.store as store_mod
+
     idx, meta, embs = build_fixture(n_pages=30)
     r1 = ExhaustiveBinaryRetriever(idx, meta, encoder=None)
     r2 = ExhaustiveBinaryRetriever(idx, meta, encoder=None)
     r2.CHUNK_TOKENS = 16  # sayfa başına 8 token -> her chunk ~2 sayfa
+
+    seen: list = []
+    real = store_mod.chunk_bounds
+    monkeypatch.setattr(
+        store_mod,
+        "chunk_bounds",
+        lambda offsets, chunk_tokens=None: (seen.append(chunk_tokens), real(offsets, chunk_tokens))[
+            1
+        ],
+    )
     np.testing.assert_array_equal(r1.score_all(embs[3]), r2.score_all(embs[3]))
+    # r1 sınıf varsayılanını, r2 instance override'ını iletmeli — ikisi de None DEĞİL
+    assert seen == [ExhaustiveBinaryRetriever.CHUNK_TOKENS, 16]

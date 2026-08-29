@@ -113,18 +113,42 @@ def test_score_all_matches_per_page_reference():
     assert (scores >= -1.0).all() and (scores <= 1.0).all()
 
 
-def test_score_all_respects_chunk_tokens():
+def _chunk_spy(monkeypatch):
+    """`chunk_bounds`'a geçen çözülmüş chunk_tokens değerlerini kaydeder.
+
+    Yalnız "sonuç değişmedi" demek YETMEZ (review M4): chunklama zaten
+    sonucu değiştiremez, bu yüzden chunk_tokens hiç iletilmese de o tür bir
+    test yeşil kalırdı. Casus, DEĞERİN GERÇEKTEN İLETİLDİĞİNİ kilitler."""
+    import belge_gozu.index.store as store_mod
+
+    seen: list = []
+    real = store_mod.chunk_bounds
+
+    def spy(offsets, chunk_tokens=None):
+        seen.append(chunk_tokens)
+        return real(offsets, chunk_tokens)
+
+    monkeypatch.setattr(store_mod, "chunk_bounds", spy)
+    return seen
+
+
+def test_score_all_respects_chunk_tokens(monkeypatch):
     """chunk_tokens SONUCU DEĞİŞTİRMEZ — yalnız bellek tepe noktasını.
 
     Hem açık argüman hem instance override'ı (retrieval/core.py'nin
-    CHUNK_TOKENS'ı buradan geçirir) aynı skorları vermeli."""
+    CHUNK_TOKENS'ı buradan geçirir) aynı skorları vermeli VE değer gerçekten
+    `chunk_bounds`'a ulaşmalı."""
     idx, embs = _score_fixture()
     q = embs[4]
     base = idx.score_all(q)
+    seen = _chunk_spy(monkeypatch)
+
     np.testing.assert_array_equal(idx.score_all(q, chunk_tokens=10), base)  # ~1-2 sayfa/chunk
     np.testing.assert_array_equal(idx.score_all(q, chunk_tokens=1), base)  # sayfa başına 1 chunk
     idx.CHUNK_TOKENS = 10  # instance override (test deseni)
     np.testing.assert_array_equal(idx.score_all(q), base)
+    # açık argüman, açık argüman, instance override -> hiçbiri None'a düşmemeli
+    assert seen == [10, 1, 10]
 
 
 def test_as_u64_rejects_wrong_width():
