@@ -889,3 +889,108 @@ def test_ui_gives_honest_miss_its_own_soft_state(tiny_corpus):
     assert ".state-note { display: flex" in html
     # ve yanıt metninin bir KOPYASI hâlâ arayüzde yok
     assert "dayanak bulamadım" not in html.lower()
+
+
+# --- review M3: `rejected` satırları gecikme sayılarını KİRLETMİYOR -----------
+
+
+def _seed_mixed(db_path, rows):
+    """(status, total_ms) çiftlerinden karışık bir olay tablosu kurar."""
+    from belge_gozu.telemetry.schema import EVENTS_DDL
+
+    db = sqlite3.connect(db_path)
+    db.execute(EVENTS_DDL)
+    for i, (status, ms) in enumerate(rows):
+        db.execute(
+            "INSERT INTO events (ts, endpoint, status, http_status, total_ms, query_sha256) "
+            "VALUES (?, '/ask', ?, 200, ?, 'x')",
+            (f"t{i}", status, ms),
+        )
+    db.commit()
+    db.close()
+
+
+def test_stats_latency_excludes_rejected_rows(tiny_corpus):
+    """Ret satırlarının ölçülen süresi 0.0136 ms: bir 429 dalgasında — yani
+    sayacın VAR OLMA SEBEBİ olan senaryoda — son-10000 penceresini sub-ms
+    satırlar domine eder ve /stats tam sistem kötüye kullanılırken p95'i
+    MÜKEMMEL gösterirdi. `record_rejection` aynı kararı Prometheus tarafında
+    zaten veriyordu; SQL tüketicileri filtresizdi."""
+    data_dir, enc, _ = tiny_corpus
+    _seed_mixed(
+        data_dir / "requests.sqlite",
+        [("answered", 1000.0), ("answered", 2000.0)] + [("rejected", 0.01)] * 50,
+    )
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=StubAnswerer()))
+    body = c.get("/stats").json()
+    assert body["avg_ms"] == 1500.0  # ret satırları ortalamayı sıfıra ÇEKMİYOR
+    assert body["p95_ms"] == 2000.0  # ve p95'i kaçırmıyor
+    # `requests` KASITLI olarak filtrelenmiyor: reddedilen istek de gelmiş bir istektir.
+    assert body["requests"] == 52
+
+
+def test_stats_requests_and_by_endpoint_still_count_rejections(tiny_corpus):
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post("/ask", json={"question": "bu ne için"})  # 422 -> rejected
+    body = c.get("/stats").json()
+    assert body["requests"] == 1 and body["by_endpoint"] == {"/ask": 1}
+    assert body["avg_ms"] == 0.0  # tek satır reddedilmiş -> gecikme örneği YOK
+
+
+def test_cli_metrics_summary_excludes_rejected_rows(tiny_corpus, monkeypatch, capsys):
+    """Aynı filtre CLI özetinde de (iki tüketici tek karar)."""
+    from belge_gozu import cli
+
+    data_dir, _, _ = tiny_corpus
+    _seed_mixed(
+        data_dir / "requests.sqlite",
+        [("answered", 1000.0), ("answered", 2000.0)] + [("rejected", 0.02)] * 50,
+    )
+    monkeypatch.setattr(cli, "_settings", lambda: Settings(data_dir=data_dir))
+    cli.metrics_summary()
+    out = capsys.readouterr().out
+    assert "1500" in out and "52" in out
+
+
+# --- review L1: honest_miss yalnız `answered` satırlarında 0/1 ---------------
+
+
+def test_honest_miss_is_null_unless_the_row_is_answered(tiny_corpus):
+    """Üç değerin üç anlamı var ve P2 bu kolonu HEDEF DEĞİŞKEN olarak okuyacak:
+    NULL = hesaplanmadı (LLM hiç konuşmadı) · 0 = hesaplandı, ıska yok ·
+    1 = hesaplandı, ıska var. abstained/degraded'a 0 yazmak ilk ikisini aynı
+    değerde toplardı ve `WHERE honest_miss IS NOT NULL` sessizce farklı bir
+    popülasyon seçerdi."""
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=BoomAnswerer()))
+    assert c.post("/ask", json={"question": "kira artışı nedir?"}).json()["status"] == "degraded"
+    assert _rows(data_dir, "status, honest_miss") == [("degraded", None)]
+
+
+def test_honest_miss_is_null_on_abstained_rows(tiny_corpus):
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=100.0)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=StubAnswerer()))
+    assert c.post("/ask", json={"question": "kira artışı nedir?"}).json()["status"] == "abstained"
+    assert _rows(data_dir, "status, honest_miss") == [("abstained", None)]
+
+
+def test_honest_miss_is_null_on_search_rows(tiny_corpus):
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post("/search", json={"query": "kira artışı nedir?"})
+    assert _rows(data_dir, "honest_miss") == [(None,)]
+
+
+def test_ui_survives_a_response_without_hits(tiny_corpus):
+    """L2: `renderChart` ilk satırda `hits.length` okur; eksik `hits` yorumun
+    ADLANDIRDIĞI senaryoda (vekil sayfası / kesik gövde) hâlâ patlıyor ve dış
+    catch "Sunucuya ulaşılamadı" basıyordu — yanlış olan tek teşhis."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert "const hits = Array.isArray(data.hits) ? data.hits : [];" in html
+    assert "renderChart(hits);" in html and "renderHits(hits);" in html
+    assert "renderChart(data.hits)" not in html

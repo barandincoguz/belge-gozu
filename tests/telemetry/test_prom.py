@@ -238,7 +238,10 @@ def test_metrics_catalog_lists_every_series_in_the_registry():
     unutulmuştu (katalogda `grep -c` = 0, canlı `/metrics`'te var)."""
     from pathlib import Path
 
-    catalog = Path("docs/research/metrics-catalog.md").read_text(encoding="utf-8")
+    # Yol depo köküne SABİTLENMİŞ, çalışma dizinine değil: pytest bir alt
+    # dizinden çağrıldığında göreli yol FileNotFoundError verirdi (review L4).
+    repo_root = Path(__file__).resolve().parents[2]
+    catalog = (repo_root / "docs/research/metrics-catalog.md").read_text(encoding="utf-8")
     suffix = {"counter": "_total", "info": "_info"}
     expected = {
         m.name + suffix.get(m.type, "")

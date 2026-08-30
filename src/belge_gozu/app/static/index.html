@@ -784,6 +784,10 @@ async function ask() {
        vermişken kesinlikle yanlış olan tek teşhis. Boş kabuk + `known=false`
        yolu bunu bilinmeyen-durum kartına çevirir. */
     const a = data.answer || { text: "", citations: [] };
+    /* Aynı gerekçe `hits` için de geçerli: `renderChart` ilk satırda
+       `hits.length` okur, yani eksik/bozuk bir `hits` yorumun ADLANDIRDIĞI
+       senaryonun ta kendisinde hâlâ patlıyordu (review L2). */
+    const hits = Array.isArray(data.hits) ? data.hits : [];
     /* Durum sunucudan gelir: "answered" | "abstained" | "degraded".
        Yanıt METNİYLE dize karşılaştırması YAPILMAZ — o metnin tek bir
        noktalama değişikliği arayüzü sessizce bozardı. */
@@ -873,8 +877,8 @@ async function ask() {
       }
     }
     $("answer-sec").hidden = false;
-    renderChart(data.hits);
-    renderHits(data.hits);
+    renderChart(hits);
+    renderHits(hits);
     $("retrieval-sec").hidden = false;
   } catch (err) {
     $("pipeline").hidden = true;

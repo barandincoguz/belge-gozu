@@ -18,10 +18,26 @@ logger = logging.getLogger(__name__)
 # tutuyordu; 40 istek sonrası havuz tükenip `/healthz` DAHİL her senkron uç
 # nokta yanıt veremez hâle geliyordu — sistemin en büyük tek arıza noktası.
 #
-# Bütçe aritmetiği (test ile kilitli): 2 deneme × 15 sn + 0.5 sn backoff
-# = 30.5 sn <= 35 sn tavanı. Tavan istemci tarafındaki makul bekleme
-# eşiğinin (~60 sn) yarısı seçildi: kullanıcı sekmesini kapatmadan önce
-# sunucu kendi kararını vermiş olmalı.
+# `GEMINI_TIMEOUT_S` httpx'e SKALER olarak geçer ve httpx bunu
+# `Timeout(connect=15, read=15, write=15, pool=15)` diye yorumlar — yani DÖRT
+# BAĞIMSIZ FAZ SAYACI, toplam bir duvar-saati son tarihi DEĞİL. `/ask` her
+# çağrıda beş WebP görüntüsü yüklüyor: `write` fazı birçok ayrı yazma işlemine
+# bölünür ve her biri kendi 15 sn'sini alır, `read` de baytlar ARASINDAKİ süreyi
+# ölçer. Ölçülmüş kanıt (olay 2899, `http_429` — retry EDİLMEYEN sınıf, yani
+# kesinlikle tek HTTP çağrısı): `answer_ms = 16 225 ms`, tek deneme kendi 15
+# sn'sini 1,2 sn AŞTI.
+#
+# Bu yüzden toplam tavan bir YORUM DEĞİL, `generate()` içinde ÖLÇÜLEN bir
+# invariant: her denemeden önce geçen gerçek süre okunur ve kalan bütçe bir
+# deneme daha kaldıramıyorsa retry YAPILMAZ. Tavanın kendisi (35 sn) istemci
+# tarafındaki makul bekleme eşiğinin (~60 sn) yarısı: kullanıcı sekmesini
+# kapatmadan önce sunucu kendi kararını vermiş olmalı.
+#
+# DÜRÜST SINIR: invariant retry KARARINI kapsar, tek bir denemenin İÇİNİ
+# kapsamaz — faz sayaçları yüzünden tek bir deneme de tavanı aşabilir (yukarıda
+# 16,2 sn ölçüldü). Yani garanti "toplam <= 35 sn" değil, "bütçe aşılmışken
+# ÜSTÜNE bir deneme daha BİNMEZ"dir. Sert bir duvar-saati kesmesi ayrı bir iş
+# parçacığı/iptal mekanizması gerektirir ve bu fazın kapsamında değildir.
 GEMINI_TIMEOUT_S = 15.0
 GEMINI_RETRY_BACKOFF_S = 0.5
 GEMINI_MAX_ATTEMPTS = 2
@@ -93,6 +109,18 @@ def classify_error(exc: BaseException) -> str:
     """
     from google.genai import errors as genai_errors
 
+    # EN BAŞTA ve APIError dalının DIŞINDA: `UnknownApiResponseError`
+    # `ValueError`dan türer, `APIError`dan DEĞİL (`google/genai/errors.py`).
+    # Kontrol APIError dalının içindeyken hiçbir zaman çalışmıyordu, yani
+    # taksonomideki `parse` değeri üretimde ASLA üretilemiyordu — SDK ham
+    # `json.JSONDecodeError`ı `_api_client.py`'de yakalayıp bu sınıfa
+    # sarmaladığı için çıplak JSONDecodeError pratikte hiç dışarı sızmaz.
+    #
+    # Sıra ayrıca ikincil bir yanlış sınıflandırmayı da kapatıyor: bu istisna
+    # ham gövdeyi mesajına gömer, dolayısıyla "API key" geçen bir hata sayfası
+    # aşağıdaki `_API_KEY_MSG` desenine takılıp `auth` raporlardı.
+    if isinstance(exc, genai_errors.UnknownApiResponseError):
+        return "parse"
     if isinstance(exc, genai_errors.APIError):
         code = getattr(exc, "code", None) or 0
         if code == 429:
@@ -101,8 +129,6 @@ def classify_error(exc: BaseException) -> str:
             return "auth"
         if 500 <= code < 600:
             return "http_5xx"
-        if isinstance(exc, genai_errors.UnknownApiResponseError):
-            return "parse"
         return "other"
     if isinstance(exc, TimeoutError):
         return "timeout"
@@ -145,12 +171,14 @@ class GeminiClient:
         timeout_s: float = GEMINI_TIMEOUT_S,
         max_attempts: int = GEMINI_MAX_ATTEMPTS,
         backoff_s: float = GEMINI_RETRY_BACKOFF_S,
+        total_budget_s: float = GEMINI_TOTAL_BUDGET_S,
     ):
         self.model = model
         self.api_key = api_key
         self.timeout_s = timeout_s
         self.max_attempts = max_attempts
         self.backoff_s = backoff_s
+        self.total_budget_s = total_budget_s
         self._client = None
         self._client_lock = threading.Lock()
 
@@ -161,8 +189,11 @@ class GeminiClient:
                     from google import genai
                     from google.genai import types
 
-                    # HttpOptions.timeout MİLİSANİYE cinsindedir (SDK sözleşmesi)
-                    # ve altındaki httpx istemcisine connect+read olarak geçer.
+                    # HttpOptions.timeout MİLİSANİYE cinsindedir (SDK sözleşmesi;
+                    # `_api_client` bunu 1000'e bölüp httpx'e verir). httpx skaler
+                    # değeri FAZ BAŞINA yorumlar (connect/read/write/pool ayrı
+                    # sayaçlar) — toplam duvar-saati sınırı `generate()`teki bütçe
+                    # kontrolüdür, bu değer değil.
                     self._client = genai.Client(
                         api_key=self.api_key,
                         http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)),
@@ -197,6 +228,7 @@ class GeminiClient:
             # ağ kesintisinden ayırt edilemezdi.
             raise AnswererError(classify_error(exc), f"gemini istemcisi kurulamadı: {exc}") from exc
         last: AnswererError | None = None
+        started = time.monotonic()
         for attempt in range(1, self.max_attempts + 1):
             try:
                 resp = client.models.generate_content(model=self.model, contents=contents)
@@ -205,6 +237,22 @@ class GeminiClient:
                 last = AnswererError(error_type, f"gemini {error_type}: {exc}")
                 last.__cause__ = exc
                 if error_type not in RETRYABLE_ERROR_TYPES or attempt == self.max_attempts:
+                    raise last from exc
+                # BÜTÇE İNVARİANTI (ölçülen, varsayılan değil): httpx'in faz
+                # başına sayaçları yüzünden tek bir deneme ilan edilen
+                # `timeout_s`i aşabilir (canlı: 16,2 sn / 15 sn). Bir sonraki
+                # denemenin EN KÖTÜ hâli kalan bütçeye sığmıyorsa retry
+                # YAPILMAZ — aksi halde "<= 35 sn" bir tahmin olarak kalırdı.
+                elapsed = time.monotonic() - started
+                if elapsed + self.backoff_s + self.timeout_s > self.total_budget_s:
+                    logger.warning(
+                        "gemini çağrısı başarısız (%s); %.1f sn geçti, kalan bütçe "
+                        "(%.1f sn) bir deneme daha kaldırmıyor — yeniden denenmiyor",
+                        error_type,
+                        elapsed,
+                        max(0.0, self.total_budget_s - elapsed),
+                    )
+                    annotate("gemini_retry_skipped_budget", True)
                     raise last from exc
                 logger.warning(
                     "gemini çağrısı başarısız (%s), %s sn sonra tek yeniden deneme",

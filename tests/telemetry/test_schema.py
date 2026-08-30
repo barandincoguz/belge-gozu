@@ -106,3 +106,24 @@ def test_ddl_and_model_carry_score_scale(tmp_path=None):
         ).score_scale
         is None
     )  # etiketsiz geçmiş NULL kalır
+
+
+def test_column_lists_stay_in_sync():
+    """L3: kolon adı DÖRT yerde paralel tutuluyor — bir tanesi kayarsa sessiz veri kaybı.
+
+    `EVENTS_DDL` (tablo), `RequestEvent` (model), `_COLUMNS` (INSERT listesi) ve
+    `_ADDED_COLUMNS` (eski tablolara migrasyon). `_COLUMNS`'ta olmayan bir kolon
+    INSERT'e hiç girmez ve **sessizce NULL kalır** — hata da vermez. Bu test o
+    sınıfı kapatıyor; migrasyon listesi ayrıca DDL'in bir ALT KÜMESİ olmalı.
+    """
+    from belge_gozu.telemetry.recorder import _ADDED_COLUMNS, _COLUMNS
+
+    db = sqlite3.connect(":memory:")
+    db.execute(EVENTS_DDL)
+    ddl_cols = [r[1] for r in db.execute("PRAGMA table_info(events)")]
+
+    # `id` otomatik artan birincil anahtar: tabloda var, yazılmaz, modelde yok.
+    assert ddl_cols[0] == "id"
+    assert _COLUMNS == ddl_cols[1:], "INSERT listesi DDL sırasıyla birebir olmalı"
+    assert set(_COLUMNS) == set(RequestEvent.model_fields), "model <-> INSERT ayrışmış"
+    assert {c for c, _ in _ADDED_COLUMNS} <= set(ddl_cols), "migrasyon DDL'de olmayan kolon ekliyor"

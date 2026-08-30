@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -310,3 +311,116 @@ def test_ensure_client_is_locked():
 
     c = GeminiClient("m", "k")
     assert isinstance(c._client_lock, type(threading.Lock()))
+
+
+# --- review M1: toplam bütçe bir YORUM değil, ölçülen bir invariant ----------
+
+
+class SlowFailingModels:
+    """Her denemede sahte saati `cost_s` kadar ilerletip zaman aşımı fırlatır."""
+
+    def __init__(self, clock: dict, cost_s: float):
+        self.clock = clock
+        self.cost_s = cost_s
+        self.calls = 0
+
+    def generate_content(self, *, model, contents):
+        self.calls += 1
+        self.clock["t"] += self.cost_s
+        raise TimeoutError(f"deneme {self.calls} zaman aşımı")
+
+
+def test_retry_is_skipped_when_the_budget_cannot_cover_another_attempt(monkeypatch):
+    """httpx faz-başına sayaç tuttuğu için TEK deneme ilan edilen süreyi aşabilir
+    (canlı ölçüm: 16,2 sn / 15 sn). Bütçe dolmuşken ÜSTÜNE ikinci bir deneme
+    binmemeli — aksi halde "<= 35 sn" bir tahmin olarak kalırdı."""
+    clock = {"t": 0.0}
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
+    slept = []
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", slept.append)
+    # 25 sn: 25 + 0.5 + 15 = 40.5 > 35 -> retry KALMIYOR (timeout retry'lenebilir bir sınıf).
+    models = SlowFailingModels(clock, cost_s=25.0)
+    with collecting() as col, pytest.raises(AnswererError) as ei:
+        _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
+    assert ei.value.error_type == "timeout"
+    assert models.calls == 1, "bütçe dolmuşken ikinci deneme yapılmamalı"
+    assert slept == [], "retry atlandıysa backoff da uyumamalı"
+    assert col.notes["gemini_retry_skipped_budget"] is True
+    assert "gemini_retried" not in col.notes
+    assert clock["t"] <= GEMINI_TOTAL_BUDGET_S  # duvar saati tavanın altında kaldı
+
+
+def test_retry_still_happens_when_the_budget_allows_it(monkeypatch):
+    """Invariant retry'yi TAMAMEN kapatmıyor: bütçe yetiyorsa tek deneme yapılır."""
+    clock = {"t": 0.0}
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", lambda s: None)
+    # 16.2 sn (canlı ölçüm): 16.2 + 0.5 + 15 = 31.7 <= 35 -> retry YAPILIR.
+    models = SlowFailingModels(clock, cost_s=16.2)
+    with collecting() as col, pytest.raises(AnswererError):
+        _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
+    assert models.calls == GEMINI_MAX_ATTEMPTS
+    assert col.notes["gemini_retried"] is True
+    assert "gemini_retry_skipped_budget" not in col.notes
+
+
+def test_slow_client_degrades_with_timeout_taxonomy_within_budget(monkeypatch):
+    """Uçtan uca: yavaş istemci -> tek deneme -> degraded + error_type='timeout',
+    ve gerçek duvar saati bütçenin çok altında (testte hiç uyunmuyor)."""
+    from belge_gozu.answer.base import AskService
+
+    clock = {"t": 0.0}
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", lambda s: None)
+    models = SlowFailingModels(clock, cost_s=30.0)
+    answerer = GeminiAnswerer("m", "k", client=_client_with(models))
+
+    class OneHit:
+        def search(self, query, k=5, candidates=200):
+            return [hit("k1:1")]
+
+    svc = AskService(OneHit(), answerer, min_score=-1e9, image_loader=lambda p: b"img")
+    real_t0 = time.monotonic()
+    with collecting() as col:
+        answer, hits = svc.ask("soru", k=5, candidates=200)
+    assert time.monotonic() - real_t0 < GEMINI_TOTAL_BUDGET_S
+    assert col.notes["degraded"] is True and col.notes["error_type"] == "timeout"
+    assert models.calls == 1 and answer.abstained and hits
+
+
+# --- review M2: `parse` taksonomi değeri artık ULAŞILABİLİR ------------------
+
+
+def test_unknown_api_response_error_is_classified_as_parse():
+    """`UnknownApiResponseError` `ValueError`dan türer, `APIError`dan DEĞİL —
+    kontrol APIError dalının içindeyken `parse` ÖLÜ KODDU ve SDK ham
+    JSONDecodeError'ı bu sınıfa sarmaladığı için üretimde asla üretilemezdi."""
+    from google.genai import errors as genai_errors
+
+    assert not issubclass(genai_errors.UnknownApiResponseError, genai_errors.APIError)
+    exc = genai_errors.UnknownApiResponseError("beklenmeyen gövde")
+    assert classify_error(exc) == "parse"
+    assert "parse" in ERROR_TYPES
+
+
+def test_parse_error_is_not_misclassified_as_auth():
+    """İkincil risk: bu istisna ham gövdeyi mesajına gömer, "API key" geçen bir
+    hata sayfası `_API_KEY_MSG` desenine takılıp `auth` raporlardı."""
+    from google.genai import errors as genai_errors
+
+    exc = genai_errors.UnknownApiResponseError("<html>Invalid API key supplied</html>")
+    assert classify_error(exc) == "parse"
+
+
+def test_parse_error_reaches_the_degraded_row_end_to_end():
+    models = FakeSDKModels()
+
+    def boom(*, model, contents):
+        from google.genai import errors as genai_errors
+
+        raise genai_errors.UnknownApiResponseError("bozuk gövde")
+
+    models.generate_content = boom
+    with pytest.raises(AnswererError) as ei:
+        _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
+    assert ei.value.error_type == "parse"

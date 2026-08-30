@@ -34,7 +34,7 @@ Her `/ask` ve `/search` isteği bu tabloya bir satır düşürür (WAL modlu SQL
 | `top_score` | REAL | skor birimi (spec eşiği ile aynı ölçek) | `retrieval` → `app/main.py` birleştirme | eşik kalibrasyonu, skor driftini izleme | 1 |
 | `margin_1_2` | REAL | skor birimi | `retrieval` → `app/main.py` birleştirme | top1−top2: retrieval kararlılığı/belirsizliği | 1 |
 | `abstained` | INTEGER 0/1, yalnız `/ask` | bool | `answer/base.py` (`Answer.abstained`) | halüsinasyon freninin ne sıklıkla tetiklendiği | 1 |
-| `honest_miss` | INTEGER 0/1 | bool | `answer/base.py: is_honest_miss()` — `HONEST_MISS_MARKER in tr_lower(text)` | modelin KENDİ dürüst ıskası (getirim getirdi, model kanıt bulamadı). TEK hesap yolu: `/ask` gövdesindeki `honest_miss`, bu kolon ve `bg_honest_miss_total` aynı fonksiyondan. Mühür (`HONEST_MISS_MARKER`) Gemini SİSTEM istemine f-string ile GÖMÜLÜ, yani modele dayatılan ifade ile aranan ifade ayrışamaz (Y17/K27) | 1 |
+| `honest_miss` | INTEGER 0/1, **yalnız `status='answered'` satırlarında**; diğerlerinde NULL | bool | `answer/base.py: is_honest_miss()` — `HONEST_MISS_MARKER in tr_lower(text)` | modelin KENDİ dürüst ıskası (getirim getirdi, model kanıt bulamadı). **Üç değer, üç anlam:** NULL = hesaplanmadı (LLM hiç konuşmadı — abstained/degraded/error ya da `/search`) · 0 = hesaplandı, ıska yok · 1 = hesaplandı, ıska var. P2 bu kolonu hedef değişken olarak okuyacağı için abstain/degraded satırlarına 0 YAZILMAZ. TEK hesap yolu: `/ask` gövdesindeki `honest_miss`, bu kolon ve `bg_honest_miss_total` aynı fonksiyondan. Mühür (`HONEST_MISS_MARKER`) Gemini SİSTEM istemine f-string ile GÖMÜLÜ, yani modele dayatılan ifade ile aranan ifade ayrışamaz (Y17/K27) | 1 |
 | `k` | INTEGER | adet | `app/main.py` (istek gövdesi) | retrieval genişliği | 1 |
 | `candidates` | INTEGER | adet | `retrieval/core.py` | aday havuzu boyutu | 1 |
 | `query_len` | INTEGER | karakter | `app/main.py` | soru uzunluğu↔gecikme/skor ilişkisi | 1 |
@@ -103,6 +103,13 @@ Kaynak: `src/belge_gozu/telemetry/prom.py` — `REQUEST_BUCKETS`, `STAGE_BUCKETS
 Skor/marj bucket'ları T14'te normalize [-1,1] ölçeğine taşındı; geçiş öncesi seriler ve `events` satırları eski binary ölçeğindedir (0-128) ve `bg_app_info`'nun `index_revision` etiketi (olay tablosunda `index_revision` kolonu) ile bu iki histogramın `quantization` etiketinden ayırt edilir.
 
 **BM25 ölçeği (P1).** Hibrit pipeline'da sıralamayı ve dolayısıyla `top_score`'u BM25 metin kanalı üretir: kalibre edilmemiş, ÜST SINIRSIZ birim. Canary'de **servis edilen** (yani eşiğe giren) top-1'ler min 10.53 / medyan 24.02 / maks 69.30; kanalın kendi top-1 medyanı 26.05'tir (`detail.retrieval.bm25_top1`) — doküman-adı yönlendirmesi sıralamanın birincisini skora göre seçmediği için ikisi ayrışır ve eşik/çalışma noktası **servis edilen** skordan ölçülmüştür. Bu örnekler normalize [-1,1] serilerinde toplansaydı hepsi son bucket'a düşer ve quantile'lar anlamsızlaşırdı, bu yüzden `PromMetrics.observe` olayın `pipeline` künyesine bakıp AYRI `*_bm25` serilerine yönlendirir. Yönlendirme kümesi (`prom.py: BM25_SCALE_PIPELINES`) `config.PIPELINE_SCORE_SCALE`'den **türetilir**, kopya sabit tutulmaz. `quantization` etiketi bu serilerde YOKTUR: BM25 skoru metin katmanından gelir, indeks temsiline bağlı değildir. Aşama serisine (`bg_stage_duration_seconds`) hibritin `text_bm25`/`route_fuse` adları `detail.stages` fallback'iyle kendiliğinden akar — prom.py'de aşama adı listesi tutulmaz.
+
+**`rejected` satırları ve gecikme toplamları.** `/stats` (`avg_ms`, `p95_ms`) ve
+`belge-gozu metrics summary` `WHERE status <> 'rejected'` ile hesaplanır: ret satırlarının
+`total_ms`'i sub-ms'dir (ölçüm: 0.0136 / 0.0213 ms) ve bir 429 dalgasında son-10000
+penceresini domine edip p95'i sistem kötüye kullanılırken mükemmel gösterirdi — aynı
+gerekçeyle `record_rejection` da `prom.observe`'u çağırmaz. `requests` ve `by_endpoint`
+KASITLI olarak filtrelenmez: reddedilen istek de gelmiş bir istektir.
 
 **Reddedilen istekler (Y23).** `require_searchable` (422) ve hız sınırı (429)
 artık `status='rejected'` ile MİNİMAL bir olay satırı yazar: `endpoint`,

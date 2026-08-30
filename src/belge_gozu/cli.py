@@ -481,7 +481,12 @@ def metrics_summary() -> None:
     db: sqlite3.Connection | None = None
     try:
         db = sqlite3.connect(s.data_dir / "requests.sqlite")
-        n, avg = db.execute("SELECT COUNT(*), COALESCE(AVG(total_ms),0) FROM events").fetchone()
+        # `rejected` satırları gecikme toplamlarının DIŞINDA — `/stats` ile aynı
+        # gerekçe ve aynı filtre (review M3); `n` sayımı tüm satırları kapsar.
+        n, avg = db.execute(
+            "SELECT (SELECT COUNT(*) FROM events), "
+            "COALESCE((SELECT AVG(total_ms) FROM events WHERE status <> 'rejected'), 0)"
+        ).fetchone()
         ab = db.execute(
             "SELECT COALESCE(AVG(abstained),0) FROM events "
             "WHERE endpoint='/ask' AND status <> 'degraded'"
@@ -490,7 +495,9 @@ def metrics_summary() -> None:
             "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0), "
             "COALESCE(SUM(est_cost_usd),0) FROM events"
         ).fetchone()
-        vals = sorted(r[0] for r in db.execute("SELECT total_ms FROM events"))
+        vals = sorted(
+            r[0] for r in db.execute("SELECT total_ms FROM events WHERE status <> 'rejected'")
+        )
     except sqlite3.OperationalError:
         typer.echo("henüz olay kaydı yok")
         return

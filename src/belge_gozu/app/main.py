@@ -469,7 +469,17 @@ def create_app(
         # değer `/ask` gövdesine, `events.honest_miss` kolonuna ve
         # `prom.observe` üzerinden `bg_honest_miss_total`a gider — üç yerde üç
         # ayrı sezgi tutulmaz (Y17/Y32/K27).
-        honest_miss = is_honest_miss(answer) if answer is not None else None
+        #
+        # KOLON YALNIZ `answered` SATIRLARINDA 0/1 (review L1). Üç değerin üç
+        # ayrı anlamı var ve P2 bu kolonu HEDEF DEĞİŞKEN olarak okuyacak:
+        #   NULL = hesaplanmadı (LLM hiç konuşmadı: abstained/degraded/error,
+        #          ya da /search satırı)
+        #   0    = hesaplandı, ıska YOK (model kanıt buldu ve yanıtladı)
+        #   1    = hesaplandı, ıska VAR (model kanıt bulamadığını söyledi)
+        # Abstained/degraded satırlara 0 yazmak "LLM cevapladı, ıska yok" ile
+        # "LLM hiç konuşmadı"yı aynı değerde toplar ve `WHERE honest_miss IS
+        # NOT NULL` sessizce farklı bir popülasyon seçerdi.
+        honest_miss = is_honest_miss(answer) if status == "answered" else None
         # Getirici kendi künyesini sunuyorsa (hibrit: iki kanalın top-1'i +
         # yönlendirilen dokümanlar) olaya karışır. `getattr` korumalı:
         # exhaustive/two-stage kolları etkilenmez, künye üretmeyen bir
@@ -735,9 +745,28 @@ def create_app(
         db = None
         try:
             db = sqlite3.connect(rec.db_path)
-            n, avg = db.execute("SELECT COUNT(*), COALESCE(AVG(total_ms),0) FROM events").fetchone()
+            # `rejected` satırları GECİKME toplamlarının DIŞINDA (review M3).
+            # `record_rejection` aynı kararı Prometheus tarafında zaten veriyor
+            # ("sub-ms `total_ms` histograma karışırsa p95'i aşağı çeker") ama
+            # aynı alanı okuyan bu iki SQL tüketicisi filtresizdi. Ölçülen ret
+            # süreleri 0.0136 ms / 0.0213 ms: bir 429 dalgasında — yani sayacın
+            # VAR OLMA SEBEBİ olan senaryoda — son-10000 penceresini sub-ms
+            # satırlar domine eder ve `/stats` tam sistem kötüye kullanılırken
+            # p95'i MÜKEMMEL gösterirdi.
+            #
+            # `requests` ve `by_endpoint` KASITLI olarak filtrelenmiyor: onlar
+            # "kaç istek geldi" sorusuna cevap verir ve reddedilen istek de
+            # gelmiş bir istektir. Filtrelenen yalnız gecikme istatistikleri.
+            n, avg = db.execute(
+                "SELECT (SELECT COUNT(*) FROM events), "
+                "COALESCE((SELECT AVG(total_ms) FROM events WHERE status <> 'rejected'), 0)"
+            ).fetchone()
             vals = [
-                r[0] for r in db.execute("SELECT total_ms FROM events ORDER BY id DESC LIMIT 10000")
+                r[0]
+                for r in db.execute(
+                    "SELECT total_ms FROM events WHERE status <> 'rejected' "
+                    "ORDER BY id DESC LIMIT 10000"
+                )
             ]
             vals.sort()
             p95 = vals[min(len(vals) - 1, math.ceil(0.95 * len(vals)) - 1)] if vals else 0.0
