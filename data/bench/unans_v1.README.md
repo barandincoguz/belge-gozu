@@ -377,3 +377,105 @@ bozuk bir satır da geçirilir — "TEMİZ" çıktısının bir şey kanıtlamas
 6. **Tümü:** bu set üzerinde ölçülen hiçbir rakam "insan-doğrulanmış benchmark
    üzerinde ölçüldü" ifadesiyle sunulamaz. Çapraz-kontrol turu da bir MODEL
    turudur (§3.7).
+
+---
+
+## 8. Yedek parti u301–u330 (2026-08-30)
+
+**Ne:** `korpus-disi` dilimine 30 yeni satır (u301–u330), 30 farklı gerçek
+Türk kanununa çapalı. Dilim 200 → **230**, dosya 300 → **330** satır.
+
+### 8.1 Neden
+
+İki gerekçe:
+
+1. **Çapraz-kontrol retleri** (§3): 5/40 örneklenen `korpus-disi` + 9/40
+   `eksik-kanit` reddedildi. Retlerin 7'si test yakasındaydı.
+2. **G2.1 aritmetiği** (§7.4): test yakasındaki cevaplanamaz sayısı 151 → 144'e
+   düşmüştü; %2.0 eşiği için asgari n = 149 gerekiyor, yani kapı 5 satır
+   açıktı. Hedef yalnız 149'u kapatmak değil, **gelecek tam test-yakası
+   doğrulamasının daha fazla reddi soğurabilmesi için tampon** bırakmaktı.
+
+Yeni bileşim (`rejected` hariç, doğrulayıcının bastığı satır):
+
+| | cevaplanamaz | canary cevaplanabilir | rejected |
+|---|---|---|---|
+| dev | 159 (113 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 canary) | 26 | 7 |
+| **test** | **162** (112 + 31 + 16 + 3) | 17 | 7 |
+
+Test yakası 144 → **162**: G2.1'in 149 asgarisi karşılandı, ≥155 tampon hedefi
+7 satır aşıldı. Hash-split 30 satırı iki kümeye dağıttığı için artış tek
+yakada toplanmadı.
+
+### 8.2 Tuzak-karşıtı rejim (retlerden çıkarılan dersler)
+
+Bu parti, §3.2'deki 5 `korpus-disi` reddinin **kusur türlerine karşı**
+tasarlandı. Her satır için, sonlandırmadan önce `data/research/page_texts.parquet`
+(4222 sayfa / 56 belge) tr-duyarlı küçültme + aksan düzleştirme ile tarandı ve
+`verification_note` alanına **bir satır negatif kanıt** yazıldı (kaç sayfa, hangi
+belgede, hangi bağlamda). Uygulanan kurallar:
+
+- **Ücret/tutar sorusu yok.** `k492` (Harçlar) ve `k488` (Damga) tarifeleri
+  somut tutar taşır (u284 pasaport reddi). (8) sayılı tarife tek başına eczane,
+  avukatlık, hastane, özel okul, banka, sigorta, gümrük, avcılık, silah, turizm
+  ve havayolu ruhsat harçlarını içerir.
+- **Genel hüküm testi.** Cevabın özü korpustaki bir kanunun *genel*
+  hükmünden çıkarılabiliyorsa satır atıldı — retlerin kaynağı buydu
+  (TMK kişilik, CMK usul, 6502, 6356).
+- **Kök seviyesinde arama.** Yalnız çoğul/uzun biçim aramak yetmiyor;
+  tekil kök taranmadan bir satır sonlandırılmadı.
+- **Atıf ≠ içerik, ama atıf uyarıdır.** Korpus bir kanunun ADINI anabilir
+  (5779, 7258, 6772, 5488 böyle); satır ancak aranan içerik o atıflarda da
+  yoksa tutuldu.
+
+**Taslak aşamasında elenen 6 çapa** (kanıtıyla) — bu partinin asıl ürünü:
+
+| Çapa | Neden elendi |
+|---|---|
+| 1262 İspençiyari ve Tıbbi Müstahzarlar K. | `k492:59` (8) sayılı tarife ruhsatı verecek makamı **adıyla** yazıyor: "Tıbbi ve ispençiyari müstahzarların ticarete çıkarılması için **Sağlık Bakanlığınca** verilecek ruhsatnameler". Ayrıca `rg1928a:2-3` kanunun 2 nci maddesini fiilen uyguluyor. |
+| 1774 Kimlik Bildirme K. | `k5490:27` (Nüfus Hiz. K. m.72) 1774 m.6'yı DEĞİŞTİRİRKEN metni taşıyor: "…**üç gün içinde genel kolluk örgütüne** verilmesi zorunludur". Bildirim süresi korpusta. |
+| 2876 Atatürk Kültür, Dil ve Tarih Yüksek Kurumu K. | `k2709:45` (Anayasa m.134) kurumun bileşenlerini sayıyor. |
+| 7036 İş Mahkemeleri K. | `k4857:13` (m.20) arabuluculuk zorunluluğunu ve "iki hafta içinde dava" süresini veriyor; `k6102:3` "altı hafta + iki hafta" formülünü taşıyor. u140 tipi sınır ihlali. |
+| 2886 Devlet İhale K. | `k4734` ihale usullerinin kavramsal karşılığını taşıyor. |
+| 4922 Denizde Can ve Mal Koruma K. | `k6102:249` "denize elverişli"yi tanımlıyor, `k492:57` belgeyi tarifeye almış. |
+
+### 8.3 Künye ve statü
+
+30 satırın tamamı dilimin mevcut rejimini taşır:
+`source_type="ajan-taslak"`, `verified_by="script:validate_unans"`,
+`verification_status="verified"`,
+`verification_kind="mechanical:manifest-absence"`.
+
+> **Bu satırlar da insan onaylı DEĞİLDİR** ve `korpus-disi` diliminin geri
+> kalanı gibi **ikinci denetleyici (checker-2) turunu beklemektedir.**
+> Negatif kanıt notları taslağı yazan ajanın kendi taramasıdır; drafter ≠
+> checker ilkesi gereği bağımsız bir tur yerine geçmez. §1'deki ~%12'lik
+> etiket-gürültüsü tahmini bu 30 satır için de geçerli sayılmalıdır — tuzak
+> rejimi oranı düşürmeyi amaçlar, sıfırladığını iddia etmez.
+
+### 8.4 Açık kapı: doğrulayıcı dilim sayısı sabiti
+
+`scripts/validate_unans.py` **şu an tek ihlalle kırmızı**:
+
+```
+İHLAL: 1
+  - dilim korpus-disi: 230 satır, beklenen 200
+```
+
+Sebep, 55. satırdaki modül düzeyi sabittir:
+
+```python
+SLICE_EXPECT = {"korpus-disi": 200, "anlamsiz-ood": 60, "eksik-kanit": 40}
+```
+
+Sayı dosyadan TÜRETİLMİYOR; 190-192. satırlarda tam eşitlikle sınanıyor ve
+bunu geçersiz kılacak bayrak/ortam değişkeni yok. Betik bu turda bilerek
+DEĞİŞTİRİLMEDİ (`scripts/` paralel bir ajanın dosyası). Sabit bellekte 230'a
+çekildiğinde kalan ihlal **0**'dır ve betik `TEMİZ` basar — yani diğer sekiz
+kontrolün (şema, kimlik, cevaplanamazlık, çapa yokluğu, künye, yakın-tekrar,
+split türetimi) tamamı bu 30 satır için temiz geçiyor. Sahibinin yapması
+gereken tek satır:
+
+```python
+SLICE_EXPECT = {"korpus-disi": 230, "anlamsiz-ood": 60, "eksik-kanit": 40}
+```
