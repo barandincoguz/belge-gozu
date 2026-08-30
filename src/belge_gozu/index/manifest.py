@@ -114,6 +114,23 @@ class IndexManifest(BaseModel):
     git_commit: str
 
 
+def index_revision(m: IndexManifest) -> str:
+    """`<corpus_checksum[:12]>/<query_format_id>/<quantization>` — indeksin sürüm dizesi.
+
+    P0 T13'te `app/main.py` içinde satır içi kuruluyordu (Prometheus
+    `bg_app_info` etiketi). P2 kalibrasyon artefaktı aynı dizeyi anahtarının
+    BİRİNCİ bileşeni olarak kullandığı için ortak nokta manifest modülüne
+    alındı: iki taraf aynı dizeyi iki ayrı yerde kurarsa, biri değiştiğinde
+    artefakt yanlış bir indekse "ait" görünür. (`app/main.py`'nin satır içi
+    kopyası T8'de bu fonksiyona çevrilecek — serve tarafı bu commit'te
+    bilinçli olarak değiştirilmedi.)
+
+    `/` içerir; dosya yolu bileşeni olarak kullanan taraf güvenli ada
+    çevirmelidir (bkz. `answer/calibrate.calibration_key`).
+    """
+    return f"{m.corpus_checksum[:12]}/{m.query_format.format_id}/{m.quantization}"
+
+
 def corpus_checksum(index_dir: Path) -> str:
     h = hashlib.sha256()
     h.update((index_dir / "page_ids.json").read_bytes())

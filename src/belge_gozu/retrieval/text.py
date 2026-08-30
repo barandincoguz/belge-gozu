@@ -40,9 +40,12 @@ bkz. `retrieval/hybrid.py`.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 from collections import Counter
+from collections.abc import Mapping
 
 import numpy as np
 
@@ -51,6 +54,19 @@ _WORD = re.compile(r"\w+", re.UNICODE)
 # Türkçe ön-ek kırpma uzunluğu (Can vd., Turkish IR): eklemeli dilde gövde
 # yaklaşık ilk 5 harftir. Ölçüm: R@5 0.6744 -> 0.7674 (+9.3 puan).
 F5 = 5
+
+# Tokenleştirmenin en kısa kabul edilen kelime uzunluğu (`len(t) > 1`).
+# Modül sabiti olarak duruyor çünkü `recipe_fingerprint()` reçetenin DAVRANIŞ
+# TAŞIYAN her sabitini anahtara katmak zorunda; gövdede gömülü bir literal
+# sessizce değiştirilebilirdi.
+MIN_TOKEN_CHARS = 2
+
+# BM25 doygunluk/uzunluk-normalizasyon parametreleri (`research/retrieve.py`
+# portunun ölçülmüş değerleri). `BM25Index.__init__` bunları VARSAYILAN olarak
+# alır — modül düzeyinde durmalarının nedeni F5/QTF_CAP ile aynı:
+# `recipe_fingerprint()` reçete kimliğini bunlardan türetir.
+K1 = 1.5
+B = 0.75
 
 # Standart Türkçe işlev kelimeleri (tam-kelime, kırpmadan ÖNCE uygulanır).
 # CANARY'YE AYARLI DEĞİL: "zaman"/"iş" gibi içerik taşıyabilecek kelimeler
@@ -156,8 +172,59 @@ def tokenize(s: str) -> list[str]:
 
     autoresearch exp12 reçetesi; ölçüm: research/journal.md #11-#13.
     """
-    words = [ascii_fold(t) for t in _WORD.findall(tr_lower(s)) if len(t) > 1]
+    words = [ascii_fold(t) for t in _WORD.findall(tr_lower(s)) if len(t) >= MIN_TOKEN_CHARS]
     return [t[:F5] for t in words if t not in _STOP_FOLDED]
+
+
+# Reçetenin ALGORİTMİK BİÇİMİ (sabit değerleri değil) değiştiğinde ELLE artırılır.
+#
+# `recipe_fingerprint()` aşağıdaki sabitlerin DEĞERLERİNİ otomatik yakalar
+# (F5'i 5'ten 6'ya çekmek anahtarı değiştirir), ama sabitlerin nasıl
+# KULLANILDIĞINI yakalayamaz: `tokenize` içindeki adım sırası (katlama ->
+# eleme -> kırpma), `route_window`ın pencere-içi sözleşmesi, `scores`ın
+# doygunluk ifadesi. Bunlardan biri değişirse ölçülen reçete başka bir
+# reçetedir ve bu sayı ELLE artırılmalıdır — aksi halde eski bir kalibratör
+# yeni bir boru hattına sessizce takılır (P2 denetimi, T6 versiyonlama bulgusu).
+RECIPE_VERSION = 1
+
+
+def recipe_fingerprint() -> str:
+    """Metin reçetesinin sabitleri üzerinden sha256'nın ilk 12 hex hanesi.
+
+    P2 kalibrasyon artefaktının versiyon anahtarının ÜÇÜNCÜ bileşeni
+    (`<index_revision>__<pipeline>__<recipe_fp>`). Gerekçe (P2 gerçeklik
+    denetimi, T6): `index_revision` yalnız korpus checksum'ını, sorgu formatını
+    ve kuantizasyonu kodlar — getirim REÇETESİNİ (BM25 parametreleri, F5
+    kırpması, stopword listesi, pencere, aksan katlaması) hiç görmez. Oysa
+    eşiğin bağlı olduğu eksen tam olarak budur: `config.py`, ASCII aksan
+    katlamasından SONRA eşik bandının yeniden ölçülmek zorunda kaldığını
+    yazıyor. Bu bileşen olmadan reçete değişince kalibratör geçersizleşmez —
+    sessizce YANLIŞ kalır.
+
+    KAPSAM: modül düzeyindeki reçete sabitleri + `RECIPE_VERSION`. Kapsamadığı
+    iki şey açıkça yazılır: (a) algoritmik biçim — `RECIPE_VERSION` elle
+    artırılır; (b) `BM25Index(k1=..., b=...)` ile VARSAYILANDAN sapan bir
+    örnek — üretim yolu (`retrieval/hybrid.load_text_channel`) varsayılanları
+    kullanır, ablasyon koşumları kendi anahtarlarını taşımalıdır.
+    """
+    recipe = {
+        "recipe_version": RECIPE_VERSION,
+        "word_re": _WORD.pattern,
+        "min_token_chars": MIN_TOKEN_CHARS,
+        "f5": F5,
+        # `str.maketrans` ORDİNAL -> ORDİNAL sözlüğü üretir; JSON'a yazılabilir
+        # ve okunabilir olsun diye karakter çiftlerine geri çevriliyor.
+        "fold": "".join(chr(k) + chr(v) for k, v in sorted(_FOLD.items())),
+        "stopwords": sorted(STOPWORDS),
+        "k1": K1,
+        "b": B,
+        "qtf_cap": QTF_CAP,
+        "window": WINDOW,
+        "generic": sorted(_GENERIC),
+        "title_line_re": _TITLE_LINE.pattern,
+    }
+    blob = json.dumps(recipe, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
 
 
 class BM25Index:
@@ -169,9 +236,7 @@ class BM25Index:
     autoresearch exp7 reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md.
     """
 
-    def __init__(
-        self, page_ids: list[str], texts: list[str], k1: float = 1.5, b: float = 0.75
-    ) -> None:
+    def __init__(self, page_ids: list[str], texts: list[str], k1: float = K1, b: float = B) -> None:
         if len(page_ids) != len(texts):
             raise ValueError(f"page_ids ({len(page_ids)}) ve texts ({len(texts)}) eşleşmiyor")
         if not page_ids:
@@ -252,6 +317,19 @@ def extract_doc_name_tokens(page_ids: list[str], texts: list[str]) -> dict[str, 
         if toks:
             names[doc] = toks
     return names
+
+
+def routed_docs(query: str, doc_names: Mapping[str, frozenset[str]]) -> set[str]:
+    """Adının jenerik-dışı TÜM token'ları sorguda geçen doküman(lar).
+
+    Yönlendirme YÜKLEMİ tek yerde durur: `HybridRetriever.routed_docs` buna
+    delege eder ve P2 kalibrasyonunun `routed` özelliği de buradan hesaplanır.
+    İki ayrı kopya olsaydı, biri değiştiğinde kalibratör ölçtüğünden BAŞKA bir
+    boru hattına takılırdı ve `recipe_fingerprint()` bunu göremezdi (kopya
+    `hybrid.py`'de, parmak izi `text.py`'nin sabitlerinden türetiliyor).
+    """
+    q_toks = set(tokenize(query))
+    return {doc for doc, toks in doc_names.items() if toks <= q_toks}
 
 
 def route_window(ranking: list[str], routed_docs: set[str], window: int = WINDOW) -> list[str]:

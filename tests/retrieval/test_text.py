@@ -19,7 +19,9 @@ from belge_gozu.retrieval.text import (
     BM25Index,
     ascii_fold,
     extract_doc_name_tokens,
+    recipe_fingerprint,
     route_window,
+    routed_docs,
     tokenize,
     tr_lower,
 )
@@ -326,3 +328,59 @@ def test_bm25_ranking_plus_routing_matches_recipe_order():
     out = route_window(order, routed, window=3)
     assert out[:2] == [pid for pid in order if pid.startswith("k1")]
     assert set(out) == set(order)
+
+
+# --- reçete parmak izi + yönlendirme yüklemi (P2 T6 versiyonlama) -----------
+
+
+def test_routed_docs_predicate_is_the_hybrid_one():
+    """Yüklem tek yerde: adının jenerik-dışı TÜM token'ları sorguda geçen doküman."""
+    names = {"k1": frozenset({"meden"}), "k2": frozenset({"icra", "iflas"})}
+    assert routed_docs("Medeni Kanun madde 19", names) == {"k1"}
+    assert routed_docs("icra takibi", names) == set()  # "iflas" eksik -> tetiklenmez
+    assert routed_docs("icra ve iflas hukuku", names) == {"k2"}
+    assert routed_docs("hiçbir ad geçmiyor", names) == set()
+
+
+def test_recipe_fingerprint_is_a_stable_short_hex():
+    fp = recipe_fingerprint()
+    assert len(fp) == 12
+    assert all(c in "0123456789abcdef" for c in fp)
+    assert fp == recipe_fingerprint()  # deterministik
+
+
+@pytest.mark.parametrize(
+    ("const", "value"),
+    [
+        ("F5", 6),
+        ("WINDOW", 20),
+        ("QTF_CAP", 1),
+        ("K1", 1.2),
+        ("B", 0.5),
+        ("MIN_TOKEN_CHARS", 3),
+        ("STOPWORDS", frozenset({"ve"})),
+        ("_GENERIC", frozenset({"kanun"})),
+        ("RECIPE_VERSION", 2),
+    ],
+)
+def test_recipe_fingerprint_changes_with_every_behaviour_bearing_constant(
+    monkeypatch, const, value
+):
+    """Parmak izi reçeteyi KAPSAMALI: bir sabit değişirse anahtar da değişir.
+
+    Bu, P2 kalibrasyon artefaktının sessizce yanlış kalmasını engelleyen
+    mekanizmadır — `index_revision` bu eksenlerin hiçbirini görmez.
+    """
+    import belge_gozu.retrieval.text as text_mod
+
+    before = recipe_fingerprint()
+    monkeypatch.setattr(text_mod, const, value)
+    assert recipe_fingerprint() != before
+
+
+def test_recipe_fingerprint_covers_the_fold_table(monkeypatch):
+    import belge_gozu.retrieval.text as text_mod
+
+    before = recipe_fingerprint()
+    monkeypatch.setattr(text_mod, "_FOLD", str.maketrans("ç", "c"))
+    assert recipe_fingerprint() != before

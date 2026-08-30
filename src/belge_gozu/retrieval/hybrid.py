@@ -45,8 +45,8 @@ from belge_gozu.retrieval.text import (
     BM25Index,
     extract_doc_name_tokens,
     route_window,
-    tokenize,
 )
+from belge_gozu.retrieval.text import routed_docs as _routed_docs
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import stage
 
@@ -173,9 +173,13 @@ class HybridRetriever:
         return _LAST_META.get()
 
     def routed_docs(self, query: str) -> set[str]:
-        """Adının jenerik-dışı TÜM token'ları sorguda geçen doküman(lar)."""
-        q_toks = set(tokenize(query))
-        return {doc for doc, toks in self.doc_names.items() if toks <= q_toks}
+        """Adının jenerik-dışı TÜM token'ları sorguda geçen doküman(lar).
+
+        Yüklem `retrieval/text.py`'de durur ve buradan DELEGE edilir: P2
+        kalibrasyonunun `routed` özelliği aynı fonksiyonu çağırır, yani
+        eğitim-zamanı özellik ile servis-zamanı davranış birbirinden sapamaz.
+        """
+        return _routed_docs(query, self.doc_names)
 
     def rank_all(self, query: str) -> list[str]:
         """Tam korpus sıralaması (reçetenin nihai sırası) — teşhis/bench/cırcır için.

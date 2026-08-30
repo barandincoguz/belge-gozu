@@ -42,10 +42,12 @@ corpus_app = typer.Typer()
 index_app = typer.Typer()
 metrics_app = typer.Typer()
 bench_app = typer.Typer()
+calibrate_app = typer.Typer(help="P2 güven kalibratörü: özellik çıkarımı, fit, değerlendirme")
 app.add_typer(corpus_app, name="corpus")
 app.add_typer(index_app, name="index")
 app.add_typer(metrics_app, name="metrics")
 app.add_typer(bench_app, name="bench")
+app.add_typer(calibrate_app, name="calibrate")
 
 DEFAULT_MANIFEST = Path("data/manifest/v0_manifest.csv")
 
@@ -789,6 +791,300 @@ def bench_oracle(
     typer.echo(f"oracle raporu -> {out}")
     if missing_gold_pages:
         typer.echo(f"missing_gold_pages={len(missing_gold_pages)}")
+
+
+# --------------------------------------------------------------------------
+# calibrate — P2 T5+T6
+# --------------------------------------------------------------------------
+
+DEFAULT_CANARY = Path("data/bench/canary_v1.jsonl")
+DEFAULT_UNANS = Path("data/bench/unans_v1.jsonl")
+DEFAULT_SPLITS = Path("data/bench/splits_v1.json")
+DEFAULT_CALIBRATION_REPORT = Path("data/bench/results/p2-calibration-dev-v1.json")
+
+
+class Split(StrEnum):
+    dev = "dev"
+    test = "test"
+
+
+def _gate_test_split(split: Split, yes_final_gate: bool) -> None:
+    """`--split test` = FAZ SONU KAPI KOŞUMU. Kazayla koşulamaz (G2.4).
+
+    Test bölmesi tek kullanımlıktır: üzerinde bir kez ölçüm yapıldıktan sonra
+    her ek koşum onu sessizce bir dev kümesine çevirir (eşik seçimi test
+    sayısına bakarak ayarlanmaya başlar) ve kapı sayısı geçerliliğini yitirir.
+    Bu yüzden bariyer bir bayrak DEĞİL, açık bir onaydır.
+    """
+    if split != Split.test:
+        return
+    typer.secho("=" * 78, err=True, fg=typer.colors.RED, bold=True)
+    typer.secho(
+        "UYARI — TEST BÖLMESİ: G2.4 gereği test tek koşumdur ve FAZ SONUNDA,\n"
+        "kapı koşumu olarak ölçülür. KAPI KOŞUMU DIŞINDA KULLANMAYIN: her ek\n"
+        "koşum test kümesini fiilen bir dev kümesine çevirir ve kapı sayısını\n"
+        "geçersiz kılar (eşik test'e bakarak seçilmiş olur).",
+        err=True,
+        fg=typer.colors.RED,
+        bold=True,
+    )
+    typer.secho("=" * 78, err=True, fg=typer.colors.RED, bold=True)
+    if not yes_final_gate:
+        raise typer.BadParameter(
+            "--split test için --yes-final-gate zorunludur (faz sonu kapı koşumu onayı)"
+        )
+
+
+def _calibration_setup(s: Settings, canary: Path, unans: Path, splits_path: Path):
+    """Metin kanalı + etiketli satırlar + veri künyesi (MODEL/AĞ YOK, saf CPU).
+
+    Görsel indeks YÜKLENMEZ: yalnız `page_ids.json` okunur ve BM25 metin
+    kanalı kurulur. Ölçülen özelliklerin tamamı metin yanındandır (görsel
+    özellikler AUC .34 ile ölçülmüş TERS yönde ve reddedildi), yani 481 MB'lık
+    `codes.npy`'yi mmap'lemek için hiçbir neden yok.
+    """
+    from belge_gozu.answer.calibrate import build_rows, load_rows, sha256_file
+    from belge_gozu.bench.dataset import load_splits
+    from belge_gozu.index.manifest import index_revision
+    from belge_gozu.retrieval.hybrid import load_text_channel
+
+    ids_path = s.index_dir / "page_ids.json"
+    if not ids_path.exists():
+        raise typer.BadParameter(
+            f"indeks dizininde page_ids.json yok: {s.index_dir} — "
+            "önce indeksi kurun/indirin (`belge-gozu index build` ya da `index pull`)"
+        )
+    manifest = read_manifest(s.index_dir)
+    if manifest is None:
+        raise typer.BadParameter(
+            f"{s.index_dir} indeksinde manifest.json yok; kalibrasyon artefaktı "
+            "hangi indekse ait olduğu bilinmeyen bir kurulumdan üretilemez"
+        )
+    page_ids = json.loads(ids_path.read_text(encoding="utf-8"))
+    bm25, doc_names = load_text_channel(s.index_dir, list(page_ids))
+
+    splits = load_splits(splits_path)
+    rows = []
+    data_files = []
+    for label, path in (("canary", canary), ("unans", unans)):
+        raw = load_rows(path, only_verified=True)
+        rows.extend(build_rows(raw, splits, bm25, doc_names, source=label))
+        data_files.append(
+            {"name": label, "path": str(path), "sha256": sha256_file(path), "n_verified": len(raw)}
+        )
+    splits_meta = json.loads(splits_path.read_text(encoding="utf-8"))
+    kunye = {
+        "data_files": data_files,
+        "splits": {
+            "path": str(splits_path),
+            "sha256": sha256_file(splits_path),
+            "version": splits_meta.get("version"),
+            "seed": splits_meta.get("seed"),
+            "scheme": splits_meta.get("scheme"),
+        },
+        "index_dir": str(s.index_dir),
+        "index_manifest": manifest.model_dump(),
+        "only_verified": True,
+        "label_definition": (
+            "safe_to_answer=1 <=> answerable=True VE gold sayfa BM25+yönlendirme "
+            "top-5'inde; cevaplanamaz TÜM sorular ve getirimi ıskalayan "
+            "cevaplanabilir sorular 0 (LLM kullanılmadı)"
+        ),
+    }
+    return bm25, doc_names, rows, index_revision(manifest), kunye
+
+
+def _echo_rc_head(curve: list[dict], limit: int = 8) -> None:
+    typer.echo("  tau      coverage  risk")
+    for pt in sorted(curve, key=lambda p: -p["coverage"])[:limit]:
+        typer.echo(f"  {pt['tau']:.6f}  {pt['coverage']:.4f}    {pt['risk']:.4f}")
+
+
+@calibrate_app.command("fit")
+def calibrate_fit(
+    split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
+    canary: Path = typer.Option(DEFAULT_CANARY, "--canary"),  # noqa: B008
+    unans: Path = typer.Option(DEFAULT_UNANS, "--unans"),  # noqa: B008
+    splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
+    max_risk: float = typer.Option(0.05, "--max-risk"),  # noqa: B008
+    alpha: float = typer.Option(0.05, "--alpha"),  # noqa: B008
+    calibration_dir_opt: Path | None = typer.Option(None, "--calibration-dir"),  # noqa: B008
+    out: Path = typer.Option(DEFAULT_CALIBRATION_REPORT, "--out"),  # noqa: B008
+    # Künyeye serbest metin not. Bench verisi AKTİF TASLAKTA olduğu için gerekli:
+    # `--unans` bir dosya YOLU alır, ama koşumun kimliği o yolun O ANKİ İÇERİĞİDİR
+    # (künyedeki sha256). Dosya sonradan değişince yol tek başına yanıltıcı olur;
+    # not, hangi sürüme sabitlendiğini (ör. bir commit) insan diliyle yazar.
+    note: str = typer.Option("", "--note"),  # noqa: B008
+    yes_final_gate: bool = typer.Option(False, "--yes-final-gate"),  # noqa: B008
+) -> None:
+    """Güven kalibratörünü fit eder: sürüm-anahtarlı artefakt + künyeli koşum raporu.
+
+    Model/ağ/kota KULLANMAZ — özelliklerin tamamı BM25 metin kanalından ve
+    sorgudan hesaplanır, etiket ise gold sayfanın top-5'te olup olmadığından.
+    """
+    from belge_gozu.answer.calibrate import (
+        CALIBRATOR_FILENAME,
+        calibration_dir,
+        fit_calibration,
+    )
+
+    _gate_test_split(split, yes_final_gate)
+    s = _settings()
+    if s.retrieval_pipeline != "hybrid":
+        raise typer.BadParameter(
+            f"calibrate fit yalnız hybrid boru hattı için tanımlı (özellikler BM25 metin "
+            f"kanalından okunur); BG_RETRIEVAL_PIPELINE={s.retrieval_pipeline}"
+        )
+
+    _, _, rows, revision, kunye = _calibration_setup(s, canary, unans, splits_path)
+    subset = [r for r in rows if r.split == split.value]
+    if not subset:
+        raise typer.BadParameter(f"{split.value} bölmesinde hiç soru yok")
+    kunye["split"] = split.value
+    if note:
+        kunye["note"] = note
+
+    artifact = fit_calibration(
+        subset,
+        index_revision=revision,
+        pipeline=s.retrieval_pipeline,
+        max_risk=max_risk,
+        alpha=alpha,
+        data_kunye=kunye,
+    )
+    base = calibration_dir_opt or (s.data_dir / "calibration")
+    art_dir = calibration_dir(base, artifact.key)
+    art_path = artifact.save(art_dir)
+
+    counts = artifact.kunye["counts"]
+    metrics = artifact.kunye["dev_metrics"]
+    report = {
+        "run_id": f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-calibrate-{split.value}",
+        "git_commit": git_commit(),
+        "created_at": artifact.kunye["created_at"],
+        "split": split.value,
+        "key": artifact.key,
+        "index_revision": artifact.index_revision,
+        "pipeline": artifact.pipeline,
+        "recipe_fingerprint": artifact.recipe_fingerprint,
+        "artifact_path": str(art_path),
+        "artifact_committed": False,
+        "kunye": {k: v for k, v in artifact.kunye.items() if k != "dev_metrics"},
+        "calibrator": artifact.calibrator.to_dict(),
+        "thresholds": artifact.thresholds,
+        "metrics": metrics,
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    typer.echo(
+        f"bölme={split.value} n={counts['total']} "
+        f"(pozitif={counts['positive_safe_to_answer']}, negatif={counts['negative']})"
+    )
+    typer.echo(
+        f"  cevaplanabilir={counts['answerable']} "
+        f"(gold@5={counts['answerable_gold_in_top5']}, ıska={counts['answerable_retrieval_miss']}) "
+        f"cevaplanamaz={counts['unanswerable']}"
+    )
+    if counts["answerable"] < 20 or counts["unanswerable"] < 40:
+        typer.secho(
+            "  UYARI: dev n eşiğin altında (cevaplanabilir<20 ya da cevaplanamaz<40) — "
+            "bu fit KIRILGANDIR, CI'lar geniştir",
+            fg=typer.colors.YELLOW,
+            bold=True,
+        )
+    fi = artifact.calibrator.fit_info
+    typer.echo(f"fit: iter={fi['n_iter']} converged={fi['converged']} nll={fi['final_nll']:.4f}")
+    for name, w in zip(artifact.calibrator.feature_names, artifact.calibrator.weights, strict=True):
+        typer.echo(f"  w[{name}] = {w:+.4f}")
+    typer.echo(f"  bias = {artifact.calibrator.bias:+.4f}")
+
+    ch = artifact.thresholds["chosen"]
+    typer.echo(
+        f"tau({ch['name']})={ch['value']:.6f} coverage={ch['coverage']:.3f} risk={ch['risk']:.3f}"
+    )
+    typer.echo(f"  gerekçe: {ch['rationale']}")
+    conf = artifact.thresholds["conformal"]
+    typer.echo(f"  conformal: {conf['note']}")
+    auroc_val = metrics.get("auroc")
+    auroc_txt = f"{auroc_val:.4f}" if auroc_val is not None else "yok (tek sınıf)"
+    typer.echo(
+        f"dev: auroc={auroc_txt} brier={metrics['brier']:.4f} "
+        f"ece={metrics['ece']:.4f} aurc={metrics['aurc']:.4f}"
+    )
+    far = metrics.get("false_answer_on_unanswerable")
+    if far:
+        typer.echo(
+            f"     DEV yanlış-yanıt (cevaplanamaz): {far['rate']:.4f} "
+            f"({far['errors']}/{far['n']}, %95 üst sınır {far['upper_bound_95']:.4f}) "
+            "— G2.1 KAPI SAYISI DEĞİL"
+        )
+    typer.echo("risk-coverage (kapsama azalan, ilk 8):")
+    _echo_rc_head(metrics["risk_coverage"])
+    typer.echo(f"artefakt -> {art_path} ({CALIBRATOR_FILENAME} gitignore'da; yeniden üretilebilir)")
+    typer.echo(f"rapor -> {out}")
+
+
+@calibrate_app.command("eval")
+def calibrate_eval(
+    split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
+    canary: Path = typer.Option(DEFAULT_CANARY, "--canary"),  # noqa: B008
+    unans: Path = typer.Option(DEFAULT_UNANS, "--unans"),  # noqa: B008
+    splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
+    calibration_dir_opt: Path | None = typer.Option(None, "--calibration-dir"),  # noqa: B008
+    out: Path | None = typer.Option(None, "--out"),  # noqa: B008
+    yes_final_gate: bool = typer.Option(False, "--yes-final-gate"),  # noqa: B008
+) -> None:
+    """Kayıtlı artefaktı yükleyip metrikleri YENİDEN hesaplar (fit ile aynı `evaluate` kodu)."""
+    from belge_gozu.answer.calibrate import (
+        calibration_dir,
+        calibration_key,
+        evaluate,
+        load_calibrator,
+    )
+
+    _gate_test_split(split, yes_final_gate)
+    s = _settings()
+    _, _, rows, revision, _ = _calibration_setup(s, canary, unans, splits_path)
+    subset = [r for r in rows if r.split == split.value]
+    if not subset:
+        raise typer.BadParameter(f"{split.value} bölmesinde hiç soru yok")
+
+    key = calibration_key(revision, s.retrieval_pipeline)
+    base = calibration_dir_opt or (s.data_dir / "calibration")
+    artifact = load_calibrator(calibration_dir(base, key), key)
+    metrics = evaluate(artifact, subset)
+
+    typer.echo(f"anahtar={key}")
+    typer.echo(
+        f"bölme={split.value} n={metrics['n']} "
+        f"(pozitif={metrics['n_positive']}, negatif={metrics['n_negative']})"
+    )
+    risk_at = metrics["risk_at_tau"]
+    risk_txt = f"{risk_at:.3f}" if risk_at is not None else "tanımsız (kapsama 0)"
+    typer.echo(
+        f"tau={metrics['tau']:.6f} coverage={metrics['coverage_at_tau']:.3f} risk={risk_txt}"
+    )
+    auroc_val = metrics.get("auroc")
+    auroc_txt = f"{auroc_val:.4f}" if auroc_val is not None else "yok (tek sınıf)"
+    typer.echo(
+        f"auroc={auroc_txt} brier={metrics['brier']:.4f} "
+        f"ece={metrics['ece']:.4f} aurc={metrics['aurc']:.4f}"
+    )
+    typer.echo("risk-coverage (kapsama azalan, ilk 8):")
+    _echo_rc_head(metrics["risk_coverage"])
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        stamp = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}"
+        payload = {
+            "run_id": f"{stamp}-calibrate-eval-{split.value}",
+            "git_commit": git_commit(),
+            "key": key,
+            "split": split.value,
+            "metrics": metrics,
+        }
+        out.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        typer.echo(f"rapor -> {out}")
 
 
 @app.command("serve")
