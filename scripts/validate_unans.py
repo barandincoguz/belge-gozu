@@ -52,7 +52,8 @@ from belge_gozu.bench.dataset import (  # noqa: E402
     load_splits,
 )
 
-SLICE_EXPECT = {"korpus-disi": 200, "anlamsiz-ood": 60, "eksik-kanit": 40}
+# korpus-disi: 200 + u301-u330 yedek partisi (ret açıkları; ledger R33)
+SLICE_EXPECT = {"korpus-disi": 230, "anlamsiz-ood": 60, "eksik-kanit": 40}
 # dilim -> (verification_status, verified_by, verification_kind)
 # Dilim başına İZİNLİ doğrulama künyeleri (status, verified_by, kind).
 # Çapraz-kontrol (2026-08-30, drafter≠checker) sonrası durumlar da geçerlidir;
