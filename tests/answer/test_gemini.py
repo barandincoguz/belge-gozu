@@ -1,8 +1,23 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from belge_gozu.answer.gemini import GeminiAnswerer, GeminiClient, GenResult, build_prompt
+from belge_gozu.answer.base import ERROR_TYPES, HONEST_MISS_MARKER, AnswererError
+from belge_gozu.answer.gemini import (
+    GEMINI_MAX_ATTEMPTS,
+    GEMINI_RETRY_BACKOFF_S,
+    GEMINI_TIMEOUT_S,
+    GEMINI_TOTAL_BUDGET_S,
+    RETRYABLE_ERROR_TYPES,
+    SYSTEM,
+    GeminiAnswerer,
+    GeminiClient,
+    GenResult,
+    build_prompt,
+    classify_error,
+    source_marker,
+)
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import collecting
 
@@ -18,10 +33,19 @@ def hit(pid: str) -> PageHit:
     )
 
 
-def test_prompt_mentions_sources():
+def test_prompt_references_interleaved_markers_and_not_a_source_list():
+    """B14: kaynak künyeleri artık istemde DEĞİL, görüntülerin arasında.
+
+    İstem yalnız kuralı ("etiket kendinden SONRAKİ görüntüye aittir") ve sayfa
+    sayısını söyler; `[S1] doküman, sayfa N` listesi kaldırıldı çünkü aynı
+    bilgi `build_contents` ile her görüntünün ÖNÜNE konuyor. İstemde ikinci bir
+    kopya kalsaydı iki künye sessizce ayrışabilirdi.
+    """
     p = build_prompt("kira artışı sınırı nedir?", [hit("k6098:12"), hit("k6098:13")])
-    assert "[S1]" in p and "[S2]" in p and "kira artışı" in p
-    assert "Türk Borçlar Kanunu" in p and "sayfa 12" in p
+    assert "kira artışı" in p
+    assert "[S1]" in p and "[S2]" in p  # etiket aralığı istemde ilan edilir
+    assert "2 sayfa görüntüsü" in p
+    assert "Türk Borçlar Kanunu" not in p  # künye listesi İSTEMDE DEĞİL
 
 
 def test_citations_parsed_from_response():
@@ -56,17 +80,19 @@ def test_client_generate_raises_on_empty_key():
     # guard zaten Exception'ı genel yakalıyor (base.py) — testin amacı sınıf değil,
     # "patlıyor mu" sorusu.
     client = GeminiClient("m", "")
-    with pytest.raises(Exception):  # noqa: B017
-        client.generate("p", [])
+    with pytest.raises(AnswererError) as ei:
+        client.generate("p", [b"img"], ["[S1] X sayfa 1"])
+    # Y15: artık yalnız "patlıyor" değil, NEDEN patladığı da taşınıyor.
+    assert ei.value.error_type == "auth"
 
 
 class StubClient:
-    def generate(self, prompt, images):
+    def generate(self, prompt, images, markers):
         return GenResult(text="cevap [S1]", tokens_in=1234, tokens_out=56)
 
 
 class StubClientNoUsage:
-    def generate(self, prompt, images):
+    def generate(self, prompt, images, markers):
         return GenResult(text="cevap [S1]")
 
 
@@ -82,3 +108,205 @@ def test_answer_without_usage_annotates_nothing():
     with collecting() as col:
         ans.answer("soru", [hit("k1:1")], lambda p: b"img")
     assert "tokens_in" not in col.notes and "tokens_out" not in col.notes
+
+
+# --- B14: [Sk] <-> görüntü AÇIK bağlama -------------------------------------
+#
+# Eskiden `contents=[*parts, prompt]` idi: önce 5 ETİKETSİZ görüntü, sonra tek
+# metin bloğu. Modelin k'ıncı görüntüyü `[Sk]` ile eşlemesi tamamen KONUMSAL
+# çıkarımdı ve hiçbir yerde doğrulanmıyordu — bu düzeltilmeden ölçülecek
+# "citation precision" konumsal şansı ölçerdi (G2.2 önkoşulu). Testler yapı
+# düzeyindedir: kurulan `contents` listesi incelenir, canlı çağrı YAPILMAZ.
+
+
+class FakeSDKModels:
+    """genai.Client().models yerine geçen kayıt tutucu."""
+
+    def __init__(self, text="cevap [S1]", raises=None):
+        self.calls = []
+        self._text = text
+        self._raises = raises
+
+    def generate_content(self, *, model, contents):
+        self.calls.append({"model": model, "contents": contents})
+        if self._raises:
+            raise self._raises.pop(0)
+        return SimpleNamespace(text=self._text, usage_metadata=None)
+
+
+def _client_with(models: FakeSDKModels) -> GeminiClient:
+    c = GeminiClient("m", "k")
+    c._client = SimpleNamespace(models=models)  # SDK'ya hiç dokunulmaz
+    return c
+
+
+def test_contents_interleave_marker_then_image_then_prompt():
+    c = GeminiClient("m", "k")
+    contents = c.build_contents("İSTEM", [b"a", b"b"], ["[S1] X sayfa 1", "[S2] Y sayfa 9"])
+    assert len(contents) == 5
+    assert contents[0] == "[S1] X sayfa 1"
+    assert contents[2] == "[S2] Y sayfa 9"
+    assert contents[4] == "İSTEM"
+    # 1. ve 3. konumlar görüntü part'ları — ve SIRA korunmuş.
+    assert [p.inline_data.data for p in (contents[1], contents[3])] == [b"a", b"b"]
+    assert all(p.inline_data.mime_type == "image/webp" for p in (contents[1], contents[3]))
+
+
+def test_contents_rejects_marker_image_mismatch():
+    c = GeminiClient("m", "k")
+    with pytest.raises(ValueError, match="eşleşmiyor"):
+        c.build_contents("p", [b"a", b"b"], ["[S1] tek"])
+
+
+def test_answerer_binds_each_marker_to_its_own_page():
+    """Uçtan uca yapı: `[Sk]` metni k'ıncı sayfanın künyesini taşır ve k'ıncı
+    görüntünün HEMEN ÖNÜNDE durur."""
+    models = FakeSDKModels()
+    pages = [hit("k1:12"), hit("k2:7")]
+    pages[1] = pages[1].model_copy(update={"doc_name": "İş Kanunu", "page_no": 7})
+    loader = {p.image_path: f"img{i}".encode() for i, p in enumerate(pages)}
+    ans = GeminiAnswerer("m", "k", client=_client_with(models))
+    ans.answer("soru", pages, lambda p: loader[p])
+    contents = models.calls[0]["contents"]
+    assert contents[0] == "[S1] Türk Borçlar Kanunu sayfa 12"
+    assert contents[1].inline_data.data == b"img0"
+    assert contents[2] == "[S2] İş Kanunu sayfa 7"
+    assert contents[3].inline_data.data == b"img1"
+    assert isinstance(contents[4], str) and "Soru: soru" in contents[4]
+
+
+def test_source_marker_shape():
+    assert source_marker(3, hit("k1:12")) == "[S3] Türk Borçlar Kanunu sayfa 12"
+
+
+def test_system_prompt_embeds_the_single_source_honest_miss_marker():
+    """S35/D3 borcu: modele DAYATILAN ifade ile sunucunun ARADIĞI ifade tek
+    sabitten gelir; ikisi elle yazılmış olsaydı sessizce ayrışabilirdi."""
+    assert HONEST_MISS_MARKER in SYSTEM
+    assert HONEST_MISS_MARKER in build_prompt("s", [hit("k1:1")])
+
+
+# --- Y15: zaman aşımı, tek retry, hata taksonomisi ---------------------------
+
+
+def test_timeout_budget_stays_under_the_declared_ceiling():
+    """Bütçe aritmetiği kilitli: denemeler + backoff <= tavan."""
+    worst = GEMINI_MAX_ATTEMPTS * GEMINI_TIMEOUT_S + (GEMINI_MAX_ATTEMPTS - 1) * (
+        GEMINI_RETRY_BACKOFF_S
+    )
+    assert worst <= GEMINI_TOTAL_BUDGET_S
+    assert GEMINI_MAX_ATTEMPTS == 2  # "TEK retry"
+
+
+def test_client_passes_timeout_to_the_sdk(monkeypatch):
+    """Zaman aşımı SDK'ya GERÇEKTEN geçiyor mu (Y15'in tek maddesi)."""
+    captured = {}
+
+    class FakeGenai:
+        @staticmethod
+        def Client(*, api_key, http_options):  # noqa: N802 - SDK adı
+            captured["api_key"] = api_key
+            captured["timeout_ms"] = http_options.timeout
+            return SimpleNamespace(models=FakeSDKModels())
+
+    import google.genai as real_genai
+
+    monkeypatch.setattr(real_genai, "Client", FakeGenai.Client)
+    GeminiClient("m", "anahtar", timeout_s=12.0)._ensure_client()
+    assert captured["api_key"] == "anahtar"
+    assert captured["timeout_ms"] == 12_000  # SDK sözleşmesi: MİLİSANİYE
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        (TimeoutError("yavaş"), "timeout"),
+        (ValueError("Missing key inputs argument! api_key"), "auth"),
+        (RuntimeError("bilinmeyen"), "other"),
+    ],
+)
+def test_classify_error_taxonomy(exc, expected):
+    assert classify_error(exc) == expected
+    assert classify_error(exc) in ERROR_TYPES
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [(429, "http_429"), (401, "auth"), (403, "auth"), (500, "http_5xx"), (503, "http_5xx")],
+)
+def test_classify_api_error_by_http_code(code, expected):
+    from google.genai import errors as genai_errors
+
+    exc = genai_errors.APIError(code, {"error": {"message": "x", "status": "S"}})
+    assert classify_error(exc) == expected
+    assert expected in ERROR_TYPES
+
+
+def test_httpx_timeout_is_classified_as_timeout():
+    import httpx
+
+    assert classify_error(httpx.ReadTimeout("read")) == "timeout"
+    assert classify_error(httpx.ConnectTimeout("connect")) == "timeout"
+
+
+def test_timeout_is_retried_exactly_once_then_raises_taxonomy(monkeypatch):
+    slept = []
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", slept.append)
+    models = FakeSDKModels(raises=[TimeoutError("1"), TimeoutError("2")])
+    with pytest.raises(AnswererError) as ei:
+        _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
+    assert ei.value.error_type == "timeout"
+    assert len(models.calls) == GEMINI_MAX_ATTEMPTS  # tam olarak TEK yeniden deneme
+    assert slept == [GEMINI_RETRY_BACKOFF_S]
+
+
+def test_retry_succeeds_on_the_second_attempt(monkeypatch):
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", lambda s: None)
+    from google.genai import errors as genai_errors
+
+    models = FakeSDKModels(raises=[genai_errors.ServerError(503, {"error": {"message": "down"}})])
+    with collecting() as col:
+        out = _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
+    assert out.text == "cevap [S1]"
+    assert len(models.calls) == 2
+    assert col.notes["gemini_retried"] is True
+
+
+def test_rate_limit_is_not_retried(monkeypatch):
+    """429 retry EDİLMEZ: kota aşımında ikinci istek durumu kötüleştirir ve
+    faturayı büyütür."""
+    slept = []
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", slept.append)
+    from google.genai import errors as genai_errors
+
+    models = FakeSDKModels(raises=[genai_errors.ClientError(429, {"error": {"message": "quota"}})])
+    with pytest.raises(AnswererError) as ei:
+        _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
+    assert ei.value.error_type == "http_429"
+    assert len(models.calls) == 1 and slept == []
+    assert "http_429" not in RETRYABLE_ERROR_TYPES
+
+
+def test_safety_block_is_its_own_error_type():
+    """Boş yanıt + blok sebebi = "cevaplamamalı" sınıfı; "cevaplayamadı" değil."""
+
+    class BlockedModels(FakeSDKModels):
+        def generate_content(self, *, model, contents):
+            self.calls.append(contents)
+            return SimpleNamespace(
+                text="",
+                prompt_feedback=SimpleNamespace(block_reason=SimpleNamespace(name="SAFETY")),
+            )
+
+    with pytest.raises(AnswererError) as ei:
+        _client_with(BlockedModels()).generate("p", [b"i"], ["[S1] X sayfa 1"])
+    assert ei.value.error_type == "safety_block"
+
+
+def test_ensure_client_is_locked():
+    """K33: kilitsiz tembel kurulum iki eşzamanlı ilk /ask'te yavaş SDK
+    import'unu istek yolunda ÇAKIŞARAK yapıyordu."""
+    import threading
+
+    c = GeminiClient("m", "k")
+    assert isinstance(c._client_lock, type(threading.Lock()))

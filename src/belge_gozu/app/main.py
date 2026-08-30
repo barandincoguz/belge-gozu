@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, Field
 
-from belge_gozu.answer.base import Answer, AskService
+from belge_gozu.answer.base import Answer, AskService, is_honest_miss
 from belge_gozu.config import (
     PIPELINE_SCORE_SCALE,
     THRESHOLD_CALIBRATED_ON,
@@ -63,6 +63,12 @@ MAX_K = 50
 # (sondaj bulgusu: "", "   ", "bu ne için" hepsi böyle davranıyordu). 422 bunu
 # sessiz saçmalık yerine açık bir girdi hatasına çevirir.
 EMPTY_QUERY_DETAIL = "sorgu boş ya da yalnız işlev kelimeleri içeriyor"
+
+# Reddedilen isteklerin (`status='rejected'`) `error_type` değerleri. HTTP
+# kodundan TÜRETİLİR (aşağıda `_REJECT_REASONS`), elle yazılmaz.
+REJECT_VALIDATION = "validation"
+REJECT_RATE_LIMITED = "rate_limited"
+_REJECT_REASONS = {422: REJECT_VALIDATION, 429: REJECT_RATE_LIMITED}
 
 
 class SearchBody(BaseModel):
@@ -449,6 +455,7 @@ def create_app(
         margin = (hits[0].score - hits[1].score) if len(hits) >= 2 else None
         tokens_in = col.notes.get("tokens_in")
         tokens_out = col.notes.get("tokens_out")
+        noted_error = col.notes.get("error_type")
         answer_ms = col.stages.get("answerer")
         tps = None
         if isinstance(tokens_out, int) and answer_ms and answer_ms > 0:
@@ -458,9 +465,11 @@ def create_app(
             cost = (tokens_in / 1e6) * s.gemini_price_in_usd_per_1m + (
                 tokens_out / 1e6
             ) * s.gemini_price_out_usd_per_1m
-        honest_miss = None
-        if answer is not None and not answer.abstained:
-            honest_miss = "bulamadım" in answer.text.lower()  # sezgisel (spec §5)
+        # Dürüst-ıska: TEK hesap yolu (`answer.base.is_honest_miss`). Aynı
+        # değer `/ask` gövdesine, `events.honest_miss` kolonuna ve
+        # `prom.observe` üzerinden `bg_honest_miss_total`a gider — üç yerde üç
+        # ayrı sezgi tutulmaz (Y17/Y32/K27).
+        honest_miss = is_honest_miss(answer) if answer is not None else None
         # Getirici kendi künyesini sunuyorsa (hibrit: iki kanalın top-1'i +
         # yönlendirilen dokümanlar) olaya karışır. `getattr` korumalı:
         # exhaustive/two-stage kolları etkilenmez, künye üretmeyen bir
@@ -494,8 +503,14 @@ def create_app(
             tokens_out=tokens_out if isinstance(tokens_out, int) else None,
             tokens_per_s=tps,
             est_cost_usd=cost,
-            error_type=error_type,
+            # Y20: yanıtlayıcı hataları `service.ask`ten KAÇMAZ (AskService
+            # yutup degraded'a çevirir), o yüzden buradaki açık `error_type`
+            # kwarg'ı yalnız 500 yolunda dolar. Degraded satırların hata sınıfı
+            # `AskService`in annotate ettiği notlardan gelir — bu bağlantı
+            # kurulmadığı için hibrit satırların 114/114'ünde kolon NULL'du.
+            error_type=error_type or (noted_error if isinstance(noted_error, str) else None),
             pipeline=s.retrieval_pipeline,
+            score_scale=PIPELINE_SCORE_SCALE[s.retrieval_pipeline],
             index_revision=index_revision,
             detail={
                 "hits": [{"page_id": h.page_id, "score": h.score} for h in hits],
@@ -519,6 +534,69 @@ def create_app(
         except Exception:
             logger.exception("telemetri olayı işlenemedi (istek etkilenmedi)")
 
+    def record_rejection(*, endpoint: str, http_status: int, total_ms: float, query: str) -> None:
+        """422/429 için MİNİMAL olay satırı + `bg_rejected_total{reason}` (Y23).
+
+        Neden minimal: getirici hiç çağrılmadı, yani skor/aşama/atıf alanlarının
+        hiçbirinin karşılığı yok — dolduruldukları takdirde P2'nin okuyacağı
+        tabloya sahte sıfırlar girerdi. Yazılan şey isteğin VAR OLDUĞU: hangi
+        uç nokta, hangi sebep, ne kadar sürdü, sorgunun kimliği.
+
+        Neden yazılıyor: "sistem kaç kere içeriksiz sorgu reddetti?" sorusunun
+        cevabı hiçbir yerde yoktu; oysa 422'ler P2 için **"cevaplanmaması
+        gereken" sınıfının en temiz örnekleridir** ve 429'lar trafik profilinde
+        görünmez bir delik açıyordu.
+
+        `prom.observe` KULLANILMAZ: bu satırların `total_ms`'i sub-ms'dir ve
+        gecikme histogramına karışırsa uç nokta p95'ini aşağı çeker. Görünürlük
+        `bg_rejected_total{reason}` üzerinden sağlanır.
+
+        Pydantic düzeyinde reddedilen istekler (gövde `max_length`, `k` aralığı)
+        buraya HİÇ ULAŞMAZ — uç nokta gövdesi çalışmadan 422 dönerler. Bu
+        dürüstçe bir kapsam sınırıdır, metrik kataloğunda yazılıdır.
+        """
+        reason = _REJECT_REASONS.get(http_status, "other")
+        try:
+            prom.rejected.labels(reason=reason).inc()
+            rec.record(
+                RequestEvent(
+                    ts=datetime.now(UTC).isoformat(),
+                    endpoint=endpoint,
+                    status="rejected",
+                    http_status=http_status,
+                    total_ms=total_ms,
+                    query_len=len(query),
+                    query_text=query if s.log_query_text else None,
+                    query_sha256=hashlib.sha256(query.encode()).hexdigest(),
+                    error_type=reason,
+                    pipeline=s.retrieval_pipeline,
+                    score_scale=PIPELINE_SCORE_SCALE[s.retrieval_pipeline],
+                    index_revision=index_revision,
+                )
+            )
+        except Exception:
+            logger.exception("ret olayı işlenemedi (istek etkilenmedi)")
+
+    def guard(endpoint: str, text: str, request: Request, limiter: RateLimiter) -> None:
+        """Doğrulama + hız sınırı; reddedilirse olay yazar ve HTTPException'ı geçirir.
+
+        L2 (korunuyor): doğrulama ÖNCE, sınırlayıcı SONRA — geçersiz bir istek
+        kota jetonu HARCAMAMALI. Sıra tersken 3000 karakterlik bir sorgu
+        bedavaydı ama "bu ne için" jeton yakıyordu.
+        """
+        t0 = time.perf_counter()
+        try:
+            require_searchable(text)
+            enforce_rate_limit(limiter, request, endpoint, prom)
+        except HTTPException as exc:
+            record_rejection(
+                endpoint=endpoint,
+                http_status=exc.status_code,
+                total_ms=(time.perf_counter() - t0) * 1000,
+                query=text,
+            )
+            raise
+
     @app.get("/healthz")
     def healthz() -> dict:
         # `index` bloğu (T14): eşik ile hangi TEMSİLİN servis edildiği tek
@@ -537,12 +615,10 @@ def create_app(
 
     @app.post("/search")
     def search(body: SearchBody, request: Request) -> dict[str, list[PageHit]]:
-        # L2: doğrulama ÖNCE, sınırlayıcı SONRA — geçersiz bir istek (burada:
-        # içeriksiz sorgu; pydantic'in kendi doğrulaması zaten gövdeye hiç
-        # ulaşmadan 422 verir) kota jetonu HARCAMAMALI. Sıra tersken 3000
-        # karakterlik bir sorgu bedavaydı ama "bu ne için" jeton yakıyordu.
-        require_searchable(body.query)
-        enforce_rate_limit(search_limiter, request, "/search", prom)
+        # Doğrulama + hız sınırı + RET OLAYI tek yerde (`guard`); sıra
+        # gerekçesi orada. Pydantic'in kendi doğrulaması (gövde `max_length`,
+        # `k` aralığı) buraya hiç ulaşmadan 422 verir ve olay yazılmaz.
+        guard("/search", body.query, request, search_limiter)
         t0 = time.perf_counter()
         cand = s.stage1_candidates if s.retrieval_pipeline == "two-stage" else None
         with collecting() as col, prom.inflight("/search"):
@@ -581,9 +657,8 @@ def create_app(
 
     @app.post("/ask")
     def ask(body: AskBody, request: Request) -> dict:
-        # L2: bkz. /search'teki aynı sıra değişikliği yorumu.
-        require_searchable(body.question)
-        enforce_rate_limit(ask_limiter, request, "/ask", prom)
+        # bkz. /search'teki aynı `guard` yorumu.
+        guard("/ask", body.question, request, ask_limiter)
         t0 = time.perf_counter()
         cand = s.stage1_candidates if s.retrieval_pipeline == "two-stage" else None
         with collecting() as col, prom.inflight("/ask"):
@@ -607,6 +682,7 @@ def create_app(
                 status = "abstained"
             else:
                 status = "answered"
+            honest_miss = is_honest_miss(answer)
             record_event(
                 endpoint="/ask",
                 status=status,
@@ -626,8 +702,16 @@ def create_app(
         # bozardı. Üç değer: "answered" (dürüst "bulamadım" DAHİL — o da bir
         # yanıttır), "abstained" (eşik altı, LLM hiç çağrılmadı),
         # "degraded" (yanıtlayıcı patladı, sayfalar hâlâ geçerli).
+        #
+        # `honest_miss` (Y17) `status`'a DÖRDÜNCÜ BİR DEĞER OLARAK EKLENMEDİ,
+        # ayrı bir bayrak: dürüst ıska bir `answered` ALT durumudur (LLM
+        # çağrıldı, yanıt üretti, sayfalarda dayanak bulamadığını söyledi) ve
+        # `status`'a yeni bir değer eklemek her mevcut istemciyi sessizce
+        # yanlış dala düşürürdü. Sunucunun HESAPLADIĞI değerin ta kendisidir —
+        # `events.honest_miss` ve `bg_honest_miss_total` ile aynı satır.
         return {
             "status": status,
+            "honest_miss": honest_miss,
             "answer": answer.model_dump(),
             "hits": [h.model_dump() for h in hits],
         }

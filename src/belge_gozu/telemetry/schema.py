@@ -18,6 +18,7 @@ EVENTS_DDL = """CREATE TABLE IF NOT EXISTS events (
   tokens_in INTEGER, tokens_out INTEGER, tokens_per_s REAL, est_cost_usd REAL,
   error_type TEXT,
   pipeline TEXT,
+  score_scale TEXT,
   index_revision TEXT,
   detail TEXT NOT NULL DEFAULT '{}'
 )"""
@@ -57,5 +58,13 @@ class RequestEvent(BaseModel):
     est_cost_usd: float | None = None
     error_type: str | None = None
     pipeline: str | None = None
+    # `top_score`/`margin_1_2` HANGİ ÖLÇEKTE (Y18). `pipeline`'dan TÜREYEN bir
+    # etikettir ama ayrı bir kolon olarak yazılır: analiz tarafı (P2
+    # kalibratörü) pipeline adları ile ölçek adlarının haritasını BİLMEK
+    # zorunda kalmasın, satır kendi ölçeğini söylesin. Kaynak tek:
+    # `config.PIPELINE_SCORE_SCALE` — elle ikinci bir harita YOKTUR.
+    # Migrasyon ÖNCESİ satırlar NULL kalır ve öyle KALMALIDIR: o satırların
+    # hangi ölçekte olduğu geriye dönük olarak bilinmiyor, uydurulmaz.
+    score_scale: str | None = None
     index_revision: str | None = None
     detail: dict = Field(default_factory=dict)

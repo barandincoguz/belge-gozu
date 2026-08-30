@@ -24,7 +24,7 @@ Her `/ask` ve `/search` isteği bu tabloya bir satır düşürür (WAL modlu SQL
 | `id` | INTEGER PK | — | `telemetry/schema.py` (`EVENTS_DDL`) | satır kimliği | 1 |
 | `ts` | TEXT | ISO-8601 UTC | `app/main.py` (route handler) | zaman serisi analizleri, bulgu notu künyesi | 1 |
 | `endpoint` | TEXT | — (`/ask`\|`/search`) | `app/main.py` | endpoint bazlı kırılım (RPS, gecikme, maliyet) | 1 |
-| `status` | TEXT | — (`/ask`: answered\|abstained\|degraded\|error · `/search`: ok\|error) | `app/main.py` | sonuç dağılımı; hata oranı = error/toplam | 1 |
+| `status` | TEXT | — (`/ask`: answered\|abstained\|degraded\|error · `/search`: ok\|error · her ikisi: **rejected**) | `app/main.py` | sonuç dağılımı; hata oranı = error/toplam; `rejected` = 422/429 (Y23) | 1 |
 | `http_status` | INTEGER | HTTP kodu | `app/main.py` | client hatası mı server hatası mı ayrımı | 1 |
 | `total_ms` | REAL | ms | `app/main.py` (RequestTimer) | uçtan uca gecikme — kullanıcının hissettiği | 1 |
 | `encode_ms` | REAL, NULL olabilir | ms | `retrieval/core.py` `with stage("query_encode")` | darboğaz ayrıştırması: embedding aşaması | 1 |
@@ -34,7 +34,7 @@ Her `/ask` ve `/search` isteği bu tabloya bir satır düşürür (WAL modlu SQL
 | `top_score` | REAL | skor birimi (spec eşiği ile aynı ölçek) | `retrieval` → `app/main.py` birleştirme | eşik kalibrasyonu, skor driftini izleme | 1 |
 | `margin_1_2` | REAL | skor birimi | `retrieval` → `app/main.py` birleştirme | top1−top2: retrieval kararlılığı/belirsizliği | 1 |
 | `abstained` | INTEGER 0/1, yalnız `/ask` | bool | `answer/base.py` (`Answer.abstained`) | halüsinasyon freninin ne sıklıkla tetiklendiği | 1 |
-| `honest_miss` | INTEGER 0/1, **sezgisel** | bool | `app/main.py:118` — `"bulamadım" in answer.text.lower()` | **HEURISTIC**: abstain DEĞİL ama LLM metninde "bulamadım" geçiyor; v0'ın ana bulgusuydu (13/17) | 1 |
+| `honest_miss` | INTEGER 0/1 | bool | `answer/base.py: is_honest_miss()` — `HONEST_MISS_MARKER in tr_lower(text)` | modelin KENDİ dürüst ıskası (getirim getirdi, model kanıt bulamadı). TEK hesap yolu: `/ask` gövdesindeki `honest_miss`, bu kolon ve `bg_honest_miss_total` aynı fonksiyondan. Mühür (`HONEST_MISS_MARKER`) Gemini SİSTEM istemine f-string ile GÖMÜLÜ, yani modele dayatılan ifade ile aranan ifade ayrışamaz (Y17/K27) | 1 |
 | `k` | INTEGER | adet | `app/main.py` (istek gövdesi) | retrieval genişliği | 1 |
 | `candidates` | INTEGER | adet | `retrieval/core.py` | aday havuzu boyutu | 1 |
 | `query_len` | INTEGER | karakter | `app/main.py` | soru uzunluğu↔gecikme/skor ilişkisi | 1 |
@@ -46,7 +46,8 @@ Her `/ask` ve `/search` isteği bu tabloya bir satır düşürür (WAL modlu SQL
 | `tokens_out` | INTEGER | token | `answer/gemini.py:78` (`annotate("tokens_out", ...)`) | üretim hacmi, maliyet tabanı | 1 |
 | `tokens_per_s` | REAL | token/sn | `app/main.py` (`tokens_out / (answer_ms/1000)`) | akışsız ortalama üretim hızı | 1 |
 | `est_cost_usd` | REAL | USD | `app/main.py:113-115` (`config.py` fiyat sabitleri) | çağrı başına tahmini maliyet | 1 |
-| `error_type` | TEXT, yalnız `status='error'` | exception sınıf adı | `app/main.py` | hata sınıflandırması | 1 |
+| `error_type` | TEXT (`error`: exception sınıf adı · `degraded`/`rejected`: taksonomi) | timeout\|http_5xx\|http_429\|auth\|safety_block\|parse\|other\|validation\|rate_limited | `answer/base.py: ERROR_TYPES` + `app/main.py: _REJECT_REASONS` | "cevaplayamadı" ile "cevaplamamalı"yı ayırır; degraded satırlarda eskiden 114/114 NULL'du (Y20) | 1 |
+| `score_scale` | TEXT, NULL olabilir | ölçek adı (`hybrid-bm25`\|`visual-normalized`) | `config.PIPELINE_SCORE_SCALE[pipeline]` -> `app/main.py` | `top_score`/`margin_1_2` HANGİ ölçekte — üretimde bu sütunda üç uyumsuz ölçek karışıktı (Y18). Migrasyon ÖNCESİ satırlar NULL KALIR: hangi ölçekte oldukları bilinmiyor, uydurulmaz | 1 |
 | `detail` | TEXT (JSON) | — | `app/main.py` | koşum künyesi: `hits` (top-k `[{page_id,score}]`), `threshold`, `retriever_model`, `gemini_model`, `device`, `app_version`, `stages` (aşama adı -> ms; `_STAGE_COLS` dışındaki adlar YALNIZ burada), `retrieval` (`query_format`, `quantization`; hibrit yolda ayrıca `bm25_top1`, `visual_top1`, `routed_docs`) | 1 |
 
 İndeks: `(ts)`, `(endpoint, ts)` — `telemetry/schema.py: EVENTS_INDEXES`.
@@ -69,7 +70,9 @@ Adlandırma: `bg_` öneki, taban birim saniye. Registry ve tanımlar
 | `bg_retrieval_top_score_bm25` | Histogram | — | skor (BM25 birimi, üst sınırsız; ölçülen bant ~4-70) | `prom.py: self.top_score_bm25`, bucket'lar `BM25_SCORE_BUCKETS` | hibrit (P1) pipeline'ın skor dağılımı; eşik 10.6 bucket sınırı olarak var, çalışma noktası doğrudan okunur | 1 |
 | `bg_retrieval_score_margin_bm25` | Histogram | — | skor farkı (BM25 birimi) | `prom.py: self.margin_bm25`, bucket'lar `BM25_MARGIN_BUCKETS` | hibrit pipeline'da top1−top2 | 1 |
 | `bg_abstain_total` | Counter | `reason` ∈ {threshold, degraded} | adet | `prom.py: self.abstain` (`observe()` içindeki dallanma) | halüsinasyon freninin sağlığı; `degraded` = kota/servis hatası görünürlüğü | 1 |
-| `bg_honest_miss_total` | Counter | — | adet | `prom.py: self.honest_miss` | **HEURISTIC üstüne kurulu sayaç** — bkz. §1 `honest_miss` satırı | 1 |
+| `bg_rate_limited_total` | Counter | `endpoint` | adet | `prom.py: self.rate_limited`, `app/main.py::enforce_rate_limit` doğrudan artırır | 429 hız sınırı reddi — "hangi uç nokta sınırlanıyor?" | 1 |
+| `bg_rejected_total` | Counter | `reason` ∈ {validation, rate_limited} | adet | `prom.py: self.rejected`, `app/main.py::record_rejection` | reddedilen isteklerin BİRLEŞİK görünümü — "istekler NEDEN reddediliyor?". 422'ler P2 için "cevaplanmaması gereken"in en temiz sınıfıdır (Y23). Bir 429 hem burada hem `bg_rate_limited_total`ta görünür (farklı eksenler), TEK seri içinde iki kez sayılmaz | 1 |
+| `bg_honest_miss_total` | Counter | — | adet | `prom.py: self.honest_miss` (olayın `honest_miss` alanı) | modelin dürüst ıskası; §1'deki TEK hesap yolundan besleniyor — ayrı bir sezgi tutmaz | 1 |
 | `bg_llm_tokens_total` | Counter | `direction` ∈ {input, output} | token | `prom.py: self.tokens` | hacim; maliyet tabanı | 1 |
 | `bg_llm_tokens_per_second` | Histogram | — | token/sn | `prom.py: self.tps`, bucket'lar `TPS_BUCKETS` | ortalama üretim hızı (akışsız: `tokens_out / answer_süresi`) | 1 |
 | `bg_llm_cost_usd_total` | Counter | — | USD | `prom.py: self.cost` | kümülatif tahmini maliyet | 1 |
@@ -100,6 +103,23 @@ Kaynak: `src/belge_gozu/telemetry/prom.py` — `REQUEST_BUCKETS`, `STAGE_BUCKETS
 Skor/marj bucket'ları T14'te normalize [-1,1] ölçeğine taşındı; geçiş öncesi seriler ve `events` satırları eski binary ölçeğindedir (0-128) ve `bg_app_info`'nun `index_revision` etiketi (olay tablosunda `index_revision` kolonu) ile bu iki histogramın `quantization` etiketinden ayırt edilir.
 
 **BM25 ölçeği (P1).** Hibrit pipeline'da sıralamayı ve dolayısıyla `top_score`'u BM25 metin kanalı üretir: kalibre edilmemiş, ÜST SINIRSIZ birim. Canary'de **servis edilen** (yani eşiğe giren) top-1'ler min 10.53 / medyan 24.02 / maks 69.30; kanalın kendi top-1 medyanı 26.05'tir (`detail.retrieval.bm25_top1`) — doküman-adı yönlendirmesi sıralamanın birincisini skora göre seçmediği için ikisi ayrışır ve eşik/çalışma noktası **servis edilen** skordan ölçülmüştür. Bu örnekler normalize [-1,1] serilerinde toplansaydı hepsi son bucket'a düşer ve quantile'lar anlamsızlaşırdı, bu yüzden `PromMetrics.observe` olayın `pipeline` künyesine bakıp AYRI `*_bm25` serilerine yönlendirir. Yönlendirme kümesi (`prom.py: BM25_SCALE_PIPELINES`) `config.PIPELINE_SCORE_SCALE`'den **türetilir**, kopya sabit tutulmaz. `quantization` etiketi bu serilerde YOKTUR: BM25 skoru metin katmanından gelir, indeks temsiline bağlı değildir. Aşama serisine (`bg_stage_duration_seconds`) hibritin `text_bm25`/`route_fuse` adları `detail.stages` fallback'iyle kendiliğinden akar — prom.py'de aşama adı listesi tutulmaz.
+
+**Reddedilen istekler (Y23).** `require_searchable` (422) ve hız sınırı (429)
+artık `status='rejected'` ile MİNİMAL bir olay satırı yazar: `endpoint`,
+`error_type` (`validation`/`rate_limited`), `total_ms`, sorgu kimliği. Skor/aşama
+alanları NULL kalır — getirici hiç çağrılmadı, doldurulsalardı P2'nin okuyacağı
+tabloya sahte sıfırlar girerdi. **Kapsam sınırı, dürüstçe:** pydantic düzeyinde
+reddedilen istekler (gövde `max_length`, `k` aralığı) uç nokta gövdesine hiç
+ULAŞMADAN 422 döner ve olay YAZILMAZ; `bg_rejected_total` da onları saymaz.
+
+**BM25 skor bandı ve sorgu-terim doygunluğu (Y1).** `bg_retrieval_top_score_bm25`
+için önceden yazılı "ölçülen bant ~4-70" ifadesi ÜRETİMDE ÇÜRÜTÜLMÜŞTÜ: aynı
+terimi tekrar eden bir sorgu skoru doğrusal şişiriyordu (canlı ölçüm: 667.5;
+tarihsel maksimum 1053.47) ve tek bir istek histogramın `_sum`'ını ele
+geçirebiliyordu. `BM25Index.scores` artık sorgu terimlerini `min(qtf, 2)` ile
+ağırlıklandırıyor (`retrieval/text.py: QTF_CAP`), yani sorgu tarafı katkısı
+sabit bir çarpanla sınırlı. Ölçek hâlâ ÜST SINIRSIZ (doküman tarafı), ama band
+artık sömürülebilir değil.
 
 **Grafana panosu.** `observability/grafana/.../belge-gozu.json` iki skor paneli taşır: "Top skor dağılımı — BM25 (hibrit, varsayılan)" (`bg_retrieval_top_score_bm25_bucket`) ve "Top skor dağılımı — görsel ölçek" (`bg_retrieval_top_score_bucket`, `quantization` kırılımlı). Etkin pipeline'a göre biri dolu, diğeri BOŞ olur; bu beklenen davranıştır, telemetri arızası değildir.
 

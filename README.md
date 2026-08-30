@@ -307,6 +307,13 @@ behind a reverse proxy it degrades into a global ceiling rather than a spoofable
 one. Query encoding is additionally capped by a process-wide `Semaphore(4)` — a defensive
 bound, not a measured need: 40 requests at concurrency 8 completed 40/40 at p50 1.34 s.
 
+**Deployment note (measured, not fixed in code):** any public deployment must run with rate
+limiting *on* — the `Dockerfile` default already does — because BM25 scoring is a
+single-process pure-Python loop over all 4,222 pages that holds the GIL (9.4 ms for a normal
+query, 119.2 ms for a 500-character one), so it is a known scale ceiling rather than a bug,
+and the rate limit is the only thing standing between a public URL and a saturated worker
+pool.
+
 ## Telemetri
 
 Every `/ask` and `/search` request is logged to `data/requests.sqlite` (stage-by-stage

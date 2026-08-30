@@ -13,6 +13,7 @@ import pytest
 
 from belge_gozu.retrieval.text import (
     F5,
+    QTF_CAP,
     STOPWORDS,
     WINDOW,
     BM25Index,
@@ -129,6 +130,66 @@ def test_bm25_scores_match_hand_computation():
     # elle hesaplanan sayılar (regresyon kilidi)
     assert float(got[0]) == pytest.approx(0.578466, rel=1e-4)
     assert float(got[1]) == pytest.approx(0.470004, rel=1e-4)
+
+
+def test_repeated_query_term_cannot_inflate_the_score():
+    """Y1 SALDIRI TESTİ: aynı terimi 80 kez yazmak skoru en fazla ~2× yapar.
+
+    Canlı sondaj (2026-08-30): `"ihbar "×80` üretimde top-1'i 667.50'ye
+    çıkarıyordu — eşiğin (10.6) 63 katı. `MAX_QUERY_CHARS=500` bunu
+    KAPATMIYOR, yalnız ölçekliyor. Sınır 2.05× (tam tavan 2.00×; pay float32
+    yuvarlamasına bırakıldı).
+    """
+    ids = ["k1:1", "k1:2", "k2:1"]
+    texts = [
+        "ihbar süresi ve ihbar tazminatı hakkında hüküm",
+        "yıllık ücretli izin süresi",
+        "ihbar önelleri tablosu",
+    ]
+    idx = BM25Index(ids, texts)
+    once = idx.scores("ihbar")
+    flood = idx.scores(" ".join(["ihbar"] * 80))
+    assert once.max() > 0  # test gerçekten bir şey ölçüyor
+    assert flood.max() <= 2.05 * once.max()
+    # Ve tavan tam olarak QTF_CAP: 80 tekrar 2 tekrarla AYNI skoru verir.
+    assert np.allclose(flood, idx.scores(" ".join(["ihbar"] * QTF_CAP)))
+
+
+def test_query_term_saturation_cap_is_the_measured_one():
+    """Tavan 2 (exp14). 1 olsaydı meşru vurgu ("artış ... artış") cezalanırdı;
+    tavansız hâli Y1'in ta kendisidir."""
+    assert QTF_CAP == 2
+    idx = BM25Index(["a:1"], ["kira artışı oranı"])
+    s1 = float(idx.scores("kira")[0])
+    s2 = float(idx.scores("kira kira")[0])
+    s3 = float(idx.scores("kira kira kira")[0])
+    assert s2 == pytest.approx(2 * s1, rel=1e-5)
+    assert s3 == pytest.approx(s2, rel=1e-6)
+
+
+def test_unique_query_terms_are_unaffected_by_the_cap():
+    """Reçete PARİTESİ: hiçbir terimi tekrar etmeyen sorgu (canary'nin
+    tamamı) tavan öncesi/sonrası birebir aynı skoru alır — exp14'ün
+    R@5 0.8605 / MRR 0.632 pariteyi ölçen koşumunun birim karşılığı."""
+    ids = ["a:1", "b:1"]
+    texts = ["yıllık ücretli izin süresi", "ihbar tazminatı"]
+    idx = BM25Index(ids, texts)
+    q = "yıllık ücretli izin süresi nedir"
+    toks = tokenize(q)
+    assert len(set(toks)) == len(toks)  # önkoşul: tekrar YOK
+    manual = np.zeros(len(ids), dtype=np.float32)
+    for tok in toks:
+        idf = idx.idf.get(tok)
+        if idf is None:
+            continue
+        for i, freqs in enumerate(idx.doc_freqs):
+            f = freqs.get(tok)
+            if f:
+                dl = idx.doc_lens[i]
+                manual[i] += (
+                    idf * f * (idx.k1 + 1) / (f + idx.k1 * (1 - idx.b + idx.b * dl / idx.avgdl))
+                )
+    assert np.allclose(idx.scores(q), manual)
 
 
 def test_bm25_scores_are_aligned_to_page_ids():

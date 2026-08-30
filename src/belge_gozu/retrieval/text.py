@@ -19,6 +19,7 @@ _GENERIC, _TITLE_LINE) ve tokenleştirme mantığı birebir taşınmıştır. Re
 | pencere 20 -> 50 (round 2, exp8) | 0.8372 | KEPT (R@20 0.907 -> 0.9302) |
 | + ASCII aksan katlama (round 3, exp12) | **0.8605** | KEPT (YAZIM-DEĞİŞMEZ) |
 | çift-biçim yayım (round 3, exp13) | 0.8372 | DISCARDED (iki guardrail düştü) |
+| + qtf≤2 sorgu doygunluğu (exp14, Y1) | **0.8605** | KEPT (birebir aynı; saldırı 667.5→16.7) |
 
 YAZIM-DEĞİŞMEZLİK (exp12, journal #11-#12) reçetenin en önemli GERÇEK-KULLANICI
 özelliğidir: aksansız yazmak yaygın Türkçe klavye davranışıdır ve katlama
@@ -70,6 +71,26 @@ STOPWORDS = frozenset(
 # yeniden sıralama sözleşmesi (küme değişmez, pencere sonrası dokunulmaz)
 # window değerinden BAĞIMSIZ olarak yapısaldır ve aynen geçerlidir.
 WINDOW = 50
+
+# SORGU-TERİM DOYGUNLUK TAVANI (Y1, ölçülmüş karar R30 — 2026-08-30).
+#
+# Klasik BM25'in üçüncü doygunluk çarpanı `(k3+1)·qtf/(k3+qtf)` bu porta hiç
+# gelmemişti: araştırma döngüsünde sorgular canary'den geliyordu ve hiçbirinde
+# terim TEKRAR ETMİYORDU, yani ölçülen uzayda qtf her zaman 1'di. Ölçülmeyen
+# uzayda ise skor sorgudaki tekrar sayısıyla DOĞRUSAL şişiyordu: 480 karakterlik
+# `"ihbar "×80` sorgusu top-1'i 667.50'ye çıkarıyor (eşik 10.6'nın 63 katı),
+# freni geçiriyor ve ücretli bir LLM çağrısı tetikliyordu. `MAX_QUERY_CHARS=500`
+# bunu KAPATMIYOR, yalnız ölçekliyordu.
+#
+# Tavan `min(qtf, 2)` biçiminde SERT seçildi (yumuşak k3 eğrisi değil): tek
+# parametreli, açıklaması bir satır, ve saldırı yüzeyini sabit bir çarpana
+# kilitliyor. 2 (1 değil) çünkü gerçek sorgularda bir terimin iki kez geçmesi
+# meşru bir vurgudur ("kira artışı ... artış oranı"), 80 kez geçmesi değildir.
+#
+# ÖLÇÜM (exp14-qtf-cap2-parity, research/results.jsonl, 2026-08-30): canary
+# birebir DEĞİŞMEDİ — R@5 0.8605 (37/43), MRR 0.6320, R@1/R@20/visual_R@5 aynı;
+# saldırı sorgusu 667.5 -> 16.7 (tam olarak tek-geçişin 2 katı).
+QTF_CAP = 2
 
 # Doküman adından atılan jenerik parçalar (F5-kırpık): bunlar tek başına
 # kalırsa neredeyse her sorgu her kanunu "yönlendirir".
@@ -174,18 +195,26 @@ class BM25Index:
         (canary, 4222 sayfa): cevaplanabilir top-1'ler min 10.53 / medyan
         26.05 / maks 69.30. Görsel kanalın normalize [-1,1] skorlarıyla AYNI
         ŞEY DEĞİLDİR — eşik bu ölçekte taşınmıştır (bkz. config.py).
+
+        SORGU-TERİM DOYGUNLUĞU (Y1/R30): sorgu BENZERSİZ token'lar üzerinde
+        gezilir ve her token'ın katkısı `min(qtf, QTF_CAP)` ile ağırlıklanır.
+        Yani aynı terimi 80 kez yazmak skoru 80 değil en fazla 2 katına
+        çıkarır; ölçek üst sınırsız kalır (doküman tarafı doygunluğu zaten
+        `k1` ile ayrı), ama SORGU tarafı artık sömürülemez.
         """
         out = np.zeros(len(self.doc_freqs), dtype=np.float32)
-        for tok in tokenize(query):
+        for tok, qtf in Counter(tokenize(query)).items():
             idf = self.idf.get(tok)
             if idf is None:
                 continue
+            qw = min(qtf, QTF_CAP)
             for i, freqs in enumerate(self.doc_freqs):
                 f = freqs.get(tok)
                 if f:
                     dl = self.doc_lens[i]
                     out[i] += (
-                        idf
+                        qw
+                        * idf
                         * f
                         * (self.k1 + 1)
                         / (f + self.k1 * (1 - self.b + self.b * dl / self.avgdl))

@@ -10,6 +10,12 @@ yazan gerçek kullanıcıda R@5 0.837→0.581 çöküyordu (exp11); katlama sist
 YAZIM-DEĞİŞMEZ yapar: iki koşulda da 37/43=0.8605. Bedel: aksanlı MRR 0.655→0.632
 (çakışma kaynaklı, düşenler top-5 İÇİNDE kalır) — program round-3 R26 istisnasıyla
 kabul. exp13 (çift-biçim) denendi ve iki guardrail'i düşürdüğü için reddedildi.
+
+EXP-14 (qtf≤2 sorgu doygunluğu, KEPT): `BM25.scores` artık sorgunun BENZERSİZ
+token'ları üzerinde gezip her terime `min(qtf, 2)` ağırlığı veriyor. Reçete
+değişikliği ÜRETİMDEN geldi (bulgu Y1): canary'de hiçbir sorgu terim tekrar
+etmediği için ölçüm uzayı bu sınıfı hiç görmemişti, üretimde ise "ihbar"×80
+skoru 667.5'e çıkarıp eşiği anlamsızlaştırıyordu. Ölçüm ledger 2026-08-30.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ import numpy as np
 
 _WORD = re.compile(r"\w+", re.UNICODE)
 F5 = 5  # Türkçe ön-ek kırpma uzunluğu
+QTF_CAP = 2  # exp14: sorgu-terim doygunluk tavanı (üretim portu: retrieval/text.py)
 
 # Standart Türkçe işlev kelimeleri (tam-kelime, kırpmadan ÖNCE uygulanır).
 STOPWORDS = frozenset(
@@ -63,17 +70,23 @@ class BM25:
         self.idf = {t: math.log(1 + (n - d + 0.5) / (d + 0.5)) for t, d in df.items()}
 
     def scores(self, query: str) -> np.ndarray:
+        """BM25 skorları; sorgu BENZERSİZ token'lar üzerinde `min(qtf, QTF_CAP)` ağırlıkla.
+
+        qtf≤2 doygunluğu — canary birebir değişmedi: R@5 37/43, MRR 0.6320;
+        saldırı 'ihbar'×80 top-1 667.5→16.7; ölçüm ledger 2026-08-30.
+        """
         out = np.zeros(len(self.doc_freqs), dtype=np.float32)
-        for tok in tokenize(query):
+        for tok, qtf in Counter(tokenize(query)).items():
             idf = self.idf.get(tok)
             if idf is None:
                 continue
+            qw = min(qtf, QTF_CAP)
             for i, freqs in enumerate(self.doc_freqs):
                 f = freqs.get(tok)
                 if f:
                     dl = self.doc_lens[i]
                     norm = 1 - self.b + self.b * dl / self.avgdl
-                    out[i] += idf * f * (self.k1 + 1) / (f + self.k1 * norm)
+                    out[i] += qw * idf * f * (self.k1 + 1) / (f + self.k1 * norm)
         return out
 
 

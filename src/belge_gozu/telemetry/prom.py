@@ -112,6 +112,18 @@ class PromMetrics:
         self.rate_limited = Counter(
             "bg_rate_limited", "429 hız sınırı reddi", ["endpoint"], registry=r
         )
+        # Y23: reddedilen isteklerin BİRLEŞİK sayacı — 422 (içeriksiz sorgu) ve
+        # 429 (hız sınırı) tek bir `reason` ekseninde. `bg_rate_limited_total`
+        # KALDIRILMADI, çünkü o serinin ekseni `endpoint`tir ve farklı bir
+        # soruya cevap verir ("hangi uç nokta sınırlanıyor?"); bu seri
+        # "istekler NEDEN reddediliyor?" sorusunu cevaplar. Aynı 429 iki seride
+        # görünür ama TEK seri içinde iki kez sayılmaz.
+        #
+        # 422'nin `bg_rate_limited_total`a hiç girmemesi bilinçliydi (framework
+        # düzeyi ret); bu sayaç o kör noktayı kapatır: "sistem kaç kere
+        # içeriksiz sorgu reddetti?" sorusunun cevabı P2 için tam olarak
+        # "cevaplanmaması gereken"in en temiz sınıfıdır.
+        self.rejected = Counter("bg_rejected", "Reddedilen istek (422/429)", ["reason"], registry=r)
         self.honest_miss = Counter("bg_honest_miss", "'bulamadım' yanıtları", registry=r)
         self.tokens = Counter("bg_llm_tokens", "LLM token sayısı", ["direction"], registry=r)
         self.tps = Histogram(

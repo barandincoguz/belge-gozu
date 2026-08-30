@@ -1,9 +1,10 @@
 import json
+import logging
 import sqlite3
 import threading
 from pathlib import Path
 
-from belge_gozu.telemetry.recorder import EventRecorder
+from belge_gozu.telemetry.recorder import WRITE_ERROR_LOG_INTERVAL_S, EventRecorder
 from belge_gozu.telemetry.schema import RequestEvent
 
 
@@ -98,4 +99,89 @@ def test_migration_adds_new_columns_to_old_table(tmp_path: Path):
     rec.record(ev)  # exception yok
     row = sqlite3.connect(db_path).execute("SELECT pipeline, index_revision FROM events").fetchone()
     assert row == ("exhaustive", "abc123456789/cpe-0.3.18/sign-1bit")
+    rec.close()
+
+
+# --- Y18: score_scale migrasyonu --------------------------------------------
+
+
+def test_migration_adds_score_scale_to_old_table(tmp_path: Path):
+    """Yeni kolon eski tabloya eklenir; GEÇMİŞ satırlar NULL KALIR.
+
+    Bir migrasyon o satırların hangi ölçekte üretildiğini BİLEMEZ — doldurmak
+    veriyi bozardı (üretimde `top_score` sütununda üç uyumsuz ölçek karışık
+    duruyor ve satırların %96'sı etiketsiz)."""
+    db_path = tmp_path / "old.sqlite"
+    old = sqlite3.connect(db_path)
+    old.execute(_OLD_EVENTS_DDL)
+    old.execute(
+        "INSERT INTO events (ts, endpoint, status, http_status, total_ms, query_sha256, top_score)"
+        " VALUES ('eski', '/search', 'ok', 200, 1.0, 'x', 68.39)"
+    )
+    old.commit()
+    old.close()
+
+    rec = EventRecorder(db_path)
+    cols = {r[1] for r in rec._db.execute("PRAGMA table_info(events)")}
+    assert {"score_scale", "honest_miss", "pipeline", "index_revision"} <= cols
+
+    ev = _ev(1)
+    ev.score_scale = "hybrid-bm25"
+    rec.record(ev)
+    rows = sqlite3.connect(db_path).execute("SELECT ts, score_scale FROM events").fetchall()
+    assert rows == [("eski", None), (ev.ts, "hybrid-bm25")]
+    rec.close()
+
+
+# --- Y22: yazma hataları hız-sınırlı loglanır, ASLA sonsuza dek susmaz -------
+
+
+class _FailingDB:
+    """Diski dolmuş / salt-okunur sqlite: her yazma denemesi patlar."""
+
+    def execute(self, *a, **kw):
+        raise sqlite3.OperationalError("attempt to write a readonly database")
+
+    def commit(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+def _failing(tmp_path: Path) -> EventRecorder:
+    rec = EventRecorder(tmp_path / "t.sqlite")
+    rec._db.close()
+    rec._db = _FailingDB()  # type: ignore[assignment]
+    return rec
+
+
+def test_write_failures_are_logged_at_most_once_per_interval(tmp_path: Path, caplog, monkeypatch):
+    """Eskiden ilk hata WARNING'di ve sonrası SONSUZA DEK sessizdi: disk
+    dolduğunda sistem hizmet vermeye devam ediyor, `/metrics` normal
+    görünüyor, ama olay tablosu saatlerce büyümüyordu."""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr("belge_gozu.telemetry.recorder.time.monotonic", lambda: clock["t"])
+    rec = _failing(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5):
+            rec.record(_ev())  # exception YOK
+        assert caplog.text.count("telemetri olay yazımı başarısız") == 1
+        clock["t"] += WRITE_ERROR_LOG_INTERVAL_S + 1  # pencere dolsun
+        rec.record(_ev())
+    assert caplog.text.count("telemetri olay yazımı başarısız") == 2
+    assert rec.write_failures == 6
+    rec.close()
+
+
+def test_second_warning_reports_the_suppressed_count(tmp_path: Path, caplog, monkeypatch):
+    """Susturulan hata sayısı KAYBOLMAZ — delik büyüklüğü loglanır."""
+    clock = {"t": 0.0}
+    monkeypatch.setattr("belge_gozu.telemetry.recorder.time.monotonic", lambda: clock["t"])
+    rec = _failing(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        for _ in range(4):
+            rec.record(_ev())
+        clock["t"] += WRITE_ERROR_LOG_INTERVAL_S
+        rec.record(_ev())
+    assert "son uyarıdan beri 3 susturuldu" in caplog.text
+    assert "toplam 5" in caplog.text
     rec.close()

@@ -218,3 +218,32 @@ def test_metrics_endpoint_exposes_hybrid_stages_end_to_end(tiny_corpus):
     assert 'bg_stage_duration_seconds_bucket{le="+Inf",stage="route_fuse"}' in text
     assert 'bg_stage_duration_seconds_bucket{le="+Inf",stage="exhaustive_maxsim"}' in text
     assert "bg_retrieval_top_score_bm25_bucket" in text
+
+
+def test_rejected_counter_exists_with_a_reason_label():
+    """Y23: 422 ve 429 tek bir `reason` ekseninde görünür."""
+    m = PromMetrics()
+    m.rejected.labels(reason="validation").inc()
+    m.rejected.labels(reason="rate_limited").inc()
+    body = m.render()[0].decode()
+    assert 'bg_rejected_total{reason="validation"} 1.0' in body
+    assert 'bg_rejected_total{reason="rate_limited"} 1.0' in body
+
+
+def test_metrics_catalog_lists_every_series_in_the_registry():
+    """Y21: yeni bir seri eklemek KATALOĞU güncellemeye zorlar.
+
+    Kataloğun "üretimdeki her seri buradadır" iddiası bir testle
+    karşılanmadığı sürece iddiadır; `bg_rate_limited_total` tam olarak böyle
+    unutulmuştu (katalogda `grep -c` = 0, canlı `/metrics`'te var)."""
+    from pathlib import Path
+
+    catalog = Path("docs/research/metrics-catalog.md").read_text(encoding="utf-8")
+    suffix = {"counter": "_total", "info": "_info"}
+    expected = {
+        m.name + suffix.get(m.type, "")
+        for m in PromMetrics().registry.collect()
+        if m.name.startswith("bg_")
+    }
+    missing = sorted(n for n in expected if n not in catalog)
+    assert not missing, f"katalogda eksik seri(ler): {missing}"

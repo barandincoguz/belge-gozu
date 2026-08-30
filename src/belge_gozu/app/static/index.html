@@ -85,6 +85,10 @@
                letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
                margin-bottom: 3px; }
   .chip .qtext { display: block; font-size: .87rem; line-height: 1.42; }
+  /* Y28: istek uçuştayken çipler GÖRSEL OLARAK da kapalı — `inFlight` bayrağı
+     tıklamayı zaten yutuyor, bu onun görünür karşılığı (tıklayıp hiçbir şey
+     olmaması sessiz bir arıza gibi okunurdu). */
+  .chips.busy .chip { opacity: .5; pointer-events: none; cursor: wait; }
 
   /* ---- pipeline ---- */
   .pipeline { margin-top: 26px; padding: 14px 16px; background: var(--card);
@@ -146,6 +150,30 @@
                    border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px;
                    background: var(--card); margin-top: 2px; }
   .svc-note p { margin: 0; font-size: .92rem; color: var(--ink); max-width: 56ch; }
+
+  /* Durum bandı: MÜHÜR DEĞİL, SERVİS NOTU DEĞİL — üçüncü bir dil.
+     İki varyantı var ve ikisi de "normal yanıt" görünümünden ayrışır.
+
+     .miss  = DÜRÜST ISKA (status=answered + honest_miss=true). Anlamı mühürden
+              FARKLI: mühür "getirim eşiği geçemedi, LLM hiç çağrılmadı" der;
+              bu ise "getirim sayfaları GETİRDİ, model o sayfalarda kanıt
+              bulamadı" der. Bu yüzden kırmızı/döner mühür değil, sepya
+              (görsel-kanal mürekkebi) bir bant: sayfalar geçerli, okuyucu
+              kendisi bakabilir. Yanıt metni GİZLENMEZ, yalnız yumuşatılır.
+     .unknown = TANIMADIĞIM DURUM. Sunucuya yeni bir `status` eklendiğinde
+              arayüzün onu "tam dayanaklı yanıt" gibi çizmesini önler (Y32);
+              bu durumda #answer-text ve atıflar GİZLENİR. */
+  .state-note { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 14px;
+                padding: 11px 14px; background: var(--paper); border-left: 3px solid var(--scan); }
+  .state-note[hidden] { display: none; }
+  .state-note .tag { flex: none; font-family: var(--mono); font-size: .68rem;
+                     letter-spacing: .12em; text-transform: uppercase; color: var(--scan);
+                     border: 1px solid var(--scan); border-radius: 3px; padding: 1px 6px;
+                     background: var(--card); margin-top: 2px; opacity: .85; }
+  .state-note p { margin: 0; font-size: .92rem; color: var(--ink); max-width: 60ch; }
+  .state-note.unknown { border-left-style: dashed; border-left-color: var(--muted); }
+  .state-note.unknown .tag { color: var(--muted); border-color: var(--rule); }
+  .answer-card.honest-miss #answer-text { color: var(--muted); max-width: 56ch; }
 
   .cites { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .cites-label { font-family: var(--mono); font-size: .78rem; color: var(--muted); }
@@ -370,6 +398,10 @@
         <span class="tag">servis notu</span>
         <p id="svc-note-text"></p>
       </div>
+      <div id="state-note" class="state-note" hidden>
+        <span class="tag" id="state-note-tag"></span>
+        <p id="state-note-text"></p>
+      </div>
       <div id="answer-text"></div>
       <div id="cites" class="cites"></div>
     </div>
@@ -505,6 +537,11 @@ function pipelineFinish(status, ms) {
     } else if (status === "degraded") {
       s.className = "stage failed";
       $("st-llm").textContent = "Gemini yanıt veremedi";
+    } else if (status === "unknown") {
+      /* Y32: bilinmeyen durumda şerit "Gemini sayfaları okudu" DİYEMEZ —
+         okuyup okumadığını bilmiyoruz. */
+      s.className = "stage skipped";
+      $("st-llm").textContent = "son aşama bilinmiyor";
     } else {
       $("st-llm").textContent = "Gemini sayfaları okudu";
     }
@@ -680,7 +717,24 @@ function friendly422(payload) {
 }
 
 /* ---- soru akışı ---- */
+/* Y28 — TEK uçuş bayrağı. Düğme, Enter tuşu ve çipler AYNI kapıdan geçer.
+   Eskiden tek koruma `$("ask-btn").disabled = true` idi ve o yalnız O DÜĞMEYE
+   tıklamayı durduruyordu: Enter'a basılı tutmak ya da istek sürerken çiplere
+   tıklamak N eşzamanlı /ask başlatıyordu — her biri beş sayfa görüntüsü
+   üzerinden TAM bir Gemini vision faturası, üstelik sunucu tarafı hız sınırı
+   varsayılan KAPALI. İkincil hasar: `finally` düğmeyi İLK yanıt gelince
+   yeniden etkinleştirdiği için ekranda EN SON ÇÖZÜLEN yanıt kalıyordu — yani
+   gösterilen cevap URL'deki ?q='dan daha ESKİ bir soruya ait olabiliyordu. */
+let inFlight = false;
+function setBusy(on) {
+  inFlight = on;
+  $("ask-btn").disabled = on;
+  $("ask-btn").textContent = on ? "Soruluyor…" : "Sor";
+  $("chips").classList.toggle("busy", on);
+  $("chips").setAttribute("aria-busy", on ? "true" : "false");
+}
 async function ask() {
+  if (inFlight) return;  // <- düğme/Enter/çip: üçü de burada durur
   const q = $("q").value.trim();
   clearFieldError();
   if (!q) { fieldError("Önce bir soru yazın."); return; }
@@ -689,8 +743,7 @@ async function ask() {
     return;
   }
   history.replaceState(null, "", "?q=" + encodeURIComponent(q));
-  $("ask-btn").disabled = true;
-  $("ask-btn").textContent = "Soruluyor…";
+  setBusy(true);
   $("status").textContent = "";
   $("status").className = "";
   $("answer-sec").hidden = true;
@@ -726,22 +779,60 @@ async function ask() {
     }
     const data = await r.json();
     const ms = performance.now() - t0;
-    const a = data.answer;
+    /* Eksik `answer` anahtarı (vekil sayfası, kesik gövde) burada patlayıp dış
+       catch'e düşerdi ve arayüz "Sunucuya ulaşılamadı" derdi — sunucu cevap
+       vermişken kesinlikle yanlış olan tek teşhis. Boş kabuk + `known=false`
+       yolu bunu bilinmeyen-durum kartına çevirir. */
+    const a = data.answer || { text: "", citations: [] };
     /* Durum sunucudan gelir: "answered" | "abstained" | "degraded".
        Yanıt METNİYLE dize karşılaştırması YAPILMAZ — o metnin tek bir
        noktalama değişikliği arayüzü sessizce bozardı. */
-    const status = data.status || (a.abstained ? "abstained" : "answered");
-    pipelineFinish(status, ms);
+    /* Y32: durum anahtarı AÇIK ve KAPALI bir kümedir. Eskiden üçlü operatörün
+       varsayılan kolu `" degraded"` sınıfını veriyordu ama alttaki anahtarlar
+       katı eşitlikle çalışıyordu: TANIMADIĞI bir `status` için mühür yok,
+       servis notu yok, #answer-text GÖRÜNÜR ve mdLite(a.text) render — yani
+       arayüz bilmediği bir durumu TAM DAYANAKLI YANIT gibi çiziyordu. Sunucuya
+       `honest_miss` eklendiği an bu, arayüzü sessizce yalancı yapardı. */
+    const KNOWN_STATES = ["answered", "abstained", "degraded"];
+    const status = data.status;
+    const known = KNOWN_STATES.includes(status);
+    /* Y17: dürüst ıska sunucunun HESAPLADIĞI değerdir (events.honest_miss ve
+       bg_honest_miss_total ile aynı satır) — arayüz metni tahmin etmez. */
+    const honestMiss = known && status === "answered" && data.honest_miss === true;
+    pipelineFinish(known ? status : "unknown", ms);
 
     /* N1 (review NIT-1, 2026-08-30): `degraded` kendi sınıfını taşır, artık
-       `abstained`ı ÖDÜNÇ almaz — sınıf adı durumu yanlış söylemesin diye
-       (bugün görsel fark yok, çünkü #answer-text bu durumda zaten gizli). */
+       `abstained`ı ÖDÜNÇ almaz — sınıf adı durumu yanlış söylemesin diye. */
     const cardClass =
-      status === "answered" ? "" : status === "abstained" ? " abstained" : " degraded";
+      status === "answered" ? (honestMiss ? " honest-miss" : "")
+      : status === "abstained" ? " abstained"
+      : status === "degraded" ? " degraded"
+      : " unknown";
     $("answer").className = "answer-card" + cardClass;
     $("stamp").hidden = status !== "abstained";
     $("svc-note").hidden = status !== "degraded";
-    $("answer-text").hidden = status === "degraded";
+    if (honestMiss) {
+      /* Mühürden GÖRSEL OLARAK farklı, çünkü ANLAMI farklı: mühür "eşik
+         geçilemedi, LLM hiç çağrılmadı" der; bu "sayfalar getirildi, model
+         onlarda kanıt bulamadı" der. Sayfalar geçerli — okuyucu bakabilir. */
+      $("state-note-tag").textContent = "sayfalarda bulunamadı";
+      $("state-note-text").textContent =
+        "Retrieval bu sayfaları getirdi ve eşiği geçtiler, ama model sayfalarda " +
+        "sorunun cevabını bulamadığını söyledi. Atıf yok; sayfalar aşağıda duruyor.";
+      $("state-note").className = "state-note miss";
+      $("state-note").hidden = false;
+    } else if (!known) {
+      $("state-note-tag").textContent = "bilinmeyen durum";
+      $("state-note-text").textContent =
+        "Sunucu bu arayüzün tanımadığı bir durum bildirdi" +
+        (typeof status === "string" && status ? ` (${status})` : "") +
+        ". Yanıt metni gösterilmiyor: dayanaklı bir yanıt gibi sunulamaz.";
+      $("state-note").className = "state-note unknown";
+      $("state-note").hidden = false;
+    } else {
+      $("state-note").hidden = true;
+    }
+    $("answer-text").hidden = status === "degraded" || !known;
     if (status === "degraded") {
       /* Bozulma metninin KAYNAĞI sunucudur; arayüz yalnız sunum katmanını
          (mühürden ayrışan bant) ekler. N2: #answer-text zaten istek başında
@@ -749,6 +840,10 @@ async function ask() {
          hiç yeniden yazmaz — savunma amaçlı, `hidden` regresyonuna karşı. */
       $("answer-text").innerHTML = "";
       $("svc-note-text").textContent = a.text;
+    } else if (!known) {
+      /* Y32: bilinmeyen durumda yanıt metni DOM'a HİÇ girmez — `hidden` tek
+         savunma olmamalı (bir regresyon onu geri açabilir). */
+      $("answer-text").innerHTML = "";
     } else {
       $("answer-text").innerHTML = mdLite(a.text);
     }
@@ -759,7 +854,9 @@ async function ask() {
     }
     const cites = $("cites");
     cites.innerHTML = "";
-    if (a.citations.length) {
+    /* Y32: bilinmeyen durum atıf çipi de çizmez — "dayanak:" satırı normal
+       yanıt düzeninin parçasıdır. */
+    if (known && a.citations && a.citations.length) {
       const lab = document.createElement("span");
       lab.className = "cites-label"; lab.textContent = "dayanak:";
       cites.appendChild(lab);
@@ -785,8 +882,9 @@ async function ask() {
     $("status").textContent =
       "Sunucuya ulaşılamadı. Servisin çalıştığından emin olup tekrar deneyin.";
   } finally {
-    $("ask-btn").disabled = false;
-    $("ask-btn").textContent = "Sor";
+    /* Bayrak BAŞARI, HATA ve 422/429 erken dönüşlerinin HEPSİNDE bırakılır —
+       `finally` bu üç yolun da tek ortak çıkışı. */
+    setBusy(false);
   }
 }
 // derin link: ?q= ile gelen soru kutuyu doldurur (LLM maliyeti yüzünden otomatik sormaz)

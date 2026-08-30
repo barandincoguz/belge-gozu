@@ -153,16 +153,25 @@ def test_empty_or_stopword_only_query_is_422_with_turkish_detail(tiny_corpus, en
 
 
 def test_empty_query_does_not_reach_the_retriever(tiny_corpus):
-    """422 GÖVDE DOĞRULAMASIDIR: getirici hiç çağrılmaz, olay da yazılmaz."""
+    """422 GÖVDE DOĞRULAMASIDIR: getirici hiç çağrılmaz.
+
+    Y23 (2026-08-30): olay YAZILIR ama MİNİMALDİR — `status='rejected'`,
+    skor/aşama alanları NULL. Eskiden hiç yazılmıyordu ve "sistem kaç kere
+    içeriksiz sorgu reddetti?" sorusunun cevabı hiçbir yerde yoktu; oysa bu
+    satırlar P2 için "cevaplanmaması gereken" sınıfının en temiz örnekleridir.
+    Getiricinin çağrılmadığının kanıtı skor alanlarının NULL olmasıdır.
+    """
     data_dir, _, _ = tiny_corpus
     c = make_client(tiny_corpus)
     c.post("/search", json={"query": "   "})
-    rows = (
+    row = (
         sqlite3.connect(data_dir / "requests.sqlite")
-        .execute("SELECT COUNT(*) FROM events")
-        .fetchone()
+        .execute("SELECT status, error_type, top_score, encode_ms, endpoint FROM events")
+        .fetchall()
     )
-    assert rows[0] == 0
+    assert len(row) == 1
+    assert row[0][:4] == ("rejected", "validation", None, None)
+    assert row[0][4] == "/search"
 
 
 # --- durum alanı + kanal şeffaflığı -----------------------------------------
@@ -652,3 +661,231 @@ def test_friendly422_maps_known_pydantic_error_types(tiny_corpus):
     html = c.get("/").text
     assert "string_too_long" in html
     assert "greater_than_equal" in html and "less_than_equal" in html
+
+
+# --- Y18 / Y20 / Y17: olay hijyeni ve dürüst-ıska sözleşmesi -----------------
+
+
+def _rows(data_dir, cols: str):
+    db = sqlite3.connect(data_dir / "requests.sqlite")
+    return db.execute(f"SELECT {cols} FROM events").fetchall()
+
+
+@pytest.mark.parametrize("endpoint,field", [("/search", "query"), ("/ask", "question")])
+def test_both_endpoints_always_write_pipeline_and_score_scale(tiny_corpus, endpoint, field):
+    """Y18: `pipeline` HER satıra yazılır — /search dahil.
+
+    Üretim tablosundaki 2761 NULL satır bir kod yolu hatası DEĞİL: `pipeline`
+    kolonu `ALTER TABLE` ile SONRADAN eklendi (2026-08-26 öncesi trafik) ve bir
+    migrasyon geçmiş satırların hangi pipeline'da üretildiğini bilemez. O
+    satırlar NULL KALIR (dürüstlük); yeni satırların hepsi etiketlidir.
+    `score_scale` aynı gerekçeyle `config.PIPELINE_SCORE_SCALE`'den TÜRETİLİR —
+    ikinci bir elle yazılmış harita yoktur.
+    """
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post(endpoint, json={field: "kira artışı nedir?"})
+    rows = _rows(data_dir, "endpoint, pipeline, score_scale")
+    assert rows == [(endpoint, "hybrid", "hybrid-bm25")]
+
+
+def test_score_scale_follows_the_pipeline_on_the_visual_arm(tiny_corpus):
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus, retrieval_pipeline="exhaustive")
+    c.post("/search", json={"query": "kira artışı nedir?"})
+    assert _rows(data_dir, "pipeline, score_scale") == [("exhaustive", "visual-normalized")]
+
+
+def test_score_scale_is_not_a_second_hand_written_map(tiny_corpus):
+    """Tek kaynak kontrolü: kolon değeri config'in haritasıyla BİREBİR."""
+    from belge_gozu.config import PIPELINE_SCORE_SCALE
+
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post("/search", json={"query": "kira"})
+    assert _rows(data_dir, "score_scale")[0][0] == PIPELINE_SCORE_SCALE["hybrid"]
+
+
+def test_degraded_row_carries_an_error_type(tiny_corpus):
+    """Y20: hibrit satırların 114/114'ünde `error_type` NULL'du — `AskService`
+    istisnayı yutuyor, `main.py`'nin kaydı ise YALNIZ istisna kaçarsa
+    çalışıyordu ve yanıtlayıcı hataları için asla kaçmaz."""
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=BoomAnswerer()))
+    assert c.post("/ask", json={"question": "kira artışı nedir?"}).json()["status"] == "degraded"
+    assert _rows(data_dir, "status, error_type") == [("degraded", "other")]
+
+
+def test_degraded_row_carries_the_answerers_taxonomy(tiny_corpus):
+    from belge_gozu.answer.base import AnswererError
+
+    class QuotaAnswerer:
+        def answer(self, question, pages, image_loader):
+            raise AnswererError("http_429", "kota")
+
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=QuotaAnswerer()))
+    c.post("/ask", json={"question": "kira artışı nedir?"})
+    assert _rows(data_dir, "error_type") == [("http_429",)]
+
+
+class MissAnswerer:
+    """Modelin kendi dürüst ıskası: dayanak yok, atıf yok, ama YANIT var."""
+
+    def answer(self, question, pages, image_loader):
+        from belge_gozu.answer.base import HONEST_MISS_MARKER
+
+        return Answer(text=f"Sorunun cevabını {HONEST_MISS_MARKER}.", citations=[])
+
+
+def test_ask_exposes_honest_miss_at_the_top_level(tiny_corpus):
+    """Y17: sistemin EN BİLGİLENDİRİCİ olayı artık API sözleşmesinde.
+
+    Önceden ayrım yalnız sunucuda hesaplanıp SADECE sqlite'a yazılıyordu;
+    istemci için atıfsız dürüst ıska ile tam atıflı yanıt aynı karttı."""
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=MissAnswerer()))
+    body = c.post("/ask", json={"question": "kira artışı nedir?"}).json()
+    assert body["status"] == "answered" and body["honest_miss"] is True
+    assert body["answer"]["citations"] == []
+    assert _rows(data_dir, "status, honest_miss") == [("answered", 1)]
+
+
+def test_normal_answer_is_not_an_honest_miss(tiny_corpus):
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    body = c.post("/ask", json={"question": "kira artışı nedir?"}).json()
+    assert body["honest_miss"] is False
+    assert _rows(data_dir, "honest_miss") == [(0,)]
+
+
+def test_response_events_and_prom_share_one_honest_miss_computation(tiny_corpus):
+    """TEK kod yolu: gövde, `events.honest_miss` ve `bg_honest_miss_total`."""
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=MissAnswerer()))
+    assert c.post("/ask", json={"question": "kira artışı nedir?"}).json()["honest_miss"] is True
+    assert "bg_honest_miss_total 1.0" in c.get("/metrics").text
+
+
+# --- Y23: reddedilen istekler artık görünür ----------------------------------
+
+
+def test_422_writes_a_rejected_event_and_counter(tiny_corpus):
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    assert c.post("/ask", json={"question": "bu ne için"}).status_code == 422
+    assert _rows(data_dir, "endpoint, status, error_type, http_status") == [
+        ("/ask", "rejected", "validation", 422)
+    ]
+    assert 'bg_rejected_total{reason="validation"} 1.0' in c.get("/metrics").text
+
+
+def test_429_writes_a_rejected_event_without_double_counting(tiny_corpus):
+    """429 iki AYRI seride görünür (`{endpoint}` ve `{reason}`) ama TEK seri
+    içinde iki kez sayılmaz."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus, rate_limit_search_per_min=1)
+    assert c.post("/search", json={"query": "kira"}).status_code == 200
+    assert c.post("/search", json={"query": "kira"}).status_code == 429
+    rows = _rows(data_dir, "status, error_type")
+    assert rows == [("ok", None), ("rejected", "rate_limited")]
+    body = c.get("/metrics").text
+    assert 'bg_rejected_total{reason="rate_limited"} 1.0' in body
+    assert 'bg_rate_limited_total{endpoint="/search"} 1.0' in body
+
+
+def test_rejected_rows_are_minimal_not_fake_zeros(tiny_corpus):
+    """Getirici çağrılmadı: skor/aşama/atıf alanları NULL kalır — P2'nin
+    okuyacağı tabloya sahte sıfır girmez."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post("/search", json={"query": "   "})
+    row = _rows(data_dir, "top_score, margin_1_2, encode_ms, answer_ms, abstained, citations_n")[0]
+    assert row == (None, None, None, None, None, None)
+
+
+def test_rejected_rows_carry_query_identity(tiny_corpus):
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post("/ask", json={"question": "bu ne için"})
+    qlen, qtext, qsha = _rows(data_dir, "query_len, query_text, query_sha256")[0]
+    assert qlen == len("bu ne için") and qtext == "bu ne için" and len(qsha) == 64
+
+
+def test_rejected_rows_honour_log_query_text_false(tiny_corpus):
+    """Gizlilik anahtarı ret satırlarında da geçerli; sha256 her koşulda yazılır."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus, log_query_text=False)
+    c.post("/ask", json={"question": "bu ne için"})
+    qtext, qsha = _rows(data_dir, "query_text, query_sha256")[0]
+    assert qtext is None and len(qsha) == 64
+
+
+def test_pydantic_level_422_writes_no_event(tiny_corpus):
+    """Kapsam sınırı, dürüstçe: gövde `max_length`/`k` aralığı uç nokta
+    gövdesine hiç ULAŞMADAN reddedilir, olay yazılmaz."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    assert c.post("/search", json={"query": "kira", "k": 999}).status_code == 422
+    assert _rows(data_dir, "COUNT(*)") == [(0,)]
+
+
+# --- Y28 / Y32: arayüz sözleşmesi (statik) -----------------------------------
+#
+# Arayüz tarayıcıda koşar; buradaki testler DAVRANIŞI değil, davranışı taşıyan
+# YAPININ varlığını kilitler — tıpkı yukarıdaki `data.status` testleri gibi.
+
+
+def test_ui_has_a_single_in_flight_guard_for_button_enter_and_chips(tiny_corpus):
+    """Y28: Enter ve çipler çift-gönderim korumasını ATLIYORDU.
+
+    Tek koruma `ask-btn.disabled` idi ve o yalnız O DÜĞMEYE tıklamayı
+    durdurur; Enter'a basılı tutmak ya da çiplere tıklamak N eşzamanlı /ask
+    (= N tam Gemini vision faturası) başlatıyordu."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert "let inFlight = false;" in html
+    assert "if (inFlight) return;" in html  # ask() içindeki TEK kapı
+    assert "function setBusy(on)" in html
+    assert "setBusy(true)" in html and "setBusy(false)" in html
+    assert 'classList.toggle("busy", on)' in html  # görsel devre dışı durum
+    assert ".chips.busy .chip" in html and "pointer-events: none" in html
+    # Eski, yalnız-düğme koruması artık ask() içinde YOK.
+    assert '$("ask-btn").disabled = true;' not in html
+
+
+def test_ui_never_renders_an_unknown_status_as_a_normal_answer(tiny_corpus):
+    """Y32: bilinmeyen `status` sessizce TAM DAYANAKLI YANIT gibi çiziliyordu.
+
+    Bu düzeltilmeden Y17'yi (honest_miss) eklemek arayüzü sessizce yalancı
+    yapardı — tam olarak bu yüzden ikisi aynı commit'te."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert 'const KNOWN_STATES = ["answered", "abstained", "degraded"];' in html
+    assert "KNOWN_STATES.includes(status)" in html
+    assert '" unknown"' in html  # bilinmeyen durumun KENDİ kart sınıfı
+    assert "bilinmeyen durum" in html
+    assert '$("answer-text").hidden = status === "degraded" || !known;' in html
+    assert "if (known && a.citations" in html  # atıf çipi de çizilmez
+    assert "son aşama bilinmiyor" in html  # şerit "Gemini okudu" DİYEMEZ
+
+
+def test_ui_gives_honest_miss_its_own_soft_state(tiny_corpus):
+    """Y31/Y17'nin arayüz yarısı: atıfsız dürüst ıska ile tam atıflı yanıt aynı
+    kartta görünüyordu. Bant MÜHÜRDEN AYRI çünkü ANLAMI ayrı: mühür 'eşik
+    geçilemedi, LLM çağrılmadı' der, bu 'sayfalar getirildi, model kanıt
+    bulamadı' der."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert "data.honest_miss === true" in html  # değer SUNUCUDAN, tahmin değil
+    assert '" honest-miss"' in html
+    assert "sayfalarda bulunamadı" in html
+    assert ".state-note.unknown" in html and ".answer-card.honest-miss" in html
+    # mühürden görsel olarak ayrı: döner/kırmızı değil, akış içinde bir bant
+    assert ".state-note { display: flex" in html
+    # ve yanıt metninin bir KOPYASI hâlâ arayüzde yok
+    assert "dayanak bulamadım" not in html.lower()

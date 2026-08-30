@@ -76,3 +76,33 @@ def test_request_event_accepts_pipeline_and_index_revision():
     )
     assert ev.pipeline == "exhaustive"
     assert ev.index_revision == "abc123456789/cpe-0.3.18/sign-1bit"
+
+
+def test_ddl_and_model_carry_score_scale(tmp_path=None):
+    """Y18: `top_score`ın HANGİ ÖLÇEKTE olduğu satırın kendisinde yazar."""
+    db = sqlite3.connect(":memory:")
+    db.execute(EVENTS_DDL)
+    cols = {r[1] for r in db.execute("PRAGMA table_info(events)")}
+    assert "score_scale" in cols
+    ev = RequestEvent(
+        ts="t",
+        endpoint="/ask",
+        status="answered",
+        http_status=200,
+        total_ms=1.0,
+        query_sha256="f" * 64,
+        pipeline="hybrid",
+        score_scale="hybrid-bm25",
+    )
+    assert ev.score_scale == "hybrid-bm25"
+    assert (
+        RequestEvent(
+            ts="t",
+            endpoint="/ask",
+            status="ok",
+            http_status=200,
+            total_ms=1.0,
+            query_sha256="g" * 64,
+        ).score_scale
+        is None
+    )  # etiketsiz geçmiş NULL kalır
