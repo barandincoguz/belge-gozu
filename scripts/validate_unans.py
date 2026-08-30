@@ -54,10 +54,28 @@ from belge_gozu.bench.dataset import (  # noqa: E402
 
 SLICE_EXPECT = {"korpus-disi": 200, "anlamsiz-ood": 60, "eksik-kanit": 40}
 # dilim -> (verification_status, verified_by, verification_kind)
-VERIF_EXPECT = {
-    "korpus-disi": ("verified", "script:validate_unans", "mechanical:manifest-absence"),
-    "anlamsiz-ood": ("draft", "", "model-cross-check"),
-    "eksik-kanit": ("draft", "", "model-cross-check"),
+# Dilim başına İZİNLİ doğrulama künyeleri (status, verified_by, kind).
+# Çapraz-kontrol (2026-08-30, drafter≠checker) sonrası durumlar da geçerlidir;
+# "rejected" satırlar her dilimde meşrudur (tüketiciler status ile dışlar) —
+# yalnız künye bütünlüğü aranır. Bkz. data/bench/unans_v1.README.md §çapraz-kontrol.
+_CHECKER = "model-cross-check:claude-fable-5-checker"
+VERIF_EXPECT: dict[str, set[tuple[str, str, str]]] = {
+    "korpus-disi": {
+        ("verified", "script:validate_unans", "mechanical:manifest-absence"),
+        ("verified", _CHECKER, "mechanical:manifest-absence"),
+        # red kararı çapraz-kontrolden gelir; denetçi kind'i buna çevirir:
+        ("rejected", _CHECKER, "model-cross-check"),
+    },
+    "anlamsiz-ood": {
+        ("draft", "", "model-cross-check"),
+        ("verified", _CHECKER, "model-cross-check"),
+        ("rejected", _CHECKER, "model-cross-check"),
+    },
+    "eksik-kanit": {
+        ("draft", "", "model-cross-check"),
+        ("verified", _CHECKER, "model-cross-check"),
+        ("rejected", _CHECKER, "model-cross-check"),
+    },
 }
 DUP_THRESHOLD = 0.8
 # ad karşılaştırmasında ayırt edici olmayan kelimeler
@@ -195,15 +213,15 @@ def check_rows(rows: list[dict], corpus_ids: set[str], corpus_names: dict[str, s
             errs.append(f"{qid}: verification_note boş olamaz")
 
         # 7) doğrulama künyesi
-        want = VERIF_EXPECT.get(sl)
-        if want:
+        allowed = VERIF_EXPECT.get(sl)
+        if allowed:
             got = (
                 rec.get("verification_status"),
                 rec.get("verified_by"),
                 rec.get("verification_kind"),
             )
-            if got != want:
-                errs.append(f"{qid}: doğrulama künyesi {got} != beklenen {want}")
+            if got not in allowed:
+                errs.append(f"{qid}: doğrulama künyesi {got} izinli kümede değil ({sl})")
 
         # 5) korpus-dışı çapa
         if sl == "korpus-disi":
