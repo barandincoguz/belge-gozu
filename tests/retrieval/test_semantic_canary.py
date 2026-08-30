@@ -3,7 +3,7 @@
 Tamamı `-m slow`: gerçek `ColSmolEncoder` (MPS/CUDA/CPU) ve gerçek üretim
 indeksini yükler; `pytest -m "not slow"` bu dosyaya hiç değmez.
 
-Dört kilit:
+Beş kilit:
   * G0.1 — canary'deki her gold sayfa üretim indeksinde var (korpus kapsamı).
   * G0.8 — kısa sorgunun gold'u top-5'te (P0'ın ana davranış düzelmesi; bu
     kırılırsa P0 sessizce regresse olmuş demektir).
@@ -11,6 +11,8 @@ Dört kilit:
     (düşürülebilir), asla sessizce gevşetilemez (yükseltilemez). Cırcır
     PIPELINE'a göre anahtarlı (`canary_expectations.json`): sırayı hangi
     kanalın kurduğu sonucu tamamen değiştirir.
+  * yazım-değişmezlik — aynı sorunun AKSANSIZ yazımı üretim indeksinde AYNI
+    sırayı vermeli (exp12'nin ürün vaadi; journal #11-#12).
   * abstain kilidi — korpus-dışı sorularda top-1 skoru yapılandırılmış eşiğin
     ALTINDA kalır (yoksa "halüsinasyon freni" iddiası ölçülmemiş bir yorum).
 
@@ -32,6 +34,13 @@ pytestmark = pytest.mark.slow
 
 Q_SHORT = "Yerleşim yeri nedir?"
 Q_LONG = "Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"
+# Aynı uzun sorunun AKSANSIZ yazımı — exp12 kilidi. İDDİANIN KAPSAMI dar ve
+# kasıtlı: bu, Q_LONG'un yalnız AKSANLARI ASCII'ye katlanmış hâlidir (journal
+# #11'in ölçüm yöntemi de budur). Noktalama aynen korunur — apostrofu düşürmek
+# ("Kanunu'na" -> "Kanununa") ayrı bir yazım değişikliğidir, tokenizasyonu
+# gerçekten değiştirir ("na" token'ı düşer) ve katlamanın verdiği garantinin
+# kapsamında DEĞİLDİR.
+Q_LONG_PLAIN = "Turk Medeni Kanunu'na gore yerlesim yeri nasil tanimlanir?"
 GOLD = "k4721:4"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CANARY_PATH = REPO_ROOT / "data" / "bench" / "canary_v1.jsonl"
@@ -94,10 +103,12 @@ def test_short_query_gold_in_top5(prod_retriever):
     """G0.8: P0'ın ana davranış düzelmesinin regresyon kilidi.
 
     Üretim yolunda (bugün: hibrit — BM25 metin kanalı + doküman-adı
-    yönlendirmesi, `data/index-traincompat-int8` + page_texts.parquet) kısa
-    sorgu gold'u top-5 içinde döndürmeli. Ölçüm (2026-08-29, hibrit): gold
-    rank 1, top-1 skoru 10.71 (BM25 ölçeği — P0'daki 0.7450 normalize MaxSim
-    ile aynı şey DEĞİL). P0 ölçümü aynı sorguda rank 4'tü.
+    yönlendirmesi + ASCII aksan katlaması, `data/index-traincompat-int8` +
+    page_texts.parquet) kısa sorgu gold'u top-5 içinde döndürmeli. Ölçüm
+    (2026-08-30, katlama SONRASI yeniden ölçüldü): gold rank 1, top-1 skoru
+    10.71 (BM25 ölçeği — P0'daki 0.7450 normalize MaxSim ile aynı şey DEĞİL);
+    katlama bu sorguda sırayı da skoru da değiştirmedi. P0 ölçümü aynı sorguda
+    rank 4'tü.
 
     Metin kanalı DETERMİNİSTİK (model yok): bu test kırılırsa reçete ya da
     metin artefaktı sessizce değişmiş demektir.
@@ -115,6 +126,8 @@ def test_long_query_rank_ratchet(prod_retriever):
 
     Ölçüm (2026-08-29, `data/index-traincompat-int8`): hibrit yolda rank
     2/4222 — P0'ın exhaustive yolunda 664, ondan önce 1-bit'te 1221'di.
+    ASCII katlaması (exp12) sonrası yeniden ölçüldü: HÂLÂ 2/4222, cırcır
+    değişmedi.
     `canary_expectations.json`'daki eşik yalnızca bilinçli, ölçülmüş bir
     iyileşmeyle DÜŞÜRÜLEBİLİR; asla sessizce YÜKSELTİLMEMELİDİR.
 
@@ -161,18 +174,46 @@ def test_long_query_rank_ratchet(prod_retriever):
     )
 
 
+def test_accentless_query_ranks_identically(prod_retriever):
+    """exp12'nin ÜRÜN VAADİ üretim indeksinde kilitli: yazım-değişmezlik.
+
+    Aksansız yazmak yaygın Türkçe klavye davranışıdır. Katlama ÖNCESİ ölçüm
+    (journal #11): sorgular ASCII'ye katlandığında canary R@5 0.8372 -> 0.5814
+    çöküyordu. Katlama SONRASI (exp12) iki koşulda da 0.8605 (37/43).
+
+    Burada tam korpus sırası iki yazım için birebir karşılaştırılır — metin
+    kanalı deterministik olduğu için bu bir eşitlik iddiasıdır, istatistik
+    değil. Ölçüm (2026-08-30): iki yazım da AYNI token listesini
+    (`turk meden kanun na yerle yeri tanim`) ve aynı sıralamayı üretir, gold
+    k4721:4 iki koşulda da 2. sırada.
+    """
+    if getattr(prod_retriever, "rank_all", None) is None:
+        pytest.skip("yazım-değişmezlik kilidi metin kanalı gerektirir (hibrit pipeline)")
+    accented = prod_retriever.rank_all(Q_LONG)
+    plain = prod_retriever.rank_all(Q_LONG_PLAIN)
+    assert accented[:20] == plain[:20], (
+        "aksanlı ve aksansız yazım FARKLI sıralama verdi — ASCII katlaması "
+        "(retrieval/text.py `tokenize`) bozulmuş olabilir. İlk 5: "
+        f"aksanlı={accented[:5]} aksansız={plain[:5]}"
+    )
+    assert accented.index(GOLD) == plain.index(GOLD)
+
+
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "ÖLÇÜLDÜ (2026-08-29, data/index-traincompat-int8 + page_texts.parquet, "
-        "hibrit/BM25 ölçeği): eşik 10.6 AYIRMIYOR — korpus-dışı c003/c004/c005 "
-        "top-1 skorları 23.53/12.96/17.86, yani ÜÇÜ DE eşiğin ÜSTÜNDE (c007 15.54 "
+        "ÖLÇÜLDÜ (2026-08-30, ASCII katlaması SONRASI yeniden; "
+        "data/index-traincompat-int8 + page_texts.parquet, hibrit/BM25 ölçeği): "
+        "eşik 10.6 AYIRMIYOR — korpus-dışı c003/c004/c005 "
+        "top-1 skorları 23.52/12.96/17.86, yani ÜÇÜ DE eşiğin ÜSTÜNDE (c007 15.54 "
         "de üstünde; yalnız anlamsız c006 4.23 altında kalıyor: 5'te 4'ü geçiyor — "
         "P0'daki 4/5 ile aynı çalışma noktası). Tüm canary'de cevaplanabilir n=43 "
-        "(min 10.53 / medyan 26.05 / maks 69.30) ile cevaplanamazların bandı iç içe "
+        "servis edilen top-1 bandı (min 10.5265 / medyan 23.78 / maks 66.68) ile "
+        "cevaplanamazların bandı iç içe "
         "geçmiş durumda: hiçbir tek eşik bu ikisini ayırmıyor. 10.6, int8@0.58'in "
         "(o da binary@60.0'ın) MEKANİK ölçek taşımasıdır — çalışma noktasını veren "
-        "bant (10.528, 10.712] — kalibrasyon DEĞİL. Kalibrasyon P2'nin işi (spec). "
+        "bant katlama sonrası (10.5265, 10.7115] — kalibrasyon DEĞİL. "
+        "Kalibrasyon P2'nin işi (spec). "
         "strict=True: eşik gerçekten kalibre edilip bu iddia tuttuğunda test KIRMIZI "
         "olur ve xfail'in kaldırılmasını zorlar — abstain sözü sessizce ne "
         "bozulabilir ne de düzelmiş sayılabilir."
@@ -187,8 +228,9 @@ def test_out_of_corpus_canary_scores_below_threshold(prod_retriever):
 
     İddia BİLEREK gevşetilmedi: ölçüm bugün de tutmuyor (bkz. xfail reason),
     bu yüzden `xfail(strict=True)` ile MEVCUT GERÇEK kilitlenir. P1'in hibrit
-    geçişi bunu DEĞİŞTİRMEDİ ve değiştirmesi de beklenmiyordu: metin kanalı
-    SIRALAMAYI düzeltiyor (R@5 0.2326 -> 0.8140), skoru bir güven ölçüsüne
+    geçişi bunu DEĞİŞTİRMEDİ ve değiştirmesi de beklenmiyordu (exp12'nin aksan
+    katlaması da değiştirmedi — yeniden ölçüldü): metin kanalı
+    SIRALAMAYI düzeltiyor (R@5 0.2326 -> 0.8605), skoru bir güven ölçüsüne
     ÇEVİRMİYOR — korpus-dışı bir soru da korpusta geçen kelimeler içerdiği
     sürece yüksek BM25 alır. Eşiği yükseltmek de çözüm değil: cevaplanabilir
     dağılımın alt ucu 10.53, yani yükseltmek gerçek soruları abstain'e

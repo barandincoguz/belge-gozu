@@ -16,6 +16,7 @@ from belge_gozu.retrieval.text import (
     STOPWORDS,
     WINDOW,
     BM25Index,
+    ascii_fold,
     extract_doc_name_tokens,
     route_window,
     tokenize,
@@ -36,6 +37,18 @@ def test_recipe_constants_are_the_measured_ones():
     assert not ({"zaman", "iş", "izin", "yerleşim"} & STOPWORDS)
 
 
+def test_ascii_fold_maps_the_measured_character_set():
+    """Katlama tablosu reçeteden (exp12): çğıöşü + düzeltme işaretli âîû.
+
+    Katlama UZUNLUĞU değiştirmez — F5 kırpma sınırı iki yazımda da aynı yere
+    düşsün diye (tokenize'ın sıra sözleşmesi buna dayanır)."""
+    assert ascii_fold("çğıöşüâîû") == "cgiosuaiu"
+    assert ascii_fold("hâkim") == "hakim"
+    assert len(ascii_fold("yıllık ücretli izin")) == len("yıllık ücretli izin")
+    # ASCII girdi değişmez (aksansız yazan kullanıcı katlamadan etkilenmez)
+    assert ascii_fold("yillik ucretli izin") == "yillik ucretli izin"
+
+
 def test_tr_lower_handles_dotted_and_dotless_i():
     """Python'un lower()'ı 'I'yı 'i' yapar; Türkçede 'ı' olmalı."""
     assert tr_lower("İSTANBUL") == "istanbul"
@@ -44,10 +57,11 @@ def test_tr_lower_handles_dotted_and_dotless_i():
 
 
 def test_tokenize_known_cases():
+    # exp12: çıktı KATLANMIŞ uzayda ("iş" -> "is", "görev" -> "gorev").
     # stopword eleme TAM KELİME üzerinde ve KIRPMADAN ÖNCE: "göre" düşer,
-    # "görev" (F5 -> "görev") kalır — kırpma sonrası ikisi ayrışamazdı.
-    assert tokenize("İş Kanunu'na göre") == ["iş", "kanun", "na"]
-    assert tokenize("görev göre") == ["görev"]
+    # "görev" (F5 -> "gorev") kalır — kırpma sonrası ikisi ayrışamazdı.
+    assert tokenize("İş Kanunu'na göre") == ["is", "kanun", "na"]
+    assert tokenize("görev göre") == ["gorev"]
     # F5 ön-ek kırpması
     assert tokenize("yerleşim yerleşimi") == ["yerle", "yerle"]
     # tek harfli parçalar elenir (>=2 karakter kuralı)
@@ -56,6 +70,30 @@ def test_tokenize_known_cases():
     assert tokenize("ve veya ile için") == []
     # noktalama \w+ ile ayrılır
     assert tokenize("Kanunu'na") == ["kanun", "na"]
+
+
+def test_tokenize_is_writing_invariant():
+    """exp12'nin ÜRÜN ÖZELLİĞİ: aksanlı ve aksansız yazım AYNI token'ları verir.
+
+    Ölçüm (journal #11-#12): katlama olmadan aksansız sorgularda R@5
+    0.8372 -> 0.5814 çöküyordu; iki taraflı katlamayla iki koşulda da
+    0.8605 (37/43). Bu test o davranışın birim düzeyindeki kilididir."""
+    accented = tokenize("İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?")
+    plain = tokenize("Is Kanununa gore yillik ucretli izin suresi ne kadardir?")
+    assert tokenize("yillik ucretli izin") == tokenize("yıllık ücretli izin")
+    # aksansız yazımın ÜRETTİĞİ her token aksanlı yazımda da var (tam kesişim)
+    assert set(plain) <= set(accented)
+    assert set(plain) == {"is", "kanun", "yilli", "ucret", "izin", "sures", "kadar"}
+
+
+def test_tokenize_folds_function_words_too():
+    """Stopword eleme KATLANMIŞ uzayda: "göre"/"gore", "için"/"icin" ikisi de düşer.
+
+    Katlanmamış bir stoplist yazım-değişmezliği yarım bırakırdı — aksansız
+    yazan kullanıcının işlev kelimeleri içerik token'ı sayılıp IDF'i
+    kirletirdi."""
+    assert tokenize("ne icin nasil kac") == []
+    assert tokenize("ne için nasıl kaç") == []
 
 
 # --- BM25: elle hesaplanmış küçük korpus -----------------------------------
@@ -73,7 +111,11 @@ def test_bm25_scores_match_hand_computation():
     idx = BM25Index(_IDS, _TEXTS)
     assert idx.avgdl == pytest.approx(2.0)
     assert idx.idf["kira"] == pytest.approx(_IDF_KIRA)
-    assert idx.idf["borç"] == pytest.approx(_IDF_TEK)
+    # exp12: sözlük anahtarları KATLANMIŞ uzayda ("borç" -> "borc"). Skorların
+    # SAYISAL değerleri değişmez — katlama df/dl/idf hesabına değil yalnız
+    # token kimliğine dokunur.
+    assert "borç" not in idx.idf
+    assert idx.idf["borc"] == pytest.approx(_IDF_TEK)
 
     k1, b = 1.5, 0.75
     # d0: f=2, dl=3 ; d1: f=1, dl=2 ; d2: yok
@@ -114,7 +156,15 @@ def test_bm25_rejects_misaligned_or_empty_input():
 
 
 def test_doc_name_tokens_from_page_one_title_line():
-    """Ad 1. sayfanın büyük-harfli başlık satırından; jenerik parçalar atılır."""
+    """Ad 1. sayfanın büyük-harfli başlık satırından; jenerik parçalar atılır.
+
+    Ad çıkarımı `tokenize`'ı kullandığı için exp12'den sonra KATLANMIŞ uzayda
+    çalışır ("iş" -> "is") — yani sorgu tarafıyla aynı uzayda, yönlendirme
+    aksansız sorguda da tetiklenir.
+
+    "turk" ÇIKMAZ: `_GENERIC` listesi AKSANLI ("türk") tutulduğu için katlanmış
+    "turk" token'ı elenmez. Bu, ölçülen reçetenin (0.8605) davranışıdır ve
+    bilinçle korunmuştur — bkz. `retrieval/text.py` `_GENERIC` yorumu."""
     names = extract_doc_name_tokens(
         ["k4721:1", "k4721:4", "k4857:1"],
         [
@@ -123,8 +173,7 @@ def test_doc_name_tokens_from_page_one_title_line():
             "İŞ KANUNU\nKanun Numarası: 4857\n",
         ],
     )
-    # "türk"/"kanun" jenerik listesinde -> düşer
-    assert names == {"k4721": frozenset({"meden"}), "k4857": frozenset({"iş"})}
+    assert names == {"k4721": frozenset({"turk", "meden"}), "k4857": frozenset({"is"})}
 
 
 def test_doc_name_ignores_non_first_pages_and_untitled_docs():
@@ -133,7 +182,10 @@ def test_doc_name_ignores_non_first_pages_and_untitled_docs():
         [
             "TÜRK TİCARET KANUNU\n",  # 1. sayfa değil -> yok sayılır
             "başlık satırı küçük harf, kanun geçse de eşleşmez\n",
-            "TÜRK KANUNU\n",  # ad token'ları tamamen jenerik -> eklenmez
+            # ad token'ları ("cumhu", "kanun") TAMAMEN jenerik -> eklenmez.
+            # (Katlama sonrası "türk" artık jenerik listesiyle eşleşmediği için
+            # örnek "TÜRK KANUNU" değil "CUMHURİYET KANUNU" ile kuruldu.)
+            "CUMHURİYET KANUNU\n",
         ],
     )
     assert names == {}

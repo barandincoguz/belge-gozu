@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from belge_gozu.config import Settings
 
 
@@ -9,6 +12,35 @@ def test_defaults():
     assert s.stage1_candidates == 200
     assert s.top_k == 5
     assert s.request_delay_s == 1.0
+
+
+def test_rate_limits_are_off_by_default():
+    """0 = kapalı. Açık varsayılanlar DAĞITIM katmanında (Dockerfile), burada değil:
+    yerel tek kullanıcı ve bench koşumları kendi kendini 429'a düşürmemeli."""
+    s = Settings()
+    assert s.rate_limit_ask_per_min == 0
+    assert s.rate_limit_search_per_min == 0
+
+
+def test_invalid_query_format_id_fails_at_config_time(monkeypatch):
+    """Geçersiz BG_QUERY_FORMAT_ID config katmanında temiz bir hata verir.
+
+    Alan düz `str` olduğunda (audit C8) bu değer Settings'ten SESSİZCE geçip
+    uygulama kurulumunun ortasında ham bir ValueError'a dönüşüyordu; enum tipi
+    hatayı doğru katmana, okunur bir mesajla taşır."""
+    monkeypatch.setenv("BG_QUERY_FORMAT_ID", "bogus-format")
+    with pytest.raises(ValidationError, match="query_format_id"):
+        Settings()
+
+
+def test_query_format_id_is_the_enum_value(monkeypatch):
+    """Geçerli değer enum'a çözülür ama dize gibi de kullanılabilir (StrEnum)."""
+    from belge_gozu.index.manifest import QUERY_FORMATS, QueryFormatChoice
+
+    s = Settings()
+    assert s.query_format_id is QueryFormatChoice.train_compat_v1
+    assert s.query_format_id == "train-compat-v1"
+    assert QUERY_FORMATS[s.query_format_id]  # doğrudan sözlük anahtarı olarak çalışır
 
 
 def test_production_index_pipeline_and_threshold_defaults():

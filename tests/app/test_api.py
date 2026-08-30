@@ -105,6 +105,148 @@ def test_ask_returns_answer_and_logs(tiny_corpus):
     assert stats["requests"] >= 1 and stats["avg_ms"] >= 0
 
 
+# --- girdi sertleştirme ------------------------------------------------------
+#
+# Hepsi 2026-08-30 canlı kenar-durum sondajının BULDUĞU davranışlara karşı
+# yazıldı: sondajda `k=100000` tüm korpusu döküyordu, `k=-1` 4221 sonuç
+# veriyordu, boş sorgu skor-0 beş rastgele sayfa döndürüyordu ve 3000
+# karakterlik bir sorgu BM25 skorunu ~1053'e çıkarıp eşiği anlamsız kılıyordu.
+
+
+@pytest.mark.parametrize("k", [0, -1, 51, 100000])
+def test_search_rejects_out_of_range_k(tiny_corpus, k):
+    """k tavanı/tabanı pydantic'te: gövde hiç uç noktaya ULAŞMADAN 422."""
+    c = make_client(tiny_corpus)
+    r = c.post("/search", json={"query": "deneme", "k": k})
+    assert r.status_code == 422
+    # FastAPI doğrulama hatası şekli: detail bir LİSTE (arayüz bunu ayrıştırır)
+    assert isinstance(r.json()["detail"], list)
+
+
+def test_search_accepts_k_at_the_boundaries(tiny_corpus):
+    c = make_client(tiny_corpus)
+    assert c.post("/search", json={"query": "deneme", "k": 1}).status_code == 200
+    assert c.post("/search", json={"query": "deneme", "k": 50}).status_code == 200
+
+
+@pytest.mark.parametrize("endpoint,field", [("/search", "query"), ("/ask", "question")])
+def test_over_length_query_is_rejected(tiny_corpus, endpoint, field):
+    """3000 karakterlik sorgu 422; 500 karakter hâlâ geçer (sınır kapsayıcı)."""
+    c = make_client(tiny_corpus)
+    assert c.post(endpoint, json={field: "kira " * 600}).status_code == 422
+    assert c.post(endpoint, json={field: "kira" + "a" * 496}).status_code == 200
+
+
+@pytest.mark.parametrize("endpoint,field", [("/search", "query"), ("/ask", "question")])
+@pytest.mark.parametrize("q", ["", "   \t\n ", "bu ne için"])
+def test_empty_or_stopword_only_query_is_422_with_turkish_detail(tiny_corpus, endpoint, field, q):
+    """Üç boş biçim de aynı Türkçe 422'yi verir — ikisinde de.
+
+    Sondaj bulgusu: bunlar skor 0 ile beş RASTGELE sayfa döndürüyordu, yani
+    sistem "hiçbir şey aramadım"ı "işte beş sonuç" gibi sunuyordu."""
+    c = make_client(tiny_corpus)
+    r = c.post(endpoint, json={field: q})
+    assert r.status_code == 422
+    # HTTPException şekli: detail DÜZ DİZE (pydantic'in liste şeklinden farklı)
+    assert r.json()["detail"] == "sorgu boş ya da yalnız işlev kelimeleri içeriyor"
+
+
+def test_empty_query_does_not_reach_the_retriever(tiny_corpus):
+    """422 GÖVDE DOĞRULAMASIDIR: getirici hiç çağrılmaz, olay da yazılmaz."""
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    c.post("/search", json={"query": "   "})
+    rows = (
+        sqlite3.connect(data_dir / "requests.sqlite")
+        .execute("SELECT COUNT(*) FROM events")
+        .fetchone()
+    )
+    assert rows[0] == 0
+
+
+# --- durum alanı + kanal şeffaflığı -----------------------------------------
+
+
+def test_ask_reports_answered_status(tiny_corpus):
+    """`status` üst düzeyde: arayüz ABSTAIN_TEXT ile dize karşılaştırmaz."""
+    c = make_client(tiny_corpus)
+    body = c.post("/ask", json={"question": "kira artışı nedir?"}).json()
+    assert body["status"] == "answered"
+
+
+def test_ask_reports_abstained_status(tiny_corpus):
+    """Eşik üstünde bir yanıt yoksa status='abstained' (mühür bu alandan)."""
+    data_dir, enc, _ = tiny_corpus
+    # 100.0: fikstür skorlarının çok üstünde ama ölçek korkuluğunun BM25 bandı
+    # içinde (>200 "hiçbir soruyu geçirmez" diye reddedilirdi).
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=100.0)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=StubAnswerer()))
+    body = c.post("/ask", json={"question": "kira artışı nedir?"}).json()
+    assert body["status"] == "abstained" and body["answer"]["abstained"] is True
+
+
+def test_ask_reports_degraded_status(tiny_corpus):
+    """Yanıtlayıcı patladığında status='degraded' — mühürden AYRI bir durum.
+
+    `abstained` alanı burada da True'dur (Answer sözleşmesi), bu yüzden arayüz
+    o alana bakarak ikisini AYIRT EDEMEZ; ayrım tam olarak bu alan sayesinde
+    mümkün."""
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9)
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=BoomAnswerer()))
+    body = c.post("/ask", json={"question": "kira artışı nedir?"}).json()
+    assert body["status"] == "degraded"
+    assert body["answer"]["abstained"] is True  # ayrım YALNIZ status'ten gelir
+    assert body["hits"], "servis bozulsa da bulunan sayfalar gösterilmeli"
+
+
+def test_hybrid_hits_carry_visual_score_on_both_endpoints(tiny_corpus):
+    """Hibrit yol her hit'e görsel kanalın normalize skorunu EKLER (ayrı alan).
+
+    İki ölçek tek kolonda karışmaz: `score` BM25, `visual_score` ~[-1,1]."""
+    c = make_client(tiny_corpus)
+    hits = c.post("/search", json={"query": "yerleşim yeri"}).json()["hits"]
+    assert hits and all(isinstance(h["visual_score"], float) for h in hits)
+    assert all(-1.001 <= h["visual_score"] <= 1.001 for h in hits)
+    ask_hits = c.post("/ask", json={"question": "yerleşim yeri nedir"}).json()["hits"]
+    assert ask_hits and all(isinstance(h["visual_score"], float) for h in ask_hits)
+
+
+def test_visual_score_is_none_on_visual_only_pipeline(tiny_corpus):
+    """Görsel kolda `score` ZATEN görsel kanaldır; alan tekrar edilmez."""
+    c = make_client(tiny_corpus, retrieval_pipeline="exhaustive")
+    hits = c.post("/search", json={"query": "yerleşim yeri"}).json()["hits"]
+    assert hits and all(h["visual_score"] is None for h in hits)
+
+
+# --- hız sınırı --------------------------------------------------------------
+
+
+def test_rate_limit_is_off_by_default(tiny_corpus):
+    """Varsayılan 0 = kapalı: yerel kullanım ve bench koşumları etkilenmez."""
+    c = make_client(tiny_corpus)
+    for _ in range(12):
+        assert c.post("/search", json={"query": "deneme"}).status_code == 200
+
+
+def test_rate_limit_returns_429_with_turkish_detail_and_retry_after(tiny_corpus):
+    c = make_client(tiny_corpus, rate_limit_search_per_min=2)
+    assert c.post("/search", json={"query": "deneme"}).status_code == 200
+    assert c.post("/search", json={"query": "deneme"}).status_code == 200
+    r = c.post("/search", json={"query": "deneme"})
+    assert r.status_code == 429
+    assert "çok fazla istek" in r.json()["detail"]
+    assert int(r.headers["Retry-After"]) >= 1
+
+
+def test_rate_limits_are_per_endpoint(tiny_corpus):
+    """/ask tavanı /search'ü kilitlemez: maliyetleri farklı, sayaçları da ayrı."""
+    c = make_client(tiny_corpus, rate_limit_ask_per_min=1)
+    assert c.post("/ask", json={"question": "kira artışı nedir?"}).status_code == 200
+    assert c.post("/ask", json={"question": "kira artışı nedir?"}).status_code == 429
+    assert c.post("/search", json={"query": "kira artışı"}).status_code == 200
+
+
 def test_page_image_served(tiny_corpus):
     c = make_client(tiny_corpus)
     r = c.get("/pages/images/d0/0001.webp")
@@ -256,8 +398,10 @@ def test_hybrid_search_records_channel_tops_and_routing(tiny_corpus):
     bir kolonda karışmaz."""
     data_dir, _, _ = tiny_corpus
     c = make_client(tiny_corpus)
-    # "meden" (Türk Medeni Kanunu adı) sorguda geçiyor -> d0 yönlendirilir
-    c.post("/search", json={"query": "Medeni Kanuna göre yerleşim yeri"})
+    # Sorgu KASITEN AKSANSIZ yazıldı (exp12 yazım-değişmezliği uçtan uca):
+    # d0'ın ad token'ları {"turk", "meden"} katlanmış uzayda, sorgununkiler de
+    # öyle -> yönlendirme aksansız yazımda da tetiklenir.
+    c.post("/search", json={"query": "Turk Medeni Kanununa gore yerlesim yeri"})
     row = (
         sqlite3.connect(data_dir / "requests.sqlite")
         .execute(
@@ -280,7 +424,11 @@ def test_hybrid_search_records_channel_tops_and_routing(tiny_corpus):
     texts = pd.read_parquet(data_dir / "index" / "page_texts.parquet")
     bm25 = BM25Index(texts["page_id"].tolist(), texts["text"].tolist())
     expected = dict(
-        zip(bm25.page_ids, bm25.scores("Medeni Kanuna göre yerleşim yeri").tolist(), strict=True)
+        zip(
+            bm25.page_ids,
+            bm25.scores("Turk Medeni Kanununa gore yerlesim yeri").tolist(),
+            strict=True,
+        )
     )
     assert row[1] == pytest.approx(expected[detail["hits"][0]["page_id"]])
     assert row[1] > 1.5  # BM25 bandı — normalize [-1,1] ölçeğinde OLAMAZ
@@ -359,3 +507,31 @@ def test_search_survives_recorder_failure(tiny_corpus):
     c = TestClient(app)
     r = c.post("/search", json={"query": "deneme"})
     assert r.status_code == 200  # olay kaydı patladı ama istek etkilenmedi
+
+
+# --- arayüz sözleşmesi -------------------------------------------------------
+
+
+def test_ui_branches_on_status_field_not_on_answer_text(tiny_corpus):
+    """Arayüz durumu SUNUCUNUN `status` alanından okur, yanıt metninden değil.
+
+    Eskiden `a.text === ABSTAIN_TEXT` karşılaştırması vardı: `ABSTAIN_TEXT`in
+    tek bir noktalama değişikliği mührü sessizce kaybettirirdi — sunucu tarafı
+    testlerin hiçbiri de bunu yakalamazdı. Metnin kendisi hâlâ sunucuda
+    (answer/base.py); arayüzde bir KOPYASI YOK."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert "ABSTAIN_TEXT" not in html
+    assert "dayanak bulamadım" not in html.lower()  # metin kopyası sızmamış
+    assert "data.status" in html
+    for state in ('"abstained"', '"degraded"', '"answered"'):
+        assert state in html, state
+
+
+def test_ui_shows_six_example_chips_and_both_channels(tiny_corpus):
+    """Vitrin: 6 örnek soru (dilim etiketleriyle) + iki kanalın da gösterimi."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert html.count('class="chip"') == 6
+    assert "visual_score" in html  # görsel kanal sütunu gerçekten besleniyor
+    assert "aksansız yazım" in html  # yazım-değişmezlik vitrini

@@ -5,10 +5,12 @@ Pages are indexed as *images* by a ColPali-class vision-language model, and a sw
 VLM answerer looks at those page images and answers strictly from what it sees — citing
 pages, or admitting it doesn't know — instead of hallucinating an article number.
 Retrieval was visual-only in v0/P0; **P1 measured that channel against a Turkish-tuned
-BM25 pass over the PDF text layer and the text channel won by 3.6x** (canary Recall@5
-0.233 → 0.837), so ranking is now hybrid. The visual channel still runs on every query,
+BM25 pass over the PDF text layer and the text channel won by 3.7x** (canary Recall@5
+0.233 → 0.8605), so ranking is now hybrid. The visual channel still runs on every query,
 kept for telemetry and P2 calibration — the honest result, not the one that fit the
-original pitch.
+original pitch. The tokenizer folds Turkish diacritics on **both** sides, which makes the
+system **writing-invariant**: "yıllık ücretli izin" and "yillik ucretli izin" produce the
+same ranking, and Recall@5 is 0.8605 in both conditions.
 
 v0 corpus: 4,222 pages across 50 core Turkish statutes (Anayasa, TBK, TCK, İş Kanunu,
 KVKK, TTK, TMK, tax and finance law, and more) plus 6 historical Official Gazette scans
@@ -70,29 +72,39 @@ flowchart TD
 
 **Retrieval is hybrid (P1 default).** Ranking is decided by a **BM25 text channel** over
 the PDF text layer, with Turkish-specific handling measured one step at a time: `İ/I`-aware
-lowercasing, a fixed Turkish function-word stoplist applied before stemming, F5 prefix
+lowercasing, a fixed Turkish function-word stoplist applied before stemming, **ASCII
+diacritic folding** (`çğıöşü` + circumflexed `âîû`), F5 prefix
 truncation (first 5 characters — Turkish is agglutinative), and a **document-name routing**
 pass that re-orders *only inside* the BM25 top-50 window when every non-generic token of a
 statute's own title (derived from its page-1 heading, so no hand-written name table and no
 benchmark leakage) appears in the query. The visual MaxSim channel still runs on every
-query but no longer decides the ranking — it is kept for telemetry and as the input to P2
-calibration (both channels' top-1 scores are logged side by side in
-`detail.retrieval`). Measured on the same 43 answerable canary questions
+query but no longer decides the ranking — it is kept for telemetry, for the UI's per-hit
+`visual_score`, and as the input to P2 calibration (both channels' top-1 scores are logged
+side by side in `detail.retrieval`). Measured on the same 43 answerable canary questions
 (`research/journal.md`, [findings](docs/research/findings/2026-08-29-autoresearch-text-channel.md)):
 
 | pipeline | Recall@5 | Recall@20 | MRR | demo chip 1 gold rank | demo chip 2 gold rank |
 |---|---|---|---|---|---|
 | visual only (P0, exhaustive int8) | 0.233 | 0.302 | 0.149 | 664 / 4222 | 137 / 4222 |
-| **hybrid (P1, shipped)** | **0.837** | **0.930** | **0.655** | **2** | **2** |
+| hybrid, no folding (P1 round 2) | 0.8372 | 0.930 | 0.655 | 2 | 2 |
+| **hybrid + ASCII folding (shipped)** | **0.8605** | **0.930** | **0.632** | **2** | **2** |
+
+**Writing-invariance is the point of the last row.** Typing Turkish without diacritics is
+ordinary keyboard behaviour, and the un-folded recipe collapsed on it: folding *only the
+queries* dropped Recall@5 from 0.8372 to **0.5814**. Folding both sides makes the two
+conditions the same system — Recall@5 is **0.8605 with diacritics and 0.8605 without**.
+The price was measured and accepted, not hidden: MRR fell 0.655 → 0.632 and Recall@1 lost
+two questions to fold collisions, and every demoted question stayed *inside* the served
+top-5 (`research/journal.md` #11–#13). A dual-form variant (emitting both spellings) was
+tried next and **discarded** — it regressed both Recall@20 and the visual guardrail.
 
 > **Which Recall@5?** Both numbers you may see come from the *same* run and differ only in
-> metric definition. **0.8372 = 36/43** counts a question as a hit if *any* of its gold pages
+> metric definition. **0.8605 = 37/43** counts a question as a hit if *any* of its gold pages
 > is in the top-5 (binary; the research harness's definition, and what the table above
-> reports). **0.8256** is fractional recall, `|gold ∩ top-5| / |gold|`, which the production
-> `uv run belge-gozu bench run` prints by default — it scores 0.5 on a question that has two
-> gold pages and only one of them retrieved. Same ranking, two conventions; neither is
-> "the corrected" one. Recall@20 is **0.9302 under both**. Report:
-> `data/bench/results/20260829-2115-3a031ca-hybrid.json`.
+> reports). **0.8488** is fractional recall, `|gold ∩ top-5| / |gold|`, which the production
+> `uv run belge-gozu bench run` prints by default (as `recall@5=0.849`) — it scores 0.5 on a
+> question that has two gold pages and only one of them retrieved. Same ranking, two
+> conventions; neither is "the corrected" one. Recall@20 is **0.9302 under both**.
 
 The routing window was 20 in the first measured recipe and 50 in the shipped one: at 20 the
 window set was preserved *by construction* so Recall@20 could not regress, and widening it
@@ -259,6 +271,37 @@ uv run belge-gozu serve
 `GOOGLE_API_KEY` (or `BG_GEMINI_API_KEY`) must be set for `/ask` to call the answerer;
 `/search` works without it.
 
+### API contract and input limits
+
+A live edge-case probe (2026-08-30) found the API happily doing nonsense: `k=100000`
+dumped all 4,222 pages in one response, `k=-1` returned 4,221, an empty query returned five
+arbitrary score-0 pages, and a 3,000-character query pushed the BM25 score to ~1053, which
+made the answer threshold meaningless. Those are now closed:
+
+| field | rule | over-limit |
+|---|---|---|
+| `query` / `question` | ≤ 500 characters | `422`, FastAPI validation shape (`detail` is a **list**) |
+| `k` (`/search`) | `1 ≤ k ≤ 50` | `422`, same shape |
+| any query with no content tokens after stop-word and length filtering (`""`, whitespace, `"bu ne için"`) | rejected on both endpoints | `422` with `detail` as a **plain Turkish string**: `sorgu boş ya da yalnız işlev kelimeleri içeriyor` |
+
+`POST /ask` returns a top-level **`status`**: `"answered"` (an honest "I could not find it"
+still counts — it *is* an answer), `"abstained"` (top-1 below the threshold, the answerer
+was never called), or `"degraded"` (the answerer failed; the retrieved pages are still
+valid). The UI branches on this field rather than string-matching the abstain text.
+Each hit additionally carries `visual_score` — the visual channel's normalized `[-1, 1]`
+score for that page on the hybrid path, `null` on the visual-only pipelines. It never
+mixes into `score`, which is on the BM25 ranking scale.
+
+Rate limiting is **off by default** (`BG_RATE_LIMIT_ASK_PER_MIN=0`,
+`BG_RATE_LIMIT_SEARCH_PER_MIN=0`) so local use and benchmark runs are untouched. The
+`Dockerfile` turns it on for public deployment (10/min for `/ask`, 60/min for `/search`,
+per client IP, `429` + `Retry-After`) and sets `BG_LOG_QUERY_TEXT=false` so a public demo
+stores only query hashes. The limiter is an in-process sliding window keyed on
+`request.client.host`; it deliberately does not trust `X-Forwarded-For`, which means that
+behind a reverse proxy it degrades into a global ceiling rather than a spoofable per-user
+one. Query encoding is additionally capped by a process-wide `Semaphore(4)` — a defensive
+bound, not a measured need: 40 requests at concurrency 8 completed 40/40 at p50 1.34 s.
+
 ## Telemetri
 
 Every `/ask` and `/search` request is logged to `data/requests.sqlite` (stage-by-stage
@@ -287,9 +330,10 @@ This is a working end-to-end system, not a finished product — v0's known gaps,
 
 - **Retrieval precision on natural-language queries was the weak link — P1 fixed most of
   it, and the remaining misses are known.** The hybrid text channel took canary Recall@5
-  from 0.233 to 0.837 (binary, 36/43; 0.8256 under the fractional definition — see the
-  metric note above), but **7 of 43 questions still miss the top-5, and all seven are pure
-  semantic paraphrases that name no statute** — the lexical ceiling of a BM25-plus-rules
+  from 0.233 to 0.8605 (binary, 37/43; 0.8488 under the fractional definition — see the
+  metric note above), but **6 of 43 questions still miss the top-5, and they are pure
+  semantic paraphrases that name no statute** (the `paraphrase` slice scores 0.286 on its
+  own) — the lexical ceiling of a BM25-plus-rules
   recipe. Two rule-based attempts at them were measured and *discarded* for regressing
   elsewhere (a distinctive-single-token routing rule, and letting the visual channel break
   ties inside the window). Closing the rest needs a dense Turkish text channel; that is P1

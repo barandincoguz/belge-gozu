@@ -1,9 +1,11 @@
 """Hibrit getirim: BM25 metin kanalı + doküman-adı yönlendirmesi (P1 üretim yolu).
 
-Sıralamayı METİN KANALI belirler (`retrieval/text.py` — autoresearch exp7/exp8
-reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md + journal #8,
-canary answerable n=43 R@5 0.2326 -> 0.8372). Görsel MaxSim kanalı her sorguda
-KOŞMAYA DEVAM EDER ama sıralamaya GİRMEZ:
+Sıralamayı METİN KANALI belirler (`retrieval/text.py` — autoresearch
+exp7/exp8/exp12 reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md
++ journal #8 ve #12, canary answerable n=43 R@5 0.2326 -> 0.8372 -> **0.8605**;
+exp12'nin ASCII aksan katlaması sistemi YAZIM-DEĞİŞMEZ yapar — aksansız yazılan
+aynı sorgu da 0.8605). Görsel MaxSim kanalı her sorguda KOŞMAYA DEVAM EDER ama
+sıralamaya GİRMEZ:
 
   * ölçüm (bulgu 3): F5 kırpmasından sonra görselin top-5'e BENZERSİZ katkısı
     SIFIR soru — yani füzyon bugün ölçülebilir bir kazanç getirmiyor;
@@ -37,7 +39,7 @@ import pandas as pd
 
 from belge_gozu.index.chunking import CHUNK_TOKENS
 from belge_gozu.index.compat import IndexCompatibilityError
-from belge_gozu.index.encode import Encoder
+from belge_gozu.index.encode import ENCODE_LIMIT, Encoder
 from belge_gozu.retrieval.text import (
     WINDOW,
     BM25Index,
@@ -197,10 +199,11 @@ class HybridRetriever:
     def search(self, query: str, k: int = 5) -> list[PageHit]:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
-        with stage("query_encode"):
+        # savunmacı sınır, ölçüm: 40@c=8 sağlıklı (bkz. index/encode.py)
+        with stage("query_encode"), ENCODE_LIMIT:
             q_emb = self.encoder.encode_query(query)
         # Görsel kanal: sıralamaya GİRMEZ (yukarıdaki modül açıklaması),
-        # telemetri ve P2 kalibrasyon verisi için koşar.
+        # telemetri, gösterim ve P2 kalibrasyon verisi için koşar.
         with stage("exhaustive_maxsim"):
             visual = self.index.score_all(q_emb, chunk_tokens=self.CHUNK_TOKENS)
         with stage("text_bm25"):
@@ -208,6 +211,7 @@ class HybridRetriever:
         with stage("route_fuse"):
             ranking, routed = self.rank(query, bm25)
         by_id = dict(zip(self.index.page_ids, bm25.tolist(), strict=True))
+        visual_by_id = dict(zip(self.index.page_ids, visual.tolist(), strict=True))
         _LAST_META.set(
             {
                 "bm25_top1": float(bm25.max()) if bm25.size else 0.0,
@@ -225,6 +229,10 @@ class HybridRetriever:
                     # bilinçli olarak buraya karışmıyor: tek bir alanda iki
                     # farklı ölçek taşımak T14'ün ayıkladığı hatanın aynısı.
                     score=by_id[pid],
+                    # ...ama AYRI bir alanda taşınıyor: aynı sayfaya görsel
+                    # kanalın verdiği normalize ~[-1,1] skor. Sıralamaya
+                    # girmez; arayüzde "iki kanal" iddiasını görünür kılar.
+                    visual_score=visual_by_id[pid],
                     doc_name=row["doc_name"],
                     page_no=int(row["page_no"]),
                     image_path=row["image_path"],

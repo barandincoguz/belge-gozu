@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import typer
 from PIL import Image
+from pydantic import ValidationError
 
 from belge_gozu.bench.oracle import FloatIndex, native_float_scores, rank_of
 from belge_gozu.config import Settings
@@ -81,7 +82,26 @@ PRECISION_QUANTIZATION: dict[Precision, Quantization] = {
 # A/B'yi KAYBEDEN formatla ezip serve'ü fail-fast'e düşürüyordu. Typer varsayılanları
 # dekorasyon (import) anında bağlandığı için tek Settings örneği burada okunur;
 # bayraklar hâlâ elle geçersiz kılınabilir.
-_CLI_DEFAULTS = Settings()
+#
+# Bu satır IMPORT ANINDA koşar, yani `belge-gozu --help` bile ortam
+# değişkenlerini doğrular. Bozuk bir BG_* değeri (audit C9) burada ham bir
+# pydantic traceback'i olarak patlıyordu: kullanıcı yardım metni yerine 30
+# satırlık bir yığın izi görüyordu. Hata GERÇEK ve ölümcül (yanlış config'le
+# çalışmak sessiz sapma demektir) — ama okunur olmalı.
+try:
+    _CLI_DEFAULTS = Settings()
+except ValidationError as e:
+    typer.secho(
+        "Yapılandırma hatası: ortam değişkenleri (BG_*) ya da .env dosyası geçersiz.",
+        err=True,
+        fg=typer.colors.RED,
+    )
+    for err in e.errors():
+        field = ".".join(str(p) for p in err["loc"]) or "(bilinmeyen alan)"
+        typer.secho(f"  - {field}: {err['msg']}", err=True, fg=typer.colors.RED)
+    typer.secho("Düzeltip tekrar deneyin (örn. `unset BG_QUERY_FORMAT_ID`).", err=True, dim=True)
+    raise SystemExit(2) from None
+
 DEFAULT_QUERY_FORMAT = QueryFormatChoice(_CLI_DEFAULTS.query_format_id)
 DEFAULT_DOC_PROMPT = DocPromptChoice(_CLI_DEFAULTS.doc_prompt_id)
 # Aynı gerekçe `bench run --pipeline` için de geçerli (P1): sabit bir literal

@@ -4,8 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#F7F5F0">
-<meta name="description" content="Türk mevzuatında görsel arama — sayfalar OCR'sız, görüntü olarak dizinlendi.">
-<title>Belge-Gözü</title>
+<title>Belge-Gözü — Türk mevzuatında hibrit belge arama</title>
+<meta name="description" content="4.222 sayfalık Türk mevzuatı korpusunda hibrit arama: BM25 metin kanalı + doküman yönlendirme + görsel sayfa dizini. Dayanak bulamazsa yanıt üretmez.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Belge-Gözü — Türk mevzuatında hibrit belge arama">
+<meta property="og:description" content="50 kanun, 4.222 sayfa. Sıralamayı BM25 metin kanalı kurar, görsel kanal yanında koşar. Dayanak yoksa mühür basılır, yanıt uydurulmaz.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -16,9 +19,13 @@
     --ink:   #1C1B17;   /* matbaa mürekkebi */
     --muted: #6B665C;   /* solmuş mürekkep */
     --rule:  #D6D1C4;   /* ince cetvel çizgisi */
-    --stamp: #4247A8;   /* mavi mühür — vurgu */
+    --stamp: #4247A8;   /* mavi mürekkep — METİN kanalı + vurgu */
     --stamp-lt: #8189D6;/* eşik altı skor çubuğu */
-    --seal:  #A02C2C;   /* kırmızı mühür — abstain + eşik */
+    --seal:  #A02C2C;   /* kırmızı mühür — abstain + eşik çizgisi */
+    /* İkinci kanalın kendi mürekkebi: sepya fotokopi. İki kanal iki ölçekte
+       skorluyor, bu yüzden aynı maviyle gösterilmiyorlar — renk burada
+       dekorasyon değil, ölçek ayrımının taşıyıcısı. */
+    --scan:  #8A6D3B;
     --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
     --sans:  "IBM Plex Sans", system-ui, -apple-system, sans-serif;
     --mono:  "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
@@ -33,6 +40,8 @@
   :focus-visible { outline: 2px solid var(--stamp); outline-offset: 2px; border-radius: 2px; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden;
                      clip: rect(0 0 0 0); white-space: nowrap; }
+  .eyebrow { font-family: var(--mono); font-size: .72rem; letter-spacing: .14em;
+             text-transform: uppercase; color: var(--muted); }
 
   /* ---- manşet ---- */
   .masthead { max-width: 940px; margin: 0 auto; padding: 28px 20px 0; text-align: center; }
@@ -49,19 +58,33 @@
 
   /* ---- soru ---- */
   .bar { display: flex; gap: 10px; }
-  input[type="text"] { flex: 1; padding: 13px 16px; font: 1.02rem/1.4 var(--sans);
+  input[type="text"] { flex: 1; min-width: 0; padding: 13px 16px; font: 1.02rem/1.4 var(--sans);
           border: 1px solid var(--rule); border-radius: 8px; background: var(--card);
           color: var(--ink); }
   input[type="text"]::placeholder { color: var(--muted); }
+  input[type="text"][aria-invalid="true"] { border-color: var(--seal); }
   #ask-btn { padding: 13px 26px; font: 600 1rem var(--sans); border: 0; border-radius: 8px;
              background: var(--stamp); color: #fff; cursor: pointer; }
   #ask-btn:hover { background: #363B92; }
   #ask-btn:disabled { opacity: .55; cursor: wait; }
-  .chips { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .chips-label { font-family: var(--mono); font-size: .78rem; color: var(--muted); }
-  .chip { border: 1px solid var(--rule); background: var(--card); color: var(--ink);
-          border-radius: 999px; padding: 6px 14px; font: .85rem var(--sans); cursor: pointer; }
-  .chip:hover { border-color: var(--stamp); color: var(--stamp); }
+  #q-msg { margin: 8px 2px 0; font-size: .88rem; color: var(--seal); }
+  #q-msg[hidden] { display: none; }
+
+  /* ---- örnek sorular (arşiv fişleri) ---- */
+  .chips-head { display: flex; align-items: baseline; gap: 10px; margin: 20px 0 8px;
+                flex-wrap: wrap; }
+  .chips-head p { margin: 0; font-size: .84rem; color: var(--muted); }
+  .chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
+           gap: 10px; }
+  .chip { display: block; width: 100%; text-align: left; border: 1px solid var(--rule);
+          background: var(--card); color: var(--ink); border-radius: 4px;
+          padding: 9px 12px 10px; font: inherit; cursor: pointer;
+          border-left: 3px solid var(--rule); transition: border-color .15s, background .15s; }
+  .chip:hover { border-color: var(--stamp); border-left-color: var(--stamp); }
+  .chip .tag { display: block; font-family: var(--mono); font-size: .67rem;
+               letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+               margin-bottom: 3px; }
+  .chip .qtext { display: block; font-size: .87rem; line-height: 1.42; }
 
   /* ---- pipeline ---- */
   .pipeline { margin-top: 26px; padding: 14px 16px; background: var(--card);
@@ -79,6 +102,8 @@
   .stage.done .dot { border-color: var(--stamp); background: var(--stamp); animation: none; }
   .stage.skipped { color: var(--seal); }
   .stage.skipped .dot { border-color: var(--seal); background: transparent; }
+  .stage.failed { color: var(--muted); }
+  .stage.failed .dot { border-color: var(--muted); background: var(--muted); opacity: .45; }
   .elapsed { margin-left: auto; font-family: var(--mono); font-size: .78rem; color: var(--muted); }
   @keyframes pulse { 50% { opacity: .35; } }
 
@@ -94,7 +119,10 @@
   #answer-text ul { margin: 0 0 10px; padding-left: 22px; }
   #answer-text li { margin-bottom: 4px; }
   #answer-text > :last-child { margin-bottom: 0; }
+  #answer-text[hidden] { display: none; }
   .answer-card.abstained #answer-text { color: var(--muted); max-width: 48ch; }
+
+  /* Mühür: EŞİK ALTI durumu. Döner, kırmızı, çift cetvelli, sağ üstte. */
   .stamp { position: absolute; top: 16px; right: 20px; transform: rotate(-7deg);
            border: 4px double var(--seal); color: var(--seal); border-radius: 6px;
            font-family: var(--serif); font-weight: 700; font-size: .95rem;
@@ -103,6 +131,22 @@
   @keyframes thud { from { transform: rotate(-7deg) scale(1.6); opacity: 0; }
                     to   { transform: rotate(-7deg) scale(1);   opacity: .88; } }
   .stamp.inked { animation: thud .28s cubic-bezier(.2,.8,.3,1) both; }
+
+  /* Servis notu: SERVİS BOZULMASI durumu — mühürle karıştırılmasın diye her
+     eksende zıddı: dönmez, kırmızı değil, kutu değil bant, sağ üstte değil
+     akışın içinde. Gazetenin "yayın notu" şeridi. */
+  .svc-note { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 14px;
+              padding: 11px 14px; background: var(--paper);
+              border-left: 3px solid var(--muted);
+              background-image: repeating-linear-gradient(135deg,
+                  rgba(107,102,92,.07) 0 6px, transparent 6px 12px); }
+  .svc-note[hidden] { display: none; }
+  .svc-note .tag { flex: none; font-family: var(--mono); font-size: .68rem;
+                   letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+                   border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px;
+                   background: var(--card); margin-top: 2px; }
+  .svc-note p { margin: 0; font-size: .92rem; color: var(--ink); max-width: 56ch; }
+
   .cites { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .cites-label { font-family: var(--mono); font-size: .78rem; color: var(--muted); }
   .cite { font-family: var(--mono); font-size: .78rem; border: 1px solid var(--rule);
@@ -117,10 +161,24 @@
   .sec-sub b { color: var(--seal); font-weight: 600; }
 
   .chart { background: var(--card); border: 1px solid var(--rule); border-radius: 8px;
-           padding: 18px 20px 14px; }
+           padding: 16px 20px 14px; }
   .chart-rows { position: relative; }
-  .crow { display: grid; grid-template-columns: minmax(120px, 220px) 1fr 64px;
-          gap: 12px; align-items: center; padding: 5px 0; border-radius: 4px; cursor: pointer; }
+  /* Dört sütun = dört ayrı bilgi: belge · dağılım · BM25 skoru · görsel skor.
+     İki skor AYRI sütunlarda çünkü AYRI ölçeklerde (BM25 üst sınırsız,
+     görsel normalize [-1,1]); tek bir eksende çizmek onları
+     karşılaştırılabilirmiş gibi gösterirdi. */
+  .crow, .chart-head { display: grid;
+          grid-template-columns: minmax(104px, 210px) 1fr 58px 54px;
+          gap: 10px; align-items: center; }
+  .chart-head { padding: 0 0 7px; border-bottom: 1px solid var(--rule); margin-bottom: 4px; }
+  .chart-head > span { font-family: var(--mono); font-size: .66rem; letter-spacing: .09em;
+                       text-transform: uppercase; color: var(--muted); }
+  .chart-head .h-bm25 { color: var(--stamp); }
+  .chart-head .h-scan { color: var(--scan); }
+  .chart-head .h-track { position: relative; }
+  .crow { padding: 5px 0; border-radius: 4px; cursor: pointer; width: 100%;
+          background: none; border: 0; font: inherit; color: inherit; text-align: left;
+          overflow: visible; }
   .crow:hover, .crow.hl { background: var(--paper); }
   .crow .name { display: flex; align-items: baseline; gap: 6px; min-width: 0;
                 font-size: .82rem; color: var(--ink); }
@@ -138,11 +196,21 @@
   .crow .val { font-family: var(--mono); font-size: .8rem; color: var(--ink); text-align: left;
                font-variant-numeric: tabular-nums; }
   .crow.below .val { color: var(--muted); }
-  .thlabel { position: absolute; top: -30px; left: var(--th); transform: translateX(-50%);
-             font-family: var(--mono); font-size: .72rem; color: var(--seal);
+  .crow .scan { font-family: var(--mono); font-size: .76rem; color: var(--scan);
+                text-align: left; font-variant-numeric: tabular-nums; opacity: .9; }
+  /* Eşik etiketi BAŞLIK satırının "skor dağılımı" hücresine sabitlenir: o hücre
+     satırların track sütunuyla aynı grid kolonudur, yani hizalama yüzde
+     hesabıyla değil grid'in kendisiyle garanti edilir (ve etiket satır
+     butonlarının taşma davranışına hiç bağlı kalmaz). */
+  .thlabel { position: absolute; top: 100%; margin-top: 5px; left: var(--th);
+             transform: translateX(-50%); font-family: var(--mono); font-size: .72rem;
+             letter-spacing: 0; text-transform: none; color: var(--seal);
              white-space: nowrap; }
   .chart-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
-                font-family: var(--mono); font-size: .74rem; color: var(--muted); }
+                font-family: var(--mono); font-size: .73rem; color: var(--muted);
+                line-height: 1.6; }
+  .chart-foot .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+                    margin-right: 4px; vertical-align: baseline; }
 
   /* ---- sayfa kartları ---- */
   .hits { margin-top: 20px; display: grid;
@@ -163,11 +231,28 @@
   .hit .cap b { display: block; font-family: var(--serif); font-weight: 600;
                 font-size: .88rem; line-height: 1.3; margin-bottom: 2px; }
   .hit .cap span { font-size: .76rem; color: var(--muted); }
-  .hit .cap a { font-size: .76rem; }
+  .hit .cap .scan { font-family: var(--mono); font-size: .72rem; color: var(--scan); }
 
   /* ---- durum + hata ---- */
   #status { margin-top: 18px; color: var(--muted); font-size: .9rem; }
   #status.error { color: var(--seal); }
+
+  /* ---- nasıl çalışır ---- */
+  .how { margin-top: 46px; border-top: 3px solid var(--ink); padding-top: 18px; }
+  .how h2 { font-family: var(--serif); font-weight: 600; font-size: 1.3rem; margin: 8px 0 4px; }
+  .how > p.lede { margin: 0 0 20px; color: var(--muted); font-size: .92rem; max-width: 62ch; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); gap: 18px; }
+  .col { border-top: 1px solid var(--rule); padding-top: 10px; }
+  .col h3 { margin: 6px 0 6px; font-family: var(--serif); font-weight: 600; font-size: 1rem; }
+  .col p { margin: 0; font-size: .87rem; color: var(--muted); line-height: 1.6; }
+  .col.text-ch { border-top-color: var(--stamp); }
+  .col.scan-ch { border-top-color: var(--scan); }
+  .how-kunye { margin-top: 20px; padding: 12px 14px; background: var(--card);
+               border: 1px solid var(--rule); border-radius: 6px;
+               font-family: var(--mono); font-size: .76rem; color: var(--muted);
+               line-height: 1.75; }
+  .how-kunye b { color: var(--ink); font-weight: 500; }
+  .how-kunye .caveat { color: var(--seal); }
 
   /* ---- lightbox ---- */
   .lightbox { position: fixed; inset: 0; background: rgba(28,27,23,.82); z-index: 50;
@@ -190,15 +275,20 @@
 
   @media (max-width: 560px) {
     .bar { flex-direction: column; }
-    .crow { grid-template-columns: 1fr 56px; }
-    .crow .name { grid-column: 1 / -1; padding-bottom: 2px; }
+    .crow, .chart-head { grid-template-columns: 1fr 52px 50px; }
+    .crow .name, .chart-head .h-doc { grid-column: 1 / -1; padding-bottom: 2px; }
     .stamp { position: static; display: inline-block; margin-bottom: 12px; }
+    .svc-note { flex-direction: column; gap: 7px; }
+    .chart { padding: 14px 14px 12px; }
+    .wrap { padding: 24px 16px 48px; }
+    .masthead { padding: 22px 16px 0; }
+    footer { padding: 0 16px 32px; }
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .stage.active .dot { animation: none; }
     .stamp.inked { animation: none; }
-    .hit { transition: none; }
+    .hit, .chip { transition: none; }
   }
 </style>
 </head>
@@ -208,7 +298,7 @@
   <div class="rule-thick"></div>
   <div class="rule-thin"></div>
   <h1>Belge-Gözü</h1>
-  <p class="tagline">Türk mevzuatında görsel arama — sayfalar OCR’sız, görüntü olarak dizinlendi.</p>
+  <p class="tagline">Türk mevzuatında hibrit arama — metin kanalı sıralar, sayfalar görüntü olarak dizinlidir.</p>
   <p class="kunye"><b id="page-count">4.222</b> sayfa · <b>50</b> kanun · <b>1928–2024</b> · Resmî Gazete ve mevzuat.gov.tr kaynaklı</p>
   <div class="rule-thin"></div>
 </header>
@@ -218,20 +308,53 @@
     <label for="q" class="visually-hidden">Mevzuata dair sorunuz</label>
     <div class="bar">
       <input type="text" id="q" name="question" placeholder="Mevzuata dair bir soru yazın…"
-             autocomplete="off" spellcheck="false" enterkeyhint="send" autofocus>
-      <button id="ask-btn">Sor</button>
+             maxlength="500" autocomplete="off" spellcheck="false" enterkeyhint="send"
+             aria-describedby="q-msg" autofocus>
+      <button id="ask-btn" type="button">Sor</button>
+    </div>
+    <p id="q-msg" role="alert" hidden></p>
+
+    <div class="chips-head">
+      <span class="eyebrow">örnek sorular</span>
+      <p>Altı farklı zorluk sınıfı — hepsi 43 soruluk canary setinden ya da onun yazım varyantından.</p>
     </div>
     <div class="chips" id="chips">
-      <span class="chips-label">deneyin:</span>
-      <button class="chip">Kişisel Verilerin Korunması Kanunu'na göre açık rızanın geçerlilik şartları nelerdir?</button>
-      <button class="chip">İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?</button>
-      <button class="chip">Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?</button>
+      <button class="chip" type="button" aria-label="Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"
+              data-q="Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?">
+        <span class="tag" aria-hidden="true">doğrudan madde</span>
+        <span class="qtext" aria-hidden="true">Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?</span>
+      </button>
+      <button class="chip" type="button" aria-label="İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?"
+              data-q="İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?">
+        <span class="tag" aria-hidden="true">madde · çizelge</span>
+        <span class="qtext" aria-hidden="true">İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır?</span>
+      </button>
+      <button class="chip" type="button" aria-label="492 sayılı Kanun (9) sayılı tarife, B sınıfı sürücü belgesi harcı kanunla getirilen miktar nedir?"
+              data-q="492 sayılı Kanun (9) sayılı tarife, B sınıfı sürücü belgesi harcı kanunla getirilen miktar nedir?">
+        <span class="tag" aria-hidden="true">tablo · tarife</span>
+        <span class="qtext" aria-hidden="true">492 sayılı Kanun (9) sayılı tarife, B sınıfı sürücü belgesi harcı kanunla getirilen miktar nedir?</span>
+      </button>
+      <button class="chip" type="button" aria-label="10 Kasım 1975 tarihli Resmî Gazete'de yayımlanan 7/10445 sayılı Kararname hangi konudadır?"
+              data-q="10 Kasım 1975 tarihli Resmî Gazete'de yayımlanan 7/10445 sayılı Kararname hangi konudadır?">
+        <span class="tag" aria-hidden="true">tarihî tarama</span>
+        <span class="qtext" aria-hidden="true">10 Kasım 1975 tarihli Resmî Gazete'de yayımlanan 7/10445 sayılı Kararname hangi konudadır?</span>
+      </button>
+      <button class="chip" type="button" aria-label="Onbir yaşındaki bir çocuk suç sayılan bir eylemde bulunursa hakkında ceza davası açılabilir mi?"
+              data-q="Onbir yaşındaki bir çocuk suç sayılan bir eylemde bulunursa hakkında ceza davası açılabilir mi?">
+        <span class="tag" aria-hidden="true">kanun adı geçmiyor</span>
+        <span class="qtext" aria-hidden="true">Onbir yaşındaki bir çocuk suç sayılan bir eylemde bulunursa hakkında ceza davası açılabilir mi?</span>
+      </button>
+      <button class="chip" type="button" aria-label="Aksansız yazım: yillik ucretli izin suresi ne kadar?"
+              data-q="yillik ucretli izin suresi ne kadar?">
+        <span class="tag" aria-hidden="true">aksansız yazım</span>
+        <span class="qtext" aria-hidden="true">yillik ucretli izin suresi ne kadar?</span>
+      </button>
     </div>
   </section>
 
   <section id="pipeline" class="pipeline" hidden aria-label="İşlem aşamaları">
     <ol>
-      <li class="stage" data-st="0"><span class="dot"></span><span>sorgu kodlanıyor</span></li>
+      <li class="stage" data-st="0"><span class="dot"></span><span id="st-encode">sorgu kodlanıyor — görsel kanal</span></li>
       <li class="stage" data-st="1"><span class="dot"></span><span id="st-scan">4.222 sayfada BM25 + doküman yönlendirme → ilk 5</span></li>
       <li class="stage" data-st="2"><span class="dot"></span><span id="st-th">eşik kontrolü</span></li>
       <li class="stage" data-st="3"><span class="dot"></span><span id="st-llm">Gemini sayfaları okuyor</span></li>
@@ -243,6 +366,10 @@
     <div id="answer" class="answer-card">
       <p class="head">Yanıt</p>
       <div id="stamp" class="stamp" hidden aria-hidden="true">DAYANAK<br>BULUNAMADI</div>
+      <div id="svc-note" class="svc-note" hidden>
+        <span class="tag">servis notu</span>
+        <p id="svc-note-text"></p>
+      </div>
       <div id="answer-text"></div>
       <div id="cites" class="cites"></div>
     </div>
@@ -261,6 +388,44 @@
   </section>
 
   <p id="status" role="status"></p>
+
+  <section class="how" aria-labelledby="how-title">
+    <span class="eyebrow">nasıl çalışır</span>
+    <h2 id="how-title">İki kanal, bir kural</h2>
+    <p class="lede">Sorgu iki ayrı yoldan aynı korpusa vurur. Sıralamayı bugün yalnız biri kuruyor —
+      hangisinin kazandığı tahmin değil, ölçüm sonucu.</p>
+    <div class="cols">
+      <div class="col text-ch">
+        <span class="eyebrow">metin kanalı · sıralar</span>
+        <h3>Türkçeye uyarlanmış BM25</h3>
+        <p>PDF’lerin metin katmanı üzerinde: İ/I duyarlı küçültme, işlev kelimesi eleme,
+          5 harflik gövde kırpması ve aksan katlaması. Katlama sistemi yazım-değişmez yapar —
+          “yıllık ücretli izin” ile “yillik ucretli izin” aynı sonucu verir.</p>
+      </div>
+      <div class="col text-ch">
+        <span class="eyebrow">yönlendirme · yeniden sıralar</span>
+        <h3>Doküman adından yönlendirme</h3>
+        <p>Bir kanunun adı sorguda tam olarak geçiyorsa, o kanunun sayfaları ilk 50’nin
+          <i>içinde</i> öne alınır. Ad listesi elle yazılmadı: her kanunun kendi kapak
+          başlığından çıkarıldı, yani benchmark’a ayar yok.</p>
+      </div>
+      <div class="col scan-ch">
+        <span class="eyebrow">görsel kanal · sıralamaz</span>
+        <h3>ColSmol sayfa dizini</h3>
+        <p>Her sorguda 4.222 sayfa görüntüsü de taranır. Ölçümde sıralamaya benzersiz
+          katkısı sıfır çıktı, bu yüzden sıraya girmiyor; skoru yukarıdaki
+          <b style="color:var(--scan)">görsel</b> sütununda ve telemetride duruyor.</p>
+      </div>
+    </div>
+    <p class="how-kunye">
+      künye · <b>Recall@5 0.8605</b> (37/43, ikili tanım) · <b>Recall@20 0.9302</b> ·
+      43 soruluk insan-doğrulamalı canary · <b>4.222</b> sayfa / <b>50</b> kanun ·
+      aksanlı ve aksansız yazımda <b>aynı</b> sonuç<br>
+      <span class="caveat">uyarı:</span> skor kalibre edilmemiş bir BM25 birimidir, güven ya da
+      doğruluk yüzdesi değildir; eşik bir kalibrasyon değil, sayıca yeniden üretilmiş bir
+      çalışma noktasıdır. Kalan 6 soru sözcüksel tavana takılıyor.
+    </p>
+  </section>
 </main>
 
 <footer>
@@ -269,7 +434,7 @@
 </footer>
 
 <div id="lightbox" class="lightbox" hidden>
-  <button class="lb-close" id="lb-close" aria-label="Kapat">✕</button>
+  <button class="lb-close" id="lb-close" type="button" aria-label="Kapat">✕</button>
   <img id="lb-img" alt="">
   <p class="lb-cap"><span id="lb-cap-text"></span><a id="lb-src" target="_blank" rel="noopener">resmî kaynağı aç ↗</a></p>
 </div>
@@ -278,6 +443,7 @@
 const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 1) => n.toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const MAX_CHARS = 500;
 
 /* Skorlar hibrit yolda BM25 ölçeğinde (kalibre edilmemiş, tipik 5-70), bu
    yüzden eşik de o bantta: 10.6 = config.py'deki varsayılan (int8@0.58'in
@@ -292,18 +458,20 @@ fetch("/healthz").then(r => r.json()).then(h => {
   THRESHOLD = h.threshold ?? THRESHOLD;
   TOP_K = h.top_k ?? TOP_K;
   $("page-count").textContent = h.pages.toLocaleString("tr-TR");
-  /* Aşama etiketi ETKİN pipeline'ı anlatmalı: hibrit yolda "ilk K"yı BM25 metin
-     kanalı + doküman-adı yönlendirmesi seçer (görsel MaxSim koşar ama sıralamaya
-     girmez); exhaustive/two-stage kollarında sıralayan görsel kanaldır. */
+  /* Aşama etiketleri ETKİN pipeline'ı anlatır. Hibrit yolda SIRA gerçekten
+     şudur: önce sorgu görsel kanal için kodlanır (~1 sn, en pahalı adım),
+     sonra BM25 metin araması + doküman yönlendirmesi koşar (milisaniyeler),
+     sonra eşik, sonra LLM. Görsel kanal koşar ama sıralamaya girmez. */
   const SCAN_LABEL = {
-    hybrid: "BM25 + doküman yönlendirme (görsel MaxSim telemetride)",
-    exhaustive: "exhaustive MaxSim",
-    "two-stage": "Hamming eleme + MaxSim",
+    hybrid: "BM25 metin araması + doküman yönlendirme",
+    exhaustive: "exhaustive MaxSim (görsel)",
+    "two-stage": "Hamming eleme + MaxSim (görsel)",
   };
   const scan = SCAN_LABEL[h.pipeline] ?? SCAN_LABEL.hybrid;
   $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada ${scan} → ilk ${TOP_K}`;
   $("st-th").textContent = `eşik kontrolü (${fmt(THRESHOLD, 2)})`;
   $("hits-count").textContent = String(TOP_K);
+  if (h.pipeline !== "hybrid") $("st-encode").textContent = "sorgu kodlanıyor";
 }).catch(() => {});
 
 /* ---- pipeline ---- */
@@ -315,8 +483,10 @@ function pipelineStart() {
   $("pipeline").hidden = false;
   $("elapsed").textContent = "";
   if (reduced) { stages.forEach(s => s.classList.add("active")); return; }
-  // gerçek aşama süreleri istemciden görünmez; sıra gerçeği, tempo tahmindir
-  const pacing = [0, 900, 2100, 2600];
+  /* Gerçek aşama süreleri istemciden görünmez; SIRA gerçeği, tempo ölçüme
+     yakın bir tahmindir: encode ~1.1 sn (yükün büyük kısmı), BM25 + yönlendirme
+     + eşik milisaniyeler, kalan süre LLM'in. */
+  const pacing = [0, 1150, 1260, 1340];
   pacing.forEach((t, i) => stageTimers.push(setTimeout(() => {
     stages.forEach((s, j) => {
       if (j < i) { s.className = "stage done"; }
@@ -324,12 +494,20 @@ function pipelineStart() {
     });
   }, t)));
 }
-function pipelineFinish(abstained, ms) {
+function pipelineFinish(status, ms) {
   stageTimers.forEach(clearTimeout);
   document.querySelectorAll(".stage").forEach((s, j) => {
     s.className = "stage done";
-    if (j === 3 && abstained) { s.className = "stage skipped"; $("st-llm").textContent = "Gemini çağrılmadı — eşik altı"; }
-    else if (j === 3) { $("st-llm").textContent = "Gemini sayfaları okudu"; }
+    if (j !== 3) return;
+    if (status === "abstained") {
+      s.className = "stage skipped";
+      $("st-llm").textContent = "Gemini çağrılmadı — eşik altı";
+    } else if (status === "degraded") {
+      s.className = "stage failed";
+      $("st-llm").textContent = "Gemini yanıt veremedi";
+    } else {
+      $("st-llm").textContent = "Gemini sayfaları okudu";
+    }
   });
   $("elapsed").textContent = `${fmt(ms / 1000)} sn`;
 }
@@ -339,8 +517,9 @@ function renderChart(hits) {
   const c = $("chart");
   c.innerHTML = "";
   if (!hits.length) { c.innerHTML = '<p class="sec-sub">Hiç sayfa bulunamadı.</p>'; return; }
-  /* Skorlar artık NEGATİF olabilir (normalize [-1,1] bant): oran hesapları
-     %0'ın altına inebilir. İki ayrı tuzak var, ikisi de kapatılıyor:
+  const hasScan = hits.some(h => typeof h.visual_score === "number");
+  /* Skorlar NEGATİF olabilir (görsel kollarda normalize [-1,1] bant): oran
+     hesapları %0'ın altına inebilir. İki ayrı tuzak var, ikisi de kapatılıyor:
        1) tek bir negatif skor -> oran negatif -> Math.max(0, ...) yakalar;
        2) TÜM skorlar VE eşik negatifse maxV'nin KENDİSİ negatif olur, bölme
           işareti ters çevirir ve Math.max(0, ...) hiç devreye girmez
@@ -349,26 +528,41 @@ function renderChart(hits) {
   const maxV = Math.max(...hits.map(h => h.score), THRESHOLD, 0.01) * 1.08;
   const pct = (v) => Math.min(100, Math.max(0, v / maxV * 100)).toFixed(2) + "%";
   const thPct = pct(THRESHOLD);
+
+  const head = document.createElement("div");
+  head.className = "chart-head";
+  head.innerHTML = `<span class="h-doc">belge · sayfa</span>
+      <span class="h-track" style="--th:${thPct}">skor dağılımı
+        <span class="thlabel">eşik ${fmt(THRESHOLD, 2)}</span></span>
+      <span class="h-bm25">BM25</span>${hasScan ? '<span class="h-scan">görsel</span>' : "<span></span>"}`;
+  c.appendChild(head);
+
   const rows = document.createElement("div");
   rows.className = "chart-rows";
-  rows.style.paddingTop = "32px"; /* eşik etiketi için yer */
+  rows.style.paddingTop = "22px"; /* eşik etiketi için yer */
   hits.forEach((h, i) => {
     const above = h.score >= THRESHOLD;
-    const row = document.createElement("div");
+    const row = document.createElement("button");
+    row.type = "button";
     row.className = "crow " + (above ? "above" : "below");
     row.dataset.pid = h.page_id;
     /* Eşik kararı YALNIZ 1. satıra bakar (AskService: hits[0].score). Yönlendirme
        listeyi skora göre monoton olmaktan çıkarabildiği için, alt satırlardaki
        "eşik üstü" renkler abstain kararıyla çelişiyormuş gibi görünebilir —
        hangi satırın karar verdiği burada açıkça söyleniyor. */
+    const scanTxt = typeof h.visual_score === "number" ? fmt(h.visual_score, 2) : "";
+    row.setAttribute("aria-label",
+      `${h.doc_name}, sayfa ${h.page_no}, BM25 skoru ${fmt(h.score, 2)}` +
+      (scanTxt ? `, görsel skoru ${scanTxt}` : "") +
+      (i === 0 ? ", eşik bu satıra uygulanır" : "") + ". Sayfa kartına git.");
     row.title = `${h.doc_name} — sayfa ${h.page_no}` + (i === 0 ? " · eşik bu satıra uygulanır" : "");
     row.innerHTML = `
       <span class="name"><span class="nm">${esc(h.doc_name)}</span><small>s.${h.page_no}</small></span>
       <span class="track" style="--th:${thPct}">
         <span class="barfill" style="width:${pct(h.score)}"></span>
-        ${i === 0 ? `<span class="thlabel">eşik ${fmt(THRESHOLD, 2)}</span>` : ""}
       </span>
-      <span class="val">${fmt(h.score, 2)}</span>`;
+      <span class="val">${fmt(h.score, 2)}</span>
+      <span class="scan">${scanTxt}</span>`;
     row.addEventListener("click", () => {
       const card = document.querySelector(`.hit[data-pid="${CSS.escape(h.page_id)}"]`);
       if (card) { card.scrollIntoView({ block: "center" }); flash(card); }
@@ -380,7 +574,13 @@ function renderChart(hits) {
   c.appendChild(rows);
   const foot = document.createElement("p");
   foot.className = "chart-foot";
-  foot.textContent = "skor: BM25 (kalibre edilmemiş, tipik 5-70) — güven ya da doğruluk yüzdesi DEĞİLDİR";
+  /* Kanal şeffaflığı, tek cümlede: iki sütun iki AYRI ölçek, tek eksende
+     çizilmemelerinin sebebi de bu. */
+  foot.innerHTML =
+    `<span class="sw" style="background:var(--stamp)"></span>BM25: sıralamayı kuran metin skoru — kalibre edilmemiş, tipik 5-70, güven yüzdesi DEĞİL.` +
+    (hasScan
+      ? `<br><span class="sw" style="background:var(--scan)"></span>görsel: ColSmol’ün aynı sayfaya verdiği normalize [-1,1] benzerlik — koşar ama sıralamaya girmez.`
+      : "");
   c.appendChild(foot);
 }
 function hl(pid, on) {
@@ -399,15 +599,18 @@ function renderHits(hits) {
   for (const h of hits) {
     const above = h.score >= THRESHOLD;
     const card = document.createElement("button");
+    card.type = "button";
     card.className = "hit " + (above ? "above" : "below");
     card.dataset.pid = h.page_id;
+    const scanTxt = typeof h.visual_score === "number"
+      ? ` <span class="scan">görsel ${fmt(h.visual_score, 2)}</span>` : "";
     card.setAttribute("aria-label", `${h.doc_name} sayfa ${h.page_no}, büyütmek için tıklayın`);
     card.innerHTML = `
       <span class="badge"><span class="sq"></span>${fmt(h.score, 2)}</span>
       <img src="/pages/${encodeURI(h.image_path)}" loading="lazy"
            alt="${esc(h.doc_name)}, sayfa ${h.page_no}">
       <span class="cap"><b>${esc(h.doc_name)}</b>
-        <span>sayfa ${h.page_no}</span></span>`;
+        <span>sayfa ${h.page_no}</span>${scanTxt}</span>`;
     card.addEventListener("click", () => openLightbox(h));
     card.addEventListener("mouseenter", () => hl(h.page_id, true));
     card.addEventListener("mouseleave", () => hl(h.page_id, false));
@@ -437,11 +640,40 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !$("lightbox").hidden) closeLightbox();
 });
 
+/* ---- girdi geri bildirimi ---- */
+function fieldError(msg) {
+  $("q-msg").textContent = msg;
+  $("q-msg").hidden = false;
+  $("q").setAttribute("aria-invalid", "true");
+  $("q").focus();
+}
+function clearFieldError() {
+  $("q-msg").hidden = true;
+  $("q-msg").textContent = "";
+  $("q").removeAttribute("aria-invalid");
+}
+
+/* Sunucunun 4xx gövdesini KULLANICI CÜMLESİNE çevirir. Ham JSON hiçbir
+   koşulda ekrana basılmaz: pydantic'in `detail`i bir LİSTE ve İngilizce,
+   kendi kapımızınki DÜZ DİZE ve Türkçe — ikisi de burada karşılanır. */
+function friendly422(payload) {
+  const d = payload && payload.detail;
+  if (typeof d === "string") {
+    return d.charAt(0).toUpperCase() + d.slice(1) +
+      ". En az bir anlamlı kelime içeren bir soru yazın.";
+  }
+  return `Soru en fazla ${MAX_CHARS} karakter olabilir. Kısaltıp tekrar deneyin.`;
+}
+
 /* ---- soru akışı ---- */
-const ABSTAIN_TEXT = "Bu soruya korpustaki belgelerde dayanak bulamadım.";
 async function ask() {
   const q = $("q").value.trim();
-  if (!q) { $("q").focus(); return; }
+  clearFieldError();
+  if (!q) { fieldError("Önce bir soru yazın."); return; }
+  if (q.length > MAX_CHARS) {
+    fieldError(`Soru en fazla ${MAX_CHARS} karakter olabilir (şu an ${q.length}).`);
+    return;
+  }
   history.replaceState(null, "", "?q=" + encodeURIComponent(q));
   $("ask-btn").disabled = true;
   $("ask-btn").textContent = "Soruluyor…";
@@ -457,17 +689,48 @@ async function ask() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question: q }),
     });
-    if (!r.ok) throw new Error("HTTP " + r.status);
+    if (!r.ok) {
+      $("pipeline").hidden = true;
+      const payload = await r.json().catch(() => null);
+      if (r.status === 422) { fieldError(friendly422(payload)); return; }
+      if (r.status === 429) {
+        const wait = r.headers.get("Retry-After");
+        $("status").className = "error";
+        $("status").textContent = wait
+          ? `Çok hızlı soru soruldu. ${wait} saniye sonra tekrar deneyin.`
+          : "Çok hızlı soru soruldu. Biraz bekleyip tekrar deneyin.";
+        return;
+      }
+      $("status").className = "error";
+      $("status").textContent =
+        "Servis şu anda yanıt veremedi (sunucu hatası). Birkaç saniye sonra tekrar deneyin.";
+      return;
+    }
     const data = await r.json();
     const ms = performance.now() - t0;
     const a = data.answer;
-    pipelineFinish(a.abstained, ms);
+    /* Durum sunucudan gelir: "answered" | "abstained" | "degraded".
+       Yanıt METNİYLE dize karşılaştırması YAPILMAZ — o metnin tek bir
+       noktalama değişikliği arayüzü sessizce bozardı. */
+    const status = data.status || (a.abstained ? "abstained" : "answered");
+    pipelineFinish(status, ms);
 
-    const hardAbstain = a.abstained && a.text === ABSTAIN_TEXT;
-    $("answer").className = "answer-card" + (a.abstained ? " abstained" : "");
-    $("answer-text").innerHTML = mdLite(a.text);
-    $("stamp").hidden = !hardAbstain;
-    if (hardAbstain) { $("stamp").classList.remove("inked"); void $("stamp").offsetWidth; $("stamp").classList.add("inked"); }
+    $("answer").className = "answer-card" + (status === "answered" ? "" : " abstained");
+    $("stamp").hidden = status !== "abstained";
+    $("svc-note").hidden = status !== "degraded";
+    $("answer-text").hidden = status === "degraded";
+    if (status === "degraded") {
+      /* Bozulma metninin KAYNAĞI sunucudur; arayüz yalnız sunum katmanını
+         (mühürden ayrışan bant) ekler. */
+      $("svc-note-text").textContent = a.text;
+    } else {
+      $("answer-text").innerHTML = mdLite(a.text);
+    }
+    if (status === "abstained") {
+      $("stamp").classList.remove("inked");
+      void $("stamp").offsetWidth;
+      $("stamp").classList.add("inked");
+    }
     const cites = $("cites");
     cites.innerHTML = "";
     if (a.citations.length) {
@@ -476,7 +739,9 @@ async function ask() {
       cites.appendChild(lab);
       for (const pid of a.citations) {
         const b = document.createElement("button");
+        b.type = "button";
         b.className = "cite"; b.textContent = pid;
+        b.setAttribute("aria-label", `${pid} sayfasına git`);
         b.addEventListener("click", () => {
           const card = document.querySelector(`.hit[data-pid="${CSS.escape(pid)}"]`);
           if (card) { card.scrollIntoView({ block: "center" }); flash(card); }
@@ -492,7 +757,7 @@ async function ask() {
     $("pipeline").hidden = true;
     $("status").className = "error";
     $("status").textContent =
-      "Sunucuya ulaşılamadı (" + err.message + "). Servisin çalıştığından emin olun ve yeniden deneyin.";
+      "Sunucuya ulaşılamadı. Servisin çalıştığından emin olup tekrar deneyin.";
   } finally {
     $("ask-btn").disabled = false;
     $("ask-btn").textContent = "Sor";
@@ -500,7 +765,7 @@ async function ask() {
 }
 // derin link: ?q= ile gelen soru kutuyu doldurur (LLM maliyeti yüzünden otomatik sormaz)
 const urlQ = new URLSearchParams(location.search).get("q");
-if (urlQ) $("q").value = urlQ;
+if (urlQ) $("q").value = urlQ.slice(0, MAX_CHARS);
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -521,8 +786,10 @@ function mdLite(text) {
 }
 $("ask-btn").addEventListener("click", ask);
 $("q").addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+$("q").addEventListener("input", clearFieldError);
 $("chips").addEventListener("click", e => {
-  if (e.target.classList.contains("chip")) { $("q").value = e.target.textContent; ask(); }
+  const chip = e.target.closest(".chip");
+  if (chip && chip.dataset.q) { $("q").value = chip.dataset.q; ask(); }
 });
 </script>
 </body>

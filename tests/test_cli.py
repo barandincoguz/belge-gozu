@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pymupdf as fitz
@@ -504,3 +505,28 @@ def test_bench_oracle_help_lists_only_verified_and_all():
     assert result.exit_code == 0, result.output
     assert "--only-verified" in result.output
     assert "--all" in result.output
+
+
+def test_broken_env_gives_readable_message_not_a_traceback(tmp_path: Path):
+    """`belge-gozu --help` bozuk bir BG_* değerinde ham traceback BASMAZ.
+
+    `_CLI_DEFAULTS = Settings()` import anında koşar, yani yardım metni bile
+    ortamı doğrular (audit C9). Doğrulama alt süreçte yapılır çünkü hata tam
+    olarak IMPORT sırasında oluşur — aynı süreçte modül zaten yüklü olurdu.
+    Ayrıca `cwd=tmp_path`: repo kökündeki bir `.env` sonucu etkilemesin.
+    """
+    import subprocess
+    import sys
+
+    env = {**os.environ, "BG_QUERY_FORMAT_ID": "bogus-format"}
+    r = subprocess.run(
+        [sys.executable, "-c", "import belge_gozu.cli"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+    )
+    assert r.returncode == 2, r.stderr
+    assert "Yapılandırma hatası" in r.stderr
+    assert "query_format_id" in r.stderr
+    assert "Traceback" not in r.stderr

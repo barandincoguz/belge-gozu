@@ -1,10 +1,26 @@
 import hashlib
+import threading
 from typing import Protocol
 
 import numpy as np
 from PIL import Image
 
 from belge_gozu.index.manifest import CPE_0_3_18, QueryFormat
+
+# SORGU KODLAMA EŞZAMANLILIK SINIRI — savunmacı, ölçüme dayalı DEĞİL bir tavan.
+#
+# FastAPI'nin senkron uç noktaları threadpool'da koşar, yani N eşzamanlı istek
+# N eşzamanlı `encode_query` (VLM ileri geçişi) demektir. ÖLÇÜM: 40 istek @ c=8,
+# 40/40 başarılı, p50 1.34 sn, çökme yok — yani BUGÜN bir sorun görülmedi.
+# Sınır yine de konuyor çünkü MPS/CUDA bellek fırtınası bilinen bir risk
+# SINIFIDIR (aynı korpusta daha önce bir eşzamanlılık çökmesi yaşandı, bkz.
+# docs/research/) ve tavanın maliyeti ölçülen çalışma noktasında sıfırdır:
+# c=8 kuyruğa girer, c<=4 hiç dokunulmaz. Bir "optimizasyon" değil, kuyruğa
+# çevirme kararıdır — istekler reddedilmez, sıraya girer.
+#
+# Getirim katmanı (retrieval/core.py + retrieval/hybrid.py) bunu KODLAYICI
+# ÇAĞRISININ ETRAFINDA kullanır; skorlama/BM25 sınırın dışındadır.
+ENCODE_LIMIT = threading.Semaphore(4)
 
 
 class Encoder(Protocol):

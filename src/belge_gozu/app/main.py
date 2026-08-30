@@ -2,14 +2,16 @@ import hashlib
 import logging
 import math
 import sqlite3
+import threading
 import time
+from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from belge_gozu.answer.base import Answer, AskService
 from belge_gozu.config import (
@@ -31,6 +33,7 @@ from belge_gozu.index.manifest import (
 from belge_gozu.index.store import PackedIndex
 from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
 from belge_gozu.retrieval.hybrid import HybridRetriever, load_text_channel, require_text_artifact
+from belge_gozu.retrieval.text import tokenize
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import StageCollector, collecting
 from belge_gozu.telemetry.prom import PromMetrics
@@ -41,14 +44,96 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# Sorgu uzunluk tavanı (karakter). Sondaj bulgusu (2026-08-30): 3000 karakterlik
+# bir sorgu BM25 skorunu ~1053'e çıkarıyordu — yani eşik (10.6) böyle bir
+# girdide ANLAMSIZ hale geliyor, üstelik uzun metin doğrudan LLM istemine de
+# giriyordu. 500 karakter gerçek mevzuat sorularının çok üstünde (canary'nin en
+# uzunu ~180) ama skor şişirmeyi ve istem enjeksiyonu yüzeyini kapatıyor.
+MAX_QUERY_CHARS = 500
+
+# `k` tavanı: sondajda `k=100000` tüm korpusu (4222 sayfa) tek yanıtta
+# döküyordu, `k=-1` 4221 sonuç veriyordu, `k=0` sessizce varsayılana düşüyordu.
+# ge=1 ve le=50 üçünü birden kapatır (50, top_k=5'in on katı — teşhis için
+# fazlasıyla yeterli).
+MAX_K = 50
+
+# Boş-içerik reddi. `tokenize` işlev kelimelerini ve tek harfli parçaları
+# eledikten sonra hiçbir token kalmıyorsa ortada ARANACAK bir şey yoktur:
+# BM25 tüm korpusa 0 verir ve servis rastgele 5 sayfayı skor 0 ile döndürürdü
+# (sondaj bulgusu: "", "   ", "bu ne için" hepsi böyle davranıyordu). 422 bunu
+# sessiz saçmalık yerine açık bir girdi hatasına çevirir.
+EMPTY_QUERY_DETAIL = "sorgu boş ya da yalnız işlev kelimeleri içeriyor"
+
 
 class SearchBody(BaseModel):
-    query: str
-    k: int | None = None
+    query: str = Field(..., max_length=MAX_QUERY_CHARS)
+    k: int | None = Field(None, ge=1, le=MAX_K)
 
 
 class AskBody(BaseModel):
-    question: str
+    question: str = Field(..., max_length=MAX_QUERY_CHARS)
+
+
+def require_searchable(text: str) -> None:
+    """Aranabilir içerik yoksa 422 (Türkçe detay) — /search ve /ask'te AYNI kural.
+
+    Kontrol üretim tokenleştiricisinin KENDİSİYLE yapılır (`retrieval/text.py`),
+    ayrı bir "boşluk mu?" sezgisiyle değil: eleme kuralları (>=2 harf, katlanmış
+    işlev-kelime listesi) değişirse bu kapı da onunla birlikte değişsin.
+    """
+    if not tokenize(text):
+        raise HTTPException(422, detail=EMPTY_QUERY_DETAIL)
+
+
+class RateLimiter:
+    """İSTEMCİ-IP başına kayan pencere (60 sn), süreç içi. 0 = kapalı.
+
+    Kasıtlı olarak basit ve KALICI DEĞİL: tek süreçte, bellekte, yeniden
+    başlatmada sıfırlanır. Amacı kötü niyeti durdurmak değil, herkese açık bir
+    demoda LLM kotasını ve GPU'yu kazara tüketilmekten korumak.
+
+    İstemci kimliği `request.client.host`tur; `X-Forwarded-For` BİLEREK
+    okunmuyor — doğrulanmamış bir başlığa güvenmek sınırı tek satırlık bir
+    sahtecilikle atlatılabilir kılar. Bedeli dürüstçe şudur: ters vekil
+    ARKASINDA çalışırken bütün istekler aynı IP'den görünür ve sınır küresel bir
+    tavana dönüşür (dağıtım tarafında düşük ama sıfır olmayan bir değerle
+    yaşanabilir bir davranış).
+    """
+
+    def __init__(self, per_min: int, window_s: float = 60.0) -> None:
+        self.per_min = per_min
+        self.window_s = window_s
+        self._hits: dict[str, deque[float]] = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def check(self, client: str) -> float | None:
+        """None = geç; float = kaç saniye sonra tekrar denenmeli (Retry-After)."""
+        if self.per_min <= 0:
+            return None
+        now = time.monotonic()
+        with self._lock:
+            q = self._hits[client]
+            while q and now - q[0] >= self.window_s:
+                q.popleft()
+            if len(q) >= self.per_min:
+                return max(1.0, self.window_s - (now - q[0]))
+            q.append(now)
+            return None
+
+
+def enforce_rate_limit(limiter: RateLimiter, request: Request, endpoint: str) -> None:
+    client = request.client.host if request.client else "bilinmeyen"
+    retry_after = limiter.check(client)
+    if retry_after is None:
+        return
+    raise HTTPException(
+        429,
+        detail=(
+            f"çok fazla istek: {endpoint} için dakikada {limiter.per_min} sorgu sınırı "
+            f"aşıldı, {int(retry_after)} saniye sonra tekrar deneyin"
+        ),
+        headers={"Retry-After": str(int(retry_after))},
+    )
 
 
 def resolve_formats(s: Settings) -> tuple[QueryFormat, str | None]:
@@ -272,6 +357,17 @@ def create_app(
 
     app = FastAPI(title="Belge-Gözü")
 
+    # Hız sınırları UYGULAMA BAŞINA (global değil): testler ve aynı süreçteki
+    # ikinci bir app birbirinin sayacını görmez.
+    search_limiter = RateLimiter(s.rate_limit_search_per_min)
+    ask_limiter = RateLimiter(s.rate_limit_ask_per_min)
+    if s.rate_limit_ask_per_min or s.rate_limit_search_per_min:
+        logger.info(
+            "hız sınırı etkin (istemci IP başına / dakika): /ask=%s /search=%s",
+            s.rate_limit_ask_per_min or "kapalı",
+            s.rate_limit_search_per_min or "kapalı",
+        )
+
     def build_event(
         *,
         endpoint: str,
@@ -377,7 +473,9 @@ def create_app(
         }
 
     @app.post("/search")
-    def search(body: SearchBody) -> dict[str, list[PageHit]]:
+    def search(body: SearchBody, request: Request) -> dict[str, list[PageHit]]:
+        enforce_rate_limit(search_limiter, request, "/search")
+        require_searchable(body.query)
         t0 = time.perf_counter()
         cand = s.stage1_candidates if s.retrieval_pipeline == "two-stage" else None
         with collecting() as col, prom.inflight("/search"):
@@ -415,7 +513,9 @@ def create_app(
         return {"hits": hits}
 
     @app.post("/ask")
-    def ask(body: AskBody) -> dict:
+    def ask(body: AskBody, request: Request) -> dict:
+        enforce_rate_limit(ask_limiter, request, "/ask")
+        require_searchable(body.question)
         t0 = time.perf_counter()
         cand = s.stage1_candidates if s.retrieval_pipeline == "two-stage" else None
         with collecting() as col, prom.inflight("/ask"):
@@ -451,7 +551,18 @@ def create_app(
                 k=s.top_k,
                 candidates=cand,
             )
-        return {"answer": answer.model_dump(), "hits": [h.model_dump() for h in hits]}
+        # `status` gövdenin ÜST DÜZEYİNDE, telemetriye yazılan değerin AYNISI.
+        # Arayüz durumları (mühür / "servis kapalı" bandı / normal yanıt)
+        # buradan dallanır; daha önce ABSTAIN_TEXT ile DİZE KARŞILAŞTIRMASI
+        # yapılıyordu ve o metnin tek bir noktalama değişikliği arayüzü sessizce
+        # bozardı. Üç değer: "answered" (dürüst "bulamadım" DAHİL — o da bir
+        # yanıttır), "abstained" (eşik altı, LLM hiç çağrılmadı),
+        # "degraded" (yanıtlayıcı patladı, sayfalar hâlâ geçerli).
+        return {
+            "status": status,
+            "answer": answer.model_dump(),
+            "hits": [h.model_dump() for h in hits],
+        }
 
     @app.get("/metrics")
     def metrics() -> Response:

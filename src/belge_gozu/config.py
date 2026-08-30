@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from belge_gozu.index.manifest import QueryFormatChoice
+
 # Skor ÖLÇEĞİ adları. Bu iki dize projedeki tek ölçek kimliğidir: korkuluk,
 # taşınabilirlik uyarısı ve telemetri yönlendirmesi hepsi bunlara bakar.
 BM25_SCALE = "hybrid-bm25"  # BM25 birimi, üst sınırsız (ölçülen bant ~4-70)
@@ -68,8 +70,15 @@ class Settings(BaseSettings):
     )
     # T11/Step 6 A/B ölçümü: train-compat-v1 sorgu formatı cpe-0.3.18'i her
     # metrikte geçti (float R@5 0.093->0.233; ölçüm tarihi 2026-08-27; ayrıntı
-    # p0-gate raporunda). CLI'nin QueryFormatChoice değerleriyle birebir aynı.
-    query_format_id: str = "train-compat-v1"
+    # p0-gate raporunda).
+    #
+    # TİP = ENUM, düz `str` DEĞİL (audit C8): `resolve_formats` bu değeri
+    # `QueryFormatChoice(...)` ile aramaya sokuyor, yani geçersiz bir
+    # BG_QUERY_FORMAT_ID düz `str`'de config katmanından SESSİZCE geçip
+    # uygulama kurulumunun ortasında ham bir ValueError'a dönüşüyordu. Enum
+    # olarak pydantic'in kendisi başlangıçta temiz bir ValidationError verir
+    # ("Input should be 'cpe-0.3.18' or 'train-compat-v1'").
+    query_format_id: QueryFormatChoice = QueryFormatChoice.train_compat_v1
     # T11/Step 6 A/B ölçümü: kazanan indeks eğitim-zamanı doküman prompt'uyla
     # (TRAIN_COMPAT_DOC_PROMPT) inşa edildi; ölçüm tarihi 2026-08-27, ayrıntı
     # p0-gate raporunda. CLI'nin DocPromptChoice değerleriyle birebir aynı.
@@ -79,10 +88,12 @@ class Settings(BaseSettings):
     # hybrid (VARSAYILAN, P1): sıralamayı PDF metin katmanı üzerindeki BM25 +
     # doküman-adı pencere-içi yönlendirmesi belirler; görsel MaxSim kanalı
     # koşmaya devam eder ama sıralamaya girmez (telemetri + P2 kalibrasyon
-    # verisi). Ölçüm (canary answerable n=43, autoresearch exp7 -> exp8): R@5
-    # 0.2326 -> 0.8140 -> 0.8372 (ikili tanım), R@20 0.302 -> 0.9302, vitrin
-    # sorgularının gold sıraları 664->2 ve 137->2 — findings
-    # 2026-08-29-autoresearch-text-channel.md + research/journal.md #8.
+    # verisi). Ölçüm (canary answerable n=43, autoresearch exp7 -> exp8 ->
+    # exp12): R@5 0.2326 -> 0.8140 -> 0.8372 -> 0.8605 (ikili tanım; 37/43),
+    # R@20 0.302 -> 0.9302, vitrin sorgularının gold sıraları 664->2 ve 137->2
+    # — findings 2026-08-29-autoresearch-text-channel.md + research/journal.md
+    # #8 ve #12. exp12 (ASCII aksan katlama) sistemi YAZIM-DEĞİŞMEZ yapar:
+    # aksanlı ve aksansız yazılan aynı sorgu aynı R@5'i (0.8605) verir.
     # exhaustive: yalnız görsel kanal,
     # her arama tüm korpusu tarar (P0 üretim yolu; artık ablasyon/karşılaştırma
     # kolu). two-stage: mean-sign Hamming ile aday eleme + kesin MaxSim
@@ -100,14 +111,20 @@ class Settings(BaseSettings):
     #
     # 10.6, T14'ün 0.58'i gibi, bir öncekinin ÇALIŞMA NOKTASINI SAYICA yeniden
     # üretir. Ölçüm — hepsi SERVİS EDİLEN top-1 üzerinde, yani `AskService`in
-    # eşikle karşılaştırdığı gerçek skor üzerinde (canary, BM25 ölçeği):
-    # cevaplanabilir n=43 min 10.5284 / medyan 24.02 / maks 69.30;
-    # cevaplanamaz top-1'ler 4.23 (c006 anlamsız), 12.96 (c004), 15.54 (c007),
-    # 17.86 (c005), 23.53 (c003). binary@60 / int8@0.58'in çalışma noktası
-    # "42/43 cevaplanabilir + 4/5 cevaplanamaz geçer"di; bu ölçekte o noktayı
-    # veren eşik bandı — ikinci en küçük servis edilen skor 10.7117 olduğu için
-    # — (10.528, 10.712]; 10.6 o bandın içinden seçildi. Yani mekanik ölçek
-    # taşıması, kalibrasyon değil.
+    # eşikle karşılaştırdığı gerçek skor üzerinde (canary, BM25 ölçeği).
+    #
+    # ASCİİ AKSAN KATLAMASINDAN SONRA YENİDEN ÖLÇÜLDÜ (exp12; katlama IDF/df
+    # dağılımını değiştirdiği için eşik bandı da yeniden ölçülmek ZORUNDAYDI):
+    # cevaplanabilir n=43 min 10.5265 / 2. en küçük 10.7115 / medyan 23.7780 /
+    # maks 66.6822; cevaplanamaz top-1'ler 4.23 (c006 anlamsız), 12.96 (c004),
+    # 15.54 (c007), 17.86 (c005), 23.52 (c003). binary@60 / int8@0.58'in çalışma
+    # noktası "42/43 cevaplanabilir + 4/5 cevaplanamaz geçer"di; katlama sonrası
+    # o noktayı veren bant (10.5265, 10.7115] ve 10.6 HÂLÂ bu bandın İÇİNDE —
+    # yani eşik DEĞİŞMEDİ, yeniden doğrulandı (42/43 + 4/5, ölçüm bu sprintte
+    # tekrarlandı). Kaynak: research/journal.md #12 + vitrin sprintinin
+    # doğrulama ledger'ı. Katlama öncesi bant (10.528, 10.712] idi — sayılar
+    # kıl payı kaydı, çalışma noktası aynı kaldı. Yani mekanik ölçek taşıması,
+    # kalibrasyon değil.
     #
     # SERVİS EDİLEN vs KANAL top-1 (review L1): pencere-içi yönlendirme
     # sıralamanın BİRİNCİSİNİ skora göre değil sorguda adı geçen kanuna göre
@@ -143,6 +160,20 @@ class Settings(BaseSettings):
     # indeks/serve uyumsuzluğunda fail-fast yerine uyarı ile devam et (bilinçli
     # bir riske girildiğinde kullanılır; varsayılan olarak kapalıdır).
     allow_index_mismatch: bool = False
+    # İSTEMCİ-IP BAŞINA dakikalık istek tavanı; 0 = KAPALI (varsayılan).
+    #
+    # Varsayılanın kapalı olması bilinçli: yerelde tek kullanıcı çalışırken bir
+    # hız sınırı yalnız gürültü üretir, ayrıca bench/canlı doğrulama koşumları
+    # kendi kendini 429'a düşürürdü. AÇIK varsayılanlar DAĞITIM katmanında
+    # (Dockerfile: ask 10/dk, search 60/dk) — yani "herkese açık dağıtım"
+    # kararı, kütüphane davranışı değil.
+    #
+    # /ask sınırı /search'ten çok daha düşük çünkü maliyeti farklı: /search saf
+    # yerel hesap (BM25 ms + encode ~1 sn), /ask ise ÜCRETLİ bir LLM çağrısı.
+    # Sınır kotayı korumak içindir, kötü niyeti durdurmak için değil — süreç
+    # içi ve IP başına olduğu için ne kalıcıdır ne de dağıtık.
+    rate_limit_ask_per_min: int = 0
+    rate_limit_search_per_min: int = 0
 
 
 @lru_cache

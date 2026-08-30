@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from belge_gozu.index.chunking import CHUNK_TOKENS, EMBED_DIM
-from belge_gozu.index.encode import Encoder
+from belge_gozu.index.encode import ENCODE_LIMIT, Encoder
 from belge_gozu.index.store import PackedIndex, as_u64, binarize_pack
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import stage
@@ -62,7 +62,8 @@ class TwoStageRetriever:
     def search(self, query: str, k: int = 5, candidates: int = 200) -> list[PageHit]:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
-        with stage("query_encode"):
+        # savunmacı sınır, ölçüm: 40@c=8 sağlıklı (bkz. index/encode.py)
+        with stage("query_encode"), ENCODE_LIMIT:
             q_emb = self.encoder.encode_query(query)
         hits = self.search_embedding(q_emb, k, candidates)
         n_q = max(1, q_emb.shape[0])
@@ -135,7 +136,8 @@ class ExhaustiveRetriever:
     def search(self, query: str, k: int = 5) -> list[PageHit]:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
-        with stage("query_encode"):
+        # savunmacı sınır, ölçüm: 40@c=8 sağlıklı (bkz. index/encode.py)
+        with stage("query_encode"), ENCODE_LIMIT:
             q_emb = self.encoder.encode_query(query)
         with stage("exhaustive_maxsim"):
             hits = self.search_embedding(q_emb, k)

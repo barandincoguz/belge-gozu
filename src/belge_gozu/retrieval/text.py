@@ -1,10 +1,10 @@
 """Metin kanalı: Türkçe-uyarlı BM25 + doküman-adı pencere-içi yönlendirmesi.
 
-autoresearch exp7 reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md.
-Bu modül `research/retrieve.py` @ 1a0624e'nin ÜRETİM PORTUDUR: sabitler
-(STOPWORDS, F5=5, k1=1.5, b=0.75, WINDOW=20, _GENERIC, _TITLE_LINE) ve
-tokenleştirme mantığı birebir taşınmıştır. Reçete ölçülmüş bir bütündür —
-tek tek parçalar "iyileştirilirse" ölçüm geçersiz olur:
+autoresearch exp12 reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md
+(round 2) + research/journal.md #11-#13 (round 3). Bu modül `research/retrieve.py`'nin
+ÜRETİM PORTUDUR: sabitler (STOPWORDS, F5=5, k1=1.5, b=0.75, WINDOW=50, _FOLD,
+_GENERIC, _TITLE_LINE) ve tokenleştirme mantığı birebir taşınmıştır. Reçete
+ölçülmüş bir bütündür — tek tek parçalar "iyileştirilirse" ölçüm geçersiz olur:
 
 | deney | R@5 | karar |
 |---|---|---|
@@ -16,7 +16,17 @@ tek tek parçalar "iyileştirilirse" ölçüm geçersiz olur:
 | + sabit işlev-kelime listesi | 0.7674 | KEPT (R@20 0.884->0.907, MRR+) |
 | + mutlak doküman-adı bölümleme | 0.7907 | DISCARDED (R@20 gerilemesi, veto) |
 | + pencere-içi (top-20) yönlendirme | 0.8140 | KEPT |
-| pencere 20 -> 50 (round 2, exp8) | **0.8372** | KEPT (R@20 0.907 -> 0.9302) |
+| pencere 20 -> 50 (round 2, exp8) | 0.8372 | KEPT (R@20 0.907 -> 0.9302) |
+| + ASCII aksan katlama (round 3, exp12) | **0.8605** | KEPT (YAZIM-DEĞİŞMEZ) |
+| çift-biçim yayım (round 3, exp13) | 0.8372 | DISCARDED (iki guardrail düştü) |
+
+YAZIM-DEĞİŞMEZLİK (exp12, journal #11-#12) reçetenin en önemli GERÇEK-KULLANICI
+özelliğidir: aksansız yazmak yaygın Türkçe klavye davranışıdır ve katlama
+ÖNCESİNDE sorguları ASCII'ye katlamak R@5'i 0.8372 -> 0.5814'e düşürüyordu.
+Katlama iki tarafa da (indeks + sorgu) uygulanınca sistem İKİ KOŞULDA DA
+0.8605 (37/43) veriyor. Bedeli ölçüldü ve bilinçle kabul edildi (round-3 R26
+istisnası): aksanlı MRR 0.655 -> 0.632, R@1 -2 — düşen sorular SERVİS EDİLEN
+top-5'in İÇİNDE kalıyor.
 
 Round 2 ayrıca üç füzyon biçimini daha ölçüp REDDETTİ (küresel eşit-RRF 0.395,
 mutlak bölümleme guardrail vetosu, pencere-içi RRF 0.535) — bu korpusta hayatta
@@ -63,6 +73,15 @@ WINDOW = 50
 
 # Doküman adından atılan jenerik parçalar (F5-kırpık): bunlar tek başına
 # kalırsa neredeyse her sorgu her kanunu "yönlendirir".
+#
+# DİKKAT — ölçülen biçim BUDUR, "düzeltilmedi": `tokenize` artık katlanmış
+# ("turk"/"turki") token üretir, yani buradaki AKSANLI "türk"/"türki" girdileri
+# exp12'den sonra hiçbir token'la eşleşmez ve pratikte yalnız "kanun"/"cumhu"
+# eleniyor. Sonuç: "Türk ..." ile başlayan kanunların ad kümesinde "turk"
+# token'ı KALIR, dolayısıyla o kanunlar ancak sorguda "türk/turk" da geçerse
+# yönlendirilir (daha DAR bir yönlendirme). 0.8605 tam olarak bu davranışla
+# ölçüldü (journal #12); listeyi katlamak reçeteyi ölçülmemiş bir varyanta
+# çevirirdi. Değiştirmek isteyen önce bench'i yeniden koşmalıdır.
 _GENERIC = frozenset({"kanun", "türk", "türki", "cumhu"})
 # 1. sayfadaki büyük-harfli başlık satırı (elle doküman-adı tablosu YOK ->
 # canary'den sızıntı yok; ad korpusun kendisinden türetiliyor).
@@ -77,16 +96,47 @@ def tr_lower(s: str) -> str:
     return s.replace("İ", "i").replace("I", "ı").lower()
 
 
-def tokenize(s: str) -> list[str]:
-    """`\\w+` -> tr_lower -> >=2 harf -> stopword eleme -> F5 ön-ek kırpması.
+# ASCII aksan katlama tablosu (exp12). tr_lower'dan SONRA uygulanır: "İ"/"I"
+# ayrımı önce Türkçe kurallarıyla çözülür, katlama ondan sonra devreye girer.
+# "î"/"â"/"û" de listede — eski mevzuat metninde düzeltme işaretli biçimler
+# ("hâkim", "kanunî") sıkça geçer ve kullanıcı bunları hiç yazmaz.
+_FOLD = str.maketrans("çğıöşüâîû", "cgiosuaiu")
 
-    Sıra önemlidir: stopword listesi TAM KELİME üzerinde, kırpmadan ÖNCE
-    uygulanır (kırpma sonrası "göre" ve "görev" aynı token'a düşerdi).
 
-    autoresearch exp7 reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md.
+def ascii_fold(s: str) -> str:
+    """Türkçe aksanları ASCII karşılıklarına katlar (ç->c, ğ->g, ı->i, ...).
+
+    İNDEKS VE SORGU İÇİN AYNI şekilde uygulanır — tek taraflı katlama iki
+    tarafı birbirinden uzaklaştırır ve ölçümde ANA hasarı üretir (exp11:
+    R@5 0.8372 -> 0.5814).
     """
-    words = [t for t in _WORD.findall(tr_lower(s)) if len(t) > 1 and t not in STOPWORDS]
-    return [t[:F5] for t in words]
+    return s.translate(_FOLD)
+
+
+# Stopword eleme KATLANMIŞ uzayda yapılır: aksansız yazan kullanıcının "gore",
+# "nicin", "kac" gibi işlev kelimeleri de elenmeli, yoksa aynı sorgu iki
+# yazımda iki farklı token kümesi verirdi (yazım-değişmezliğin ikinci yarısı).
+_STOP_FOLDED = frozenset(ascii_fold(w) for w in STOPWORDS)
+
+
+def tokenize(s: str) -> list[str]:
+    """`\\w+` -> tr_lower -> >=2 harf -> ASCII katlama -> stopword eleme -> F5 kırpma.
+
+    Sıra ölçülmüş reçetenin parçasıdır (exp12, journal #12):
+      * stopword eleme TAM KELİME üzerinde ve F5 kırpmasından ÖNCE
+        (kırpma sonrası "göre" ile "görev" aynı token'a düşerdi);
+      * ama KATLAMADAN SONRA — eleme katlanmış uzayda (`_STOP_FOLDED`) yapılır,
+        böylece "göre" ve "gore" aynı kararı alır;
+      * F5 kırpması en sonda: katlama karakter sayısını değiştirmez, yani
+        kırpma sınırı iki yazımda da aynı yere düşer.
+
+    Sonuç: sistem YAZIM-DEĞİŞMEZ — aksanlı ve aksansız yazılan aynı sorgu aynı
+    token listesini üretir, R@5 iki koşulda da 0.8605 (37/43).
+
+    autoresearch exp12 reçetesi; ölçüm: research/journal.md #11-#13.
+    """
+    words = [ascii_fold(t) for t in _WORD.findall(tr_lower(s)) if len(t) > 1]
+    return [t[:F5] for t in words if t not in _STOP_FOLDED]
 
 
 class BM25Index:
