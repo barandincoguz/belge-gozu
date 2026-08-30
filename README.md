@@ -104,7 +104,12 @@ tried next and **discarded** — it regressed both Recall@20 and the visual guar
 > reports). **0.8488** is fractional recall, `|gold ∩ top-5| / |gold|`, which the production
 > `uv run belge-gozu bench run` prints by default (as `recall@5=0.849`) — it scores 0.5 on a
 > question that has two gold pages and only one of them retrieved. Same ranking, two
-> conventions; neither is "the corrected" one. Recall@20 is **0.9302 under both**.
+> conventions; neither is "the corrected" one. Recall@20 is **0.9302 under both**. The run
+> backing both numbers is committed at
+> [`data/bench/results/20260830-1611-6d5b345-hybrid.json`](data/bench/results/20260830-1611-6d5b345-hybrid.json)
+> — `overall.recall_at["5"]` there is the fractional 0.8488, and the binary 37/43 counts a
+> per-question any-hit over its `diagnostics[].final_ranked[:5]`. Re-run with
+> `uv run belge-gozu bench run --only-verified` (text channel is deterministic) to reproduce.
 
 The routing window was 20 in the first measured recipe and 50 in the shipped one: at 20 the
 window set was preserved *by construction* so Recall@20 could not regress, and widening it

@@ -200,7 +200,8 @@ class HybridRetriever:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
         # savunmacı sınır, ölçüm: 40@c=8 sağlıklı (bkz. index/encode.py)
-        with stage("query_encode"), ENCODE_LIMIT:
+        # M2: ENCODE_LIMIT ÖNCE alınır — kuyruk beklemesi ölçüme karışmaz.
+        with ENCODE_LIMIT, stage("query_encode"):
             q_emb = self.encoder.encode_query(query)
         # Görsel kanal: sıralamaya GİRMEZ (yukarıdaki modül açıklaması),
         # telemetri, gösterim ve P2 kalibrasyon verisi için koşar.

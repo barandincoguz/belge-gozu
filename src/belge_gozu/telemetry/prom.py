@@ -104,6 +104,14 @@ class PromMetrics:
             registry=r,
         )
         self.abstain = Counter("bg_abstain", "Abstain sayısı", ["reason"], registry=r)
+        # review L3 (2026-08-30): 429'lar `collecting()`/`record_event`den ÖNCE
+        # fırlatıldığı için hiçbir RequestEvent'e girmez (getirici çağrılmaz,
+        # bu bilinçli) — bu sayaç olmadan sınırlayıcının çalıştığına dair
+        # `/metrics`'te hiçbir iz kalmazdı. `app/main.py::enforce_rate_limit`
+        # doğrudan artırır (`.observe(ev)` yolunu KULLANMAZ).
+        self.rate_limited = Counter(
+            "bg_rate_limited", "429 hız sınırı reddi", ["endpoint"], registry=r
+        )
         self.honest_miss = Counter("bg_honest_miss", "'bulamadım' yanıtları", registry=r)
         self.tokens = Counter("bg_llm_tokens", "LLM token sayısı", ["direction"], registry=r)
         self.tps = Histogram(

@@ -63,7 +63,8 @@ class TwoStageRetriever:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
         # savunmacı sınır, ölçüm: 40@c=8 sağlıklı (bkz. index/encode.py)
-        with stage("query_encode"), ENCODE_LIMIT:
+        # M2: ENCODE_LIMIT ÖNCE alınır — kuyruk beklemesi ölçüme karışmaz.
+        with ENCODE_LIMIT, stage("query_encode"):
             q_emb = self.encoder.encode_query(query)
         hits = self.search_embedding(q_emb, k, candidates)
         n_q = max(1, q_emb.shape[0])
@@ -137,7 +138,8 @@ class ExhaustiveRetriever:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
         # savunmacı sınır, ölçüm: 40@c=8 sağlıklı (bkz. index/encode.py)
-        with stage("query_encode"), ENCODE_LIMIT:
+        # M2: ENCODE_LIMIT ÖNCE alınır — kuyruk beklemesi ölçüme karışmaz.
+        with ENCODE_LIMIT, stage("query_encode"):
             q_emb = self.encoder.encode_query(query)
         with stage("exhaustive_maxsim"):
             hits = self.search_embedding(q_emb, k)

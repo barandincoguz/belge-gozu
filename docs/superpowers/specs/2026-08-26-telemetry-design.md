@@ -118,6 +118,7 @@ Adlandırma: `bg_` öneki, taban birim saniye, Prometheus adlandırma kuralları
 | `bg_retrieval_top_score` | Histogram | — | skor dağılımı; eşik kalibrasyonu + drift |
 | `bg_retrieval_score_margin` | Histogram | — | top1−top2; retrieval kararlılığı |
 | `bg_abstain_total` | Counter | `reason` ∈ {threshold, degraded} | halüsinasyon freni sağlığı; kota hatası görünürlüğü |
+| `bg_rate_limited_total` | Counter | `endpoint` | 429 sayısı (review L3, P1 fix round) — 422 kasıtlı dışarıda, framework düzeyi |
 | `bg_honest_miss_total` | Counter | — | LLM 'sayfalarda bulamadım' dedi (sezgisel tespit) |
 | `bg_llm_tokens_total` | Counter | `direction` ∈ {input, output} | hacim; maliyet tabanı |
 | `bg_llm_tokens_per_second` | Histogram | — | ortalama üretim hızı (akışsız: out/answer_süresi) |

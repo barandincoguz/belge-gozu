@@ -1,12 +1,13 @@
 import json
 import sqlite3
+import time
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from belge_gozu.answer.base import SERVICE_ERROR_TEXT, Answer
-from belge_gozu.app.main import create_app
+from belge_gozu.app.main import RateLimiter, create_app
 from belge_gozu.config import Settings
 from belge_gozu.telemetry.recorder import EventRecorder
 
@@ -245,6 +246,90 @@ def test_rate_limits_are_per_endpoint(tiny_corpus):
     assert c.post("/ask", json={"question": "kira artışı nedir?"}).status_code == 200
     assert c.post("/ask", json={"question": "kira artışı nedir?"}).status_code == 429
     assert c.post("/search", json={"query": "kira artışı"}).status_code == 200
+
+
+@pytest.mark.parametrize("endpoint,field", [("/search", "query"), ("/ask", "question")])
+def test_rejected_request_does_not_consume_rate_limit_token(tiny_corpus, endpoint, field):
+    """L2: doğrulama (burada: boş-içerik kapısı) sınırlayıcıdan ÖNCE çalışmalı —
+    reddedilen bir istek kota jetonu harcamamalı. Sıra tersken tavan=1'lik bir
+    istemci ilk (geçersiz) isteğiyle jetonu tüketiyordu ve ardından gelen
+    GEÇERLİ istek de haksız yere 429 alıyordu (ucuz red, pahalı olandan daha
+    çok maliyetleniyordu)."""
+    kwarg = f"rate_limit_{endpoint.strip('/')}_per_min"
+    c = make_client(tiny_corpus, **{kwarg: 1})
+    assert c.post(endpoint, json={field: "   "}).status_code == 422  # jeton HARCANMADI
+    assert c.post(endpoint, json={field: "deneme sorgusu"}).status_code == 200  # jeton hâlâ var
+
+
+def test_rate_limited_requests_are_counted_in_metrics(tiny_corpus):
+    """L3: 429'lar `/stats`'ta da `events` tablosunda da hiç görünmüyordu
+    (bilinçli — getirici çağrılmadı); `bg_rate_limited_total` en azından
+    sınırlayıcının ÇALIŞTIĞINI `/metrics`'te görünür kılar."""
+    c = make_client(tiny_corpus, rate_limit_search_per_min=1)
+    assert c.post("/search", json={"query": "deneme"}).status_code == 200
+    assert c.post("/search", json={"query": "deneme"}).status_code == 429
+    text = c.get("/metrics").text
+    assert 'bg_rate_limited_total{endpoint="/search"} 1.0' in text
+
+
+def test_rate_limit_ignores_x_forwarded_for_header(tiny_corpus):
+    """L4: README'nin "X-Forwarded-For'a bilerek güvenilmiyor" iddiası hiçbir
+    testle kilitli değildi. `TestClient`ta gerçek `request.client.host` başlık
+    ne olursa olsun sabit kalır; farklı bir XFF değeri sınırı ATLATAMAMALI."""
+    c = make_client(tiny_corpus, rate_limit_search_per_min=1)
+    r1 = c.post("/search", json={"query": "deneme"}, headers={"X-Forwarded-For": "1.2.3.4"})
+    assert r1.status_code == 200
+    r2 = c.post("/search", json={"query": "deneme"}, headers={"X-Forwarded-For": "9.9.9.9"})
+    assert r2.status_code == 429  # farklı XFF, aynı gerçek istemci -> sınır hâlâ geçerli
+
+
+def test_rate_limiter_window_expiry_unblocks_client():
+    """L4: pencere sona ermesi hiçbir testle kilitli değildi — `>=`'nin `>`'ye
+    ya da `time.monotonic`'in duvar saatine kayması bir istemciyi KALICI
+    olarak kilitler ve mevcut testlerin hiçbiri bunu yakalamazdı."""
+    limiter = RateLimiter(2, window_s=0.05)
+    assert limiter.check("1.2.3.4") is None
+    assert limiter.check("1.2.3.4") is None
+    assert limiter.check("1.2.3.4") is not None  # 3. istek pencere içinde -> engellendi
+    time.sleep(0.06)
+    assert limiter.check("1.2.3.4") is None  # pencere geçti -> tekrar serbest
+
+
+def test_rate_limiter_evicts_clients_whose_window_fully_expired():
+    """M1: bir istemcinin EN SON isteği bile pencereden eskiyse anahtarın
+    kendisi SİLİNİR — aksi halde tek seferlik binlerce IP kalıcı sözlük
+    girdisine dönüşürdü (ölçüm: incelemede 50.000 IP -> 50.000 kalıcı girdi)."""
+    limiter = RateLimiter(5, window_s=0.05)
+    limiter.check("1.1.1.1")
+    assert "1.1.1.1" in limiter._hits
+    time.sleep(0.06)
+    limiter.check("2.2.2.2")  # herhangi bir çağrı tüm sözlüğü süpürmeyi tetikler
+    assert "1.1.1.1" not in limiter._hits
+    assert "2.2.2.2" in limiter._hits
+
+
+def test_rate_limiter_caps_tracked_clients():
+    """M1: tavan (`max_clients`) dolduğunda en son etkinliği en eski olan
+    istemci düşer — sahte-IP seli (her istekte yeni bir IP, IPv6'da bedavaya
+    yakın) sözlüğü bu noktadan sonra büyütemez."""
+    limiter = RateLimiter(1000, window_s=60.0, max_clients=3)
+    for ip in ("1.1.1.1", "2.2.2.2", "3.3.3.3"):
+        limiter.check(ip)
+    assert len(limiter._hits) == 3
+    limiter.check("4.4.4.4")
+    assert len(limiter._hits) == 3
+    assert "1.1.1.1" not in limiter._hits  # en eski etkinlik düştü
+    assert "4.4.4.4" in limiter._hits
+
+
+def test_rate_limiter_disabled_path_holds_no_state():
+    """Varsayılan-kapalı yol (`per_min<=0`) M1'in tahliye/tavan mantığına HİÇ
+    girmez — sözlük her koşulda boş kalır (bu davranış review'ün V7 doğrudan
+    sondajıyla tutarlı; burada kalıcı bir testle kilitleniyor)."""
+    limiter = RateLimiter(0)
+    for i in range(50):
+        assert limiter.check(f"1.1.1.{i}") is None
+    assert limiter._hits == {}
 
 
 def test_page_image_served(tiny_corpus):
@@ -535,3 +620,35 @@ def test_ui_shows_six_example_chips_and_both_channels(tiny_corpus):
     assert html.count('class="chip"') == 6
     assert "visual_score" in html  # görsel kanal sütunu gerçekten besleniyor
     assert "aksansız yazım" in html  # yazım-değişmezlik vitrini
+
+
+def test_degraded_card_gets_its_own_class_not_abstained(tiny_corpus):
+    """N1: bozulma durumu `.abstained` sınıfını ÖDÜNÇ almamalı — sınıf adı
+    durumu yanlış söylerdi (görsel etki yoktu, çünkü #answer-text o durumda
+    zaten gizli, ama adlandırma dürüstlüğü kendi başına bir sözleşmedir)."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert '" degraded"' in html
+    # eski hatalı ifade artık YOK: degraded de "" : " abstained" dalına düşmüyor
+    assert 'status === "answered" ? "" : " abstained"' not in html
+
+
+def test_new_request_clears_stale_answer_text(tiny_corpus):
+    """N2: önceki sorunun yanıt metni hem yeni istek başlarken hem de bozulma
+    bandı render edilirken #answer-text'ten temizlenir — aksi halde bir
+    `hidden` regresyonunda başka bir sorunun yanıtı servis notunun yanında
+    görünür kalabilirdi."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert html.count('$("answer-text").innerHTML = "";') >= 2
+
+
+def test_friendly422_maps_known_pydantic_error_types(tiny_corpus):
+    """N3: liste-şekilli 422 detail'i artık tek bir sabit "500 karakter"
+    cümlesine indirgemiyor — ilk hatanın `type`ına göre dallanıyor (uzunluk /
+    k sınırı / bilinmeyen), tıpkı `k` sınırının ikinci bir kısıt olması gibi
+    gelecekte eklenecek bir kısıtın sessizce yanlış cümle kurmasını önlüyor."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert "string_too_long" in html
+    assert "greater_than_equal" in html and "less_than_equal" in html

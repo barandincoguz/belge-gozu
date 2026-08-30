@@ -655,14 +655,28 @@ function clearFieldError() {
 
 /* Sunucunun 4xx gövdesini KULLANICI CÜMLESİNE çevirir. Ham JSON hiçbir
    koşulda ekrana basılmaz: pydantic'in `detail`i bir LİSTE ve İngilizce,
-   kendi kapımızınki DÜZ DİZE ve Türkçe — ikisi de burada karşılanır. */
+   kendi kapımızınki DÜZ DİZE ve Türkçe — ikisi de burada karşılanır.
+
+   N3 (review NIT-3, 2026-08-30): liste-şekilli HER hata eskiden tek bir sabit
+   "en fazla 500 karakter" cümlesi sanılıyordu — bugün `question`ın tek kısıtı
+   `max_length` olduğu için doğruydu ama ikinci bir kısıt (ör. `min_length`)
+   eklendiği gün arayüz sessizce yanlış cümleyi kurardı. İlk hatanın
+   `type`ına göre dallanır; bilinmeyen tipe genel bir Türkçe cümle döner. */
 function friendly422(payload) {
   const d = payload && payload.detail;
   if (typeof d === "string") {
     return d.charAt(0).toUpperCase() + d.slice(1) +
       ". En az bir anlamlı kelime içeren bir soru yazın.";
   }
-  return `Soru en fazla ${MAX_CHARS} karakter olabilir. Kısaltıp tekrar deneyin.`;
+  const first = Array.isArray(d) && d.length ? d[0] : null;
+  const type = first && first.type;
+  if (type === "string_too_long") {
+    return `Soru çok uzun (en fazla ${MAX_CHARS} karakter). Kısaltıp tekrar deneyin.`;
+  }
+  if (type === "greater_than_equal" || type === "less_than_equal") {
+    return "k değeri 1 ile 50 arasında olmalı.";
+  }
+  return "Soru işlenemedi. Kısaltıp ya da değiştirip tekrar deneyin.";
 }
 
 /* ---- soru akışı ---- */
@@ -681,6 +695,10 @@ async function ask() {
   $("status").className = "";
   $("answer-sec").hidden = true;
   $("retrieval-sec").hidden = true;
+  // N2 (review NIT-2, 2026-08-30): yeni istek başlarken ÖNCEKİ yanıtın metnini
+  // temizle — aksi halde (bugün görünmese de) bir `hidden` regresyonunda
+  // başka bir sorunun yanıtı servis notunun yanında görünür kalabilirdi.
+  $("answer-text").innerHTML = "";
   pipelineStart();
   const t0 = performance.now();
   try {
@@ -715,13 +733,21 @@ async function ask() {
     const status = data.status || (a.abstained ? "abstained" : "answered");
     pipelineFinish(status, ms);
 
-    $("answer").className = "answer-card" + (status === "answered" ? "" : " abstained");
+    /* N1 (review NIT-1, 2026-08-30): `degraded` kendi sınıfını taşır, artık
+       `abstained`ı ÖDÜNÇ almaz — sınıf adı durumu yanlış söylemesin diye
+       (bugün görsel fark yok, çünkü #answer-text bu durumda zaten gizli). */
+    const cardClass =
+      status === "answered" ? "" : status === "abstained" ? " abstained" : " degraded";
+    $("answer").className = "answer-card" + cardClass;
     $("stamp").hidden = status !== "abstained";
     $("svc-note").hidden = status !== "degraded";
     $("answer-text").hidden = status === "degraded";
     if (status === "degraded") {
       /* Bozulma metninin KAYNAĞI sunucudur; arayüz yalnız sunum katmanını
-         (mühürden ayrışan bant) ekler. */
+         (mühürden ayrışan bant) ekler. N2: #answer-text zaten istek başında
+         temizlendi (yukarı bkz.); burada YİNE temizlenir çünkü bu dal metni
+         hiç yeniden yazmaz — savunma amaçlı, `hidden` regresyonuna karşı. */
+      $("answer-text").innerHTML = "";
       $("svc-note-text").textContent = a.text;
     } else {
       $("answer-text").innerHTML = mdLite(a.text);

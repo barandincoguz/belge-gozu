@@ -4,7 +4,7 @@ import math
 import sqlite3
 import threading
 import time
-from collections import defaultdict, deque
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -80,9 +80,23 @@ def require_searchable(text: str) -> None:
     Kontrol üretim tokenleştiricisinin KENDİSİYLE yapılır (`retrieval/text.py`),
     ayrı bir "boşluk mu?" sezgisiyle değil: eleme kuralları (>=2 harf, katlanmış
     işlev-kelime listesi) değişirse bu kapı da onunla birlikte değişsin.
+
+    L1 (review 2026-08-30, DİSPUTED — bilerek DEĞİŞTİRİLMEDİ): görsel-yalnız
+    pipeline'larda (`exhaustive`/`two-stage`) sıralamayı BM25 hiç kurmaz, yani
+    bu kapı orada da metin kanalının kurallarına göre reddeder. İçeriksiz
+    sorgu reddi ÜRÜN-DÜZEYİ bir kuraldır, pipeline'dan BAĞIMSIZDIR (kontrolcü
+    kararı): "bu ne için" hiçbir kolda anlamlı bir yanıt üretmez.
     """
     if not tokenize(text):
         raise HTTPException(422, detail=EMPTY_QUERY_DETAIL)
+
+
+# `RateLimiter._hits` sözlüğünün tavanı (review M1, 2026-08-30). Süpürme
+# (aşağıda `_evict_expired`) yalnız süresi DOLMUŞ pencereleri temizler; kasıtlı
+# olarak HER İSTEKTE FARKLI bir kaynak IP kullanan bir sel (IPv6'da ayrı kaynak
+# adres üretmek bedavaya yakındır) pencere içinde kalarak sözlüğü sınırsız
+# büyütebilirdi. Tavan bu senaryoyu kapatır.
+RATE_LIMITER_MAX_CLIENTS = 10_000
 
 
 class RateLimiter:
@@ -98,12 +112,28 @@ class RateLimiter:
     ARKASINDA çalışırken bütün istekler aynı IP'den görünür ve sınır küresel bir
     tavana dönüşür (dağıtım tarafında düşük ama sıfır olmayan bir değerle
     yaşanabilir bir davranış).
+
+    Bellek (review M1): `_hits` iki mekanizmayla sınırlı tutulur — (1) her
+    `check()` çağrısı ÖNCE tüm sözlüğü tarar ve penceresi tamamen dolmuş (en
+    son isteği bile `window_s`'ten eski) her istemciyi siler, (2)
+    `max_clients` tavanı dolduğunda yeni bir istemci eklenmeden önce en son
+    etkinliği en eski olan istemci düşürülür. Birlikte hem sessiz büyümeyi
+    (binlerce tek-seferlik IP kalıcı girdiye dönüşmez) hem sahte-IP selini
+    (her istekte yeni bir IP tavanı asla aşamaz) kapatırlar.
+    Varsayılan-kapalı yol (`per_min<=0`) hiç durum tutmadığı için ikisinden de
+    etkilenmez.
     """
 
-    def __init__(self, per_min: int, window_s: float = 60.0) -> None:
+    def __init__(
+        self,
+        per_min: int,
+        window_s: float = 60.0,
+        max_clients: int = RATE_LIMITER_MAX_CLIENTS,
+    ) -> None:
         self.per_min = per_min
         self.window_s = window_s
-        self._hits: dict[str, deque[float]] = defaultdict(deque)
+        self.max_clients = max_clients
+        self._hits: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
 
     def check(self, client: str) -> float | None:
@@ -112,7 +142,13 @@ class RateLimiter:
             return None
         now = time.monotonic()
         with self._lock:
-            q = self._hits[client]
+            self._evict_expired(now)
+            q = self._hits.get(client)
+            if q is None:
+                if len(self._hits) >= self.max_clients:
+                    self._evict_oldest()
+                q = deque()
+                self._hits[client] = q
             while q and now - q[0] >= self.window_s:
                 q.popleft()
             if len(q) >= self.per_min:
@@ -120,12 +156,39 @@ class RateLimiter:
             q.append(now)
             return None
 
+    def _evict_expired(self, now: float) -> None:
+        """Penceresi tamamen dolmuş istemcileri siler (M1: kalıcı-girdi sızıntısı).
 
-def enforce_rate_limit(limiter: RateLimiter, request: Request, endpoint: str) -> None:
+        Bir istemcinin EN SON isteği bile `window_s`'ten eskiyse deque'deki
+        tüm zaman damgaları zaten süresi dolmuş demektir — anahtar burada
+        düşürülür (aksi halde `check` yalnız KENDİ istemcisinin deque'ini
+        budadığı için bir daha hiç dönmeyen istemciler sonsuza dek kalırdı)."""
+        stale = [c for c, q in self._hits.items() if not q or now - q[-1] >= self.window_s]
+        for c in stale:
+            del self._hits[c]
+
+    def _evict_oldest(self) -> None:
+        """Tavan (`max_clients`) dolduğunda EN SON etkinliği en eski olan
+        istemciyi düşürür — sahte-IP seli (her istekte yeni bir IP) sözlüğü
+        bu noktadan sonra büyütemez."""
+        oldest = min(self._hits, key=lambda c: self._hits[c][-1])
+        del self._hits[oldest]
+
+
+def enforce_rate_limit(
+    limiter: RateLimiter, request: Request, endpoint: str, prom: PromMetrics
+) -> None:
     client = request.client.host if request.client else "bilinmeyen"
     retry_after = limiter.check(client)
     if retry_after is None:
         return
+    # L3: 429'lar telemetri olayına (collecting/record_event) hiç girmez —
+    # getirici çağrılmadı, tam bir RequestEvent üretmenin karşılığı yok. Ama
+    # sınırlayıcının ÇALIŞTIĞINI gösteren tek bir sayaç olmalı, aksi halde bir
+    # kötüye kullanım dalgası `/metrics`'te de `/stats`'ta da tamamen sessiz
+    # geçer (422'ler kasıtlı olarak bu sayacın dışında kalır — framework
+    # düzeyinde, ayrı bir karar).
+    prom.rate_limited.labels(endpoint=endpoint).inc()
     raise HTTPException(
         429,
         detail=(
@@ -474,8 +537,12 @@ def create_app(
 
     @app.post("/search")
     def search(body: SearchBody, request: Request) -> dict[str, list[PageHit]]:
-        enforce_rate_limit(search_limiter, request, "/search")
+        # L2: doğrulama ÖNCE, sınırlayıcı SONRA — geçersiz bir istek (burada:
+        # içeriksiz sorgu; pydantic'in kendi doğrulaması zaten gövdeye hiç
+        # ulaşmadan 422 verir) kota jetonu HARCAMAMALI. Sıra tersken 3000
+        # karakterlik bir sorgu bedavaydı ama "bu ne için" jeton yakıyordu.
         require_searchable(body.query)
+        enforce_rate_limit(search_limiter, request, "/search", prom)
         t0 = time.perf_counter()
         cand = s.stage1_candidates if s.retrieval_pipeline == "two-stage" else None
         with collecting() as col, prom.inflight("/search"):
@@ -514,8 +581,9 @@ def create_app(
 
     @app.post("/ask")
     def ask(body: AskBody, request: Request) -> dict:
-        enforce_rate_limit(ask_limiter, request, "/ask")
+        # L2: bkz. /search'teki aynı sıra değişikliği yorumu.
         require_searchable(body.question)
+        enforce_rate_limit(ask_limiter, request, "/ask", prom)
         t0 = time.perf_counter()
         cand = s.stage1_candidates if s.retrieval_pipeline == "two-stage" else None
         with collecting() as col, prom.inflight("/ask"):
