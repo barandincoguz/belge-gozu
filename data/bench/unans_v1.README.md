@@ -479,3 +479,137 @@ gereken tek satır:
 ```python
 SLICE_EXPECT = {"korpus-disi": 230, "anlamsiz-ood": 60, "eksik-kanit": 40}
 ```
+
+---
+
+## 9. Checker-2: test yakası tam doğrulama (2026-08-30)
+
+§3'teki çapraz-kontrol turu `korpus-disi` diliminin yalnız **40/200**'ünü
+örneklemişti ve %12.5 etiket gürültüsü ölçmüştü. Bu artık risk G2.1 için
+ölçülemezlik yaratır: n=155'te **tek** yanlış etiketli test satırı, kusursuz
+çalışan bir sistemi bile ≤%2 kapısında düşürür. Ledger R33 bu yüzden
+**test yakasının tam doğrulanmasını, dev yakasındaki gürültünün ise
+tolere edilip belgelenmesini** karara bağladı. Bu tur o kararın icrasıdır.
+
+**Kapsam (mekanik olarak hesaplandı, tahmin değil):** `slice=="korpus-disi"`
+**ve** `assign_split(satır, splits_v1)=="test"` **ve**
+`verified_by=="script:validate_unans"` (yani checker-1'in künyesini henüz
+taşımayan, salt mekanik etiketli satırlar) → **112 satır**, 75 ayrık çapa
+kanunu. Bunun 94'ü eski `u001–u200` partisinden, 18'i `u301–u330` yedek
+partisindendir. `anlamsiz-ood` ve `eksik-kanit` test satırları checker-1
+tarafından zaten 100% denetlenmişti; bu tur onlara dokunmadı.
+
+### 9.1 Sonuç
+
+| | adet | oran |
+|---|---|---|
+| denetlenen | **112** | — |
+| uygun | **105** | %93.75 |
+| **reddedildi** | **7** | **%6.25** |
+
+Red oranı checker-1'in örneklem tahmininin (%12.5, Wilson [%5.5, %26.1])
+alt yarısına düştü; iki ölçüm birbiriyle çelişmiyor (aralıklar örtüşüyor).
+`u301–u330` partisinin tuzak-karşıtı rejimi (§8.2) işe yaramış görünüyor:
+18 yeni test satırının **hiçbiri** reddedilmedi; 7 reddin tamamı eski
+partiden geldi.
+
+### 9.2 Reddedilen 7 satır
+
+| id | çapa | tek satırlık gerekçe (kanıt) |
+|---|---|---|
+| `u002` | 5901 Türk Vatandaşlığı K. | `k5490:2` "Mavi Kart"ı **adıyla** tanımlıyor: "çıkma izni almak suretiyle Türk vatandaşlığını kaybedenler ... altsoylarına verilen ... resmi belge". Sorulan belge korpusta. |
+| `u076` | 5737 Vakıflar K. | `k3065:18` "**Vakıflar Genel Müdürlüğünün yönettiği ve temsil ettiği** mazbut vakıflar" — hem yönetim mercii hem tanımın özü korpusta (+`k4721:22`). |
+| `u105` | 4207 Tütün Ürünleri K. | `k5326:12` (Kabahatler m.39) yasağın kapsamını üç fıkrada sayıyor: kamu hizmet binalarının kapalı alanları / toplu taşıma araçları / herkesin girebileceği özel binalar. |
+| `u124` | 5520 Kurumlar Vergisi K. | `k193:27` (GVK m.41/1-5) tanımın **ayna metnini** taşıyor ("ilişkili kişilerle emsallere uygunluk ilkesine aykırı ... bedel veya fiyatlar"); `k193:28` açıkça "5520 ... 13 üncü maddesi hükmü uygulanır" diyor; `k3065:27` terimi adıyla anıyor. |
+| `u142` | 6216 AYM K. | `k2709:50` (Anayasa m.149) yeter sayıyı birebir veriyor: "siyasî partilerin kapatılmasına ... karar verilebilmesi için toplantıya katılan üyelerin **üçte iki oy çokluğu** şarttır". |
+| `u167` | 6413 TSK Disiplin K. | `k657:67` (DMK m.126) "**uyarma**, kınama ve aylıktan kesme cezaları **disiplin amirleri** tarafından ... verilir" — 6413 m.20'nin cevabı farklı kanundan aynen çıkıyor (checker-1'in `u140` deseni). |
+| `u196` | 5378 Engelliler K. | `k2828:20` (Sos. Hiz. K. ek m.7) yararlanma şartını birebir veriyor: "hane içinde kişi başına düşen ortalama aylık gelir ... asgarî ücretin aylık net tutarının **2/3'ünden daha az** olan bakıma ihtiyacı olan engellilere ... **evde bakımına destek** verilmesi sağlanır". |
+
+**En öğretici olan `u124`**: çapa kanunu (5520) korpusta yok, ama tanımın
+metni gelir vergisindeki eşdeğer hükümde (GVK m.41/1-5) neredeyse kelimesi
+kelimesine duruyor ve o hüküm çapa kanununa **adıyla yollama** yapıyor.
+"Çapa kanunu korpusta yok" ile "cevap korpusta yok" arasındaki fark bu
+satırda en keskin hâlini alıyor — mekanik etiketin yapısal kör noktası.
+
+Ortak desen: **7 reddin 6'sı** (`u002`, `u076`, `u105`, `u124`, `u142`,
+`u167`) "başka bir korpus kanunu aynı maddi cevabı taşıyor" tipidir;
+yalnız `u196` doğrudan konu örtüşmesidir. Anayasa (`k2709`), DMK (`k657`),
+GVK (`k193`) ve Kabahatler K. (`k5326`) en sık sızdıran kaynaklar.
+
+### 9.3 Korunan tuzaklar (reddedilmedi ama sınırdaydı)
+
+Bu satırlarda korpus **yakın ama yanlış** bir cevap taşıyor; etiket doğru
+olduğu için tutuldular ve kalibrasyon için değerlidirler:
+
+- `u106` (4207, işletmeye ceza): `k5326:12` **kişiye** 50 TL kesiyor,
+  işletmeye değil. Model "50 TL" derse yanlış cevap verir.
+- `u109` (6136, ruhsatsız silah): `k5326:14` (m.43) yalnız "kanuna göre
+  **yasak olmayan** silahlar" için 50 TL öngörür; ateşli silahın hapis
+  cezası korpusta yok.
+- `u128` (7338, beyanname süresi): `k213:133` (VUK m.342) yalnız **ek**
+  süreyi (15+15 gün) verir; asıl 4 aylık süre korpusta yok.
+- `u147` (6325 m.18/A, süre): `k6102:3` (TTK m.5/A) ticari davalar için
+  **altı hafta + iki hafta** der; 18/A'nın üç hafta + bir haftası korpusta yok.
+- `u120` (4925, zorunlu sigorta): `k2918:71` (KTK m.91) araç **işleteninin**
+  ZMSS'ini düzenler; taşımacının taşımacılık sigortası ayrı rejimdir.
+- `u162` (3218, vergi istisnaları): korpus serbest bölgelerle ilgili KDV,
+  emlak, damga ve harç istisnalarını taşır ama bunlar **ilgili vergi
+  kanunlarının** istisnalarıdır; 3218'in kendi gelir/kurumlar ve ücret
+  istisnası korpusta yok.
+- `u326` (7258, bahis yetkisi): `k3065:59` **Millî Piyango**'yu anar; sorulan
+  sabit ihtimalli spor bahisleri teşkilatı korpusta adlandırılmıyor.
+
+### 9.4 Ortaya çıkan garanti
+
+> **Test yakasındaki tüm `korpus-disi` satırları model-çapraz-kontrolden
+> geçmiştir** (115 test satırının 112'si bu turda, 3'ü checker-1 turunda).
+> **Dev yakasında ~%12.5'lik mekanik-etiket gürültüsü belgelidir** ve
+> bilerek tolere edilmiştir (ledger R33).
+
+Yani G2.1'in ≤%2 kapısı yalnız **test** yakasında ölçülebilir sayılmalıdır;
+dev yakasındaki cevaplanamaz sayıları geliştirme sinyalidir, kapı değildir.
+
+### 9.5 Künye ve doğrulayıcı
+
+Kararlar şu üçlülerle yazıldı — **ikisi de `VERIF_EXPECT`'te zaten izinliydi**,
+betik değiştirilmedi:
+
+```python
+uygun: ("verified", "model-cross-check:claude-fable-5-checker", "mechanical:manifest-absence")
+reddet: ("rejected", "model-cross-check:claude-fable-5-checker", "model-cross-check")
+```
+
+Checker-2 turu **checker-1'in künye dizgisini yeniden kullanmıştır**
+(`...-checker`, `...-checker2` değil): aynı rejim, aynı kanıt tabanı, aynı
+sınırlar — ve doğrulayıcının izinli kümesini genişletmeye gerek kalmıyor.
+Turları bu bölümün tarihi ayırır; `uygun` satırların notu ` +checker2`
+soneki taşır, red notları `[checker2 reddi]` ile biter.
+
+`uv run python scripts/validate_unans.py` → **TEMİZ**. §8.4'teki
+`SLICE_EXPECT` açığı bu tur öncesinde kapatılmıştır (sabit 230'dur).
+
+### 9.6 Doğrulama sonrası bileşim
+
+| | cevaplanamaz (`rejected` hariç) | canary cevaplanabilir | `rejected` |
+|---|---|---|---|
+| dev | 159 (113 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 canary) | 26 | 7 |
+| **test** | **155** (105 + 31 + 16 + 3) | 17 | 14 |
+
+n=155'te 0 hata → Clopper-Pearson tek-yanlı %95 üst sınırı **%1.914** < %2.0
+(§3.6'daki hesapla aynı yöntem: `1 - 0.05^(1/n)`).
+**G2.1'in asgari n=149 eşiği karşılanmıştır**; tampon 6 satırdır.
+
+### 9.7 Bu turun sınırları (dürüstlük kaydı)
+
+- Denetleyici bir **modeldir, insan değil**. `verification_kind` bu turda da
+  `human` OLMADI; hiçbir rakam "insan-doğrulanmış benchmark" diye sunulamaz.
+- Drafter, checker-1 ve checker-2 **aynı model ailesindendir**; eğitim-verisi
+  kör noktaları ortaktır. Bulunan 7 hata bir **alt sınırdır**.
+- Kanıt yalnız **metin katmanıdır** (`data/research/page_texts.parquet`,
+  4222 sayfa / 56 belge); sayfa görüntüsünde olup metne düşmemiş bir hükmü
+  bu tur da göremez — özellikle `rg*` taramalarında.
+- "Cevap korpusta var" eşiği bir **yargı kararıdır**. §9.3'teki yedi sınır
+  satırının bir kısmı başka bir denetleyicide reddedilebilirdi; ret sayısı
+  5 ile 12 arasında oynayabilirdi.
+- **Dev yakası bu turda denetlenmedi.** Oradaki 113 `korpus-disi` satırının
+  ~14'ünün (%12.5) yanlış etiketli olması beklenir; §3.7 hâlâ geçerlidir.
