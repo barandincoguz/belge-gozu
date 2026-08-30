@@ -1,7 +1,8 @@
 import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ValidationError, model_validator
 
@@ -20,7 +21,18 @@ Slice = Literal[
     "eksik-kanit",
     "anlamsiz-ood",
 ]
+# Cevaplanamazlık gerekçesi sözlüğü. `eksik-kanit` sınırdaki sınıftır: soru
+# KORPUSTAKİ bir kanun hakkındadır ama aranan somut ayrıntı (yönetmeliğe
+# devredilmiş bir usul, kanunun yazmadığı bir tutar, mülga bir hüküm) korpus
+# metninde YOKTUR. `korpus-disi`den farkı, konunun korpusta bulunmasıdır; bu
+# yüzden retrieval ilgili belgeyi getirir ve model "kanıt var" sanabilir —
+# kalibrasyonun en zor durumu. `unans_v1.jsonl` bu sınıfı doldurur.
 UnansReason = Literal["korpus-disi", "eksik-kanit", "anlamsiz", "belirsiz"]
+
+# `ajan-taslak`: model ajanının yazdığı, İNSAN ONAYI ALMAMIŞ satır. Mevcut
+# `ajan-taslak-insan-onayli` ile karıştırılmasın diye ayrı bir değerdir —
+# aksi halde onaysız satırlar künyede onaylı gibi sayılırdı.
+SourceType = Literal["insan", "insan-paraphrase", "ajan-taslak-insan-onayli", "ajan-taslak"]
 
 _SLICES: tuple[Slice, ...] = get_args(Slice)
 
@@ -37,7 +49,7 @@ class BenchQuestion(BaseModel):
     reference_answer: str  # answerable=False iken ""
     slice: Slice
     difficulty: Literal["kolay", "orta", "zor"]
-    source_type: Literal["insan", "insan-paraphrase", "ajan-taslak-insan-onayli"]
+    source_type: SourceType
     requires_visual: bool
     requires_multi_hop: bool
     unanswerable_reason: UnansReason | None
@@ -53,7 +65,18 @@ class BenchQuestion(BaseModel):
     # bu alan olmadan iki tür `verified` satır birbirine karışır ve birleşik
     # sayı yanlışlıkla "insan doğrulanmış" diye okunabilir.
     # Varsayılan "human": alan eklenmeden önce yazılmış satırlar geçerli kalır.
-    verification_kind: Literal["human", "model-cross-check"] = "human"
+    #
+    # "mechanical:manifest-absence" ÜÇÜNCÜ ve en zayıf türdür: hiç kimse (insan
+    # ya da model) sorunun cevabını aramamıştır; yalnızca bir betik, sorunun
+    # dayandığı kanunun korpus manifestinde BULUNMADIĞINI göstermiştir
+    # (scripts/validate_unans.py). Bu, "cevaplanamaz" iddiasını kanıtlamaz —
+    # yalnız "dayanak belge korpusta yok" iddiasını kanıtlar; artık risk,
+    # korpustaki BAŞKA bir kanunun aynı soruyu cevaplayabilmesidir. Bu yüzden
+    # ayrı bir değer: `verified` sayısı türlere ayrılmadan okunursa mekanik
+    # satırlar insan onayı sanılır.
+    verification_kind: Literal["human", "model-cross-check", "mechanical:manifest-absence"] = (
+        "human"
+    )
 
     @model_validator(mode="after")
     def _check_answerability(self) -> "BenchQuestion":
@@ -88,8 +111,9 @@ class BenchQuestion(BaseModel):
         return self
 
 
-def load_bench(path: Path, only_verified: bool = True) -> list[BenchQuestion]:
+def load_bench(path: Path | str, only_verified: bool = True) -> list[BenchQuestion]:
     """JSONL bench dosyasını satır satır okur (satır no. 1'den başlar)."""
+    path = Path(path)
     questions: list[BenchQuestion] = []
     lines = path.read_text(encoding="utf-8").splitlines()
     for i, line in enumerate(lines, start=1):
@@ -116,8 +140,8 @@ def bench_stats(questions: list[BenchQuestion]) -> dict[str, int]:
     return stats
 
 
-def load_splits(path: Path) -> dict[str, set[str]]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+def load_splits(path: Path | str) -> dict[str, set[str]]:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     return {
         "dev_docs": set(data.get("dev_docs", [])),
         "test_docs": set(data.get("test_docs", [])),
@@ -135,3 +159,61 @@ def question_split(q: BenchQuestion, splits: dict[str, set[str]]) -> Literal["de
         return "dev"
     digest = hashlib.sha256(q.question_id.encode()).hexdigest()
     return "dev" if int(digest, 16) % 2 == 0 else "test"
+
+
+def _hash50(key: str) -> Literal["dev", "test"]:
+    """sha256 tabanlı kararlı 50/50 atama (tohum yok — anahtarın kendisi tohumdur)."""
+    return "dev" if int(hashlib.sha256(key.encode()).hexdigest(), 16) % 2 == 0 else "test"
+
+
+def _field(question: "Mapping[str, Any] | BenchQuestion", name: str) -> Any:
+    if isinstance(question, BenchQuestion):
+        return getattr(question, name, None)
+    return question.get(name)
+
+
+def assign_split(
+    question: "Mapping[str, Any] | BenchQuestion",
+    splits: dict[str, set[str]],
+) -> Literal["dev", "test"]:
+    """Bir soruyu dev/test'e atar — SAF fonksiyon, dosya/rastgelelik yok.
+
+    Kural (aynısı `data/bench/splits_v1.json` içinde de yazılıdır):
+
+    1. Cevaplanabilir soru (`gold_doc_ids` dolu) → `gold_doc_ids[0]` hangi
+       kümedeyse orası; hiçbirinde değilse `dev` (güvenli varsayılan).
+    2. `korpus-disi` + `_anchor_law` var → `sha256("anchor:<kanun no>")` ile
+       50/50. Kanun bazında gruplanır: aynı absent kanuna dayanan tüm sorular
+       aynı yakaya düşer, böylece test kümesi dev'de görülmüş bir kanunu
+       tekrar sormaz.
+    3. `eksik-kanit` + `_subject_doc` var → konu belgesi `test_docs` içindeyse
+       `test`, değilse `dev`. Bu sınıf korpustaki bir belgeye bağlı olduğu için
+       cevaplanabilir sorularla AYNI hukuk-gruplu bölmeyi paylaşmalıdır.
+    4. Diğer (anlamsız-ood; ya da eksik alan) → `sha256("qid:<id>")` ile 50/50.
+
+    `_anchor_law` / `_subject_doc` alt çizgili alanlardır: `BenchQuestion`
+    onları taşımaz (pydantic yok sayar), bu yüzden fonksiyon ham JSONL
+    sözlüğünü de kabul eder. `BenchQuestion` verilirse 2-3 numaralı kurallar
+    veri olmadığından uygulanamaz ve 4'e düşülür — çağıran taraf hukuk-gruplu
+    atama istiyorsa ham satırı geçmelidir.
+    """
+    gold_doc_ids = _field(question, "gold_doc_ids") or []
+    if gold_doc_ids:
+        primary = gold_doc_ids[0]
+        if primary in splits.get("test_docs", set()):
+            return "test"
+        return "dev"
+
+    reason = _field(question, "unanswerable_reason")
+    qid = str(_field(question, "question_id") or "")
+
+    if reason == "korpus-disi":
+        anchor = _field(question, "_anchor_law")
+        if anchor:
+            return _hash50(f"anchor:{anchor}")
+    elif reason == "eksik-kanit":
+        subject = _field(question, "_subject_doc")
+        if subject:
+            return "test" if subject in splits.get("test_docs", set()) else "dev"
+
+    return _hash50(f"qid:{qid}")
