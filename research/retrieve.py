@@ -3,9 +3,13 @@
 Sözleşme (research/program.md): rank_pages(q) -> sıralı page_id listesi.
 q: query_text, page_ids, visual_scores (float32[n]), page_texts.
 
-EXP-8 (window50): exp7 + pencere 20→50. Sağlamlık taraması w30/50'de +1 soru
-gösterdi (c214 txt rank 27 pencereye giriyor). w50'de top-20 KÜMESİ artık yapısal
-olarak korunmaz — R@20 guardrail'i ölçümle karar verir. Tek değişken: pencere.
+EXP-12 (ascii-fold, KEPT): exp8 + tokenizasyonda aksan katlama — tr_lower
+SONRASI ç→c, ğ→g, ı→i, ö→o, ş→s, ü→u, â→a, î→i, û→u; iki tarafta (indeks+sorgu);
+stopword listesi katlanmış biçimiyle eşlenir; F5 katlamadan SONRA. Gerekçe: aksansız
+yazan gerçek kullanıcıda R@5 0.837→0.581 çöküyordu (exp11); katlama sistemi
+YAZIM-DEĞİŞMEZ yapar: iki koşulda da 37/43=0.8605. Bedel: aksanlı MRR 0.655→0.632
+(çakışma kaynaklı, düşenler top-5 İÇİNDE kalır) — program round-3 R26 istisnasıyla
+kabul. exp13 (çift-biçim) denendi ve iki guardrail'i düşürdüğü için reddedildi.
 """
 
 from __future__ import annotations
@@ -31,9 +35,19 @@ def tr_lower(s: str) -> str:
     return s.replace("İ", "i").replace("I", "ı").lower()
 
 
+_FOLD = str.maketrans("çğıöşüâîû", "cgiosuaiu")
+
+
+def ascii_fold(s: str) -> str:
+    return s.translate(_FOLD)
+
+
+_STOP_FOLDED = frozenset(ascii_fold(w) for w in STOPWORDS)
+
+
 def tokenize(s: str) -> list[str]:
-    words = [t for t in _WORD.findall(tr_lower(s)) if len(t) > 1 and t not in STOPWORDS]
-    return [t[:F5] for t in words]
+    words = [ascii_fold(t) for t in _WORD.findall(tr_lower(s)) if len(t) > 1]
+    return [t[:F5] for t in words if t not in _STOP_FOLDED]
 
 
 class BM25:

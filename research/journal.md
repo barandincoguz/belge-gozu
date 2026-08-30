@@ -157,3 +157,39 @@ Kalan 7 ıskanın TAMAMI kanun adı/kısaltma içermeyen saf anlamsal paraphrase
 kanalı ister (P1 backlog T7; model seçimi bu döngünün bütçe kuralları dışında).
 Sağlamlık: k1/b ve F5 platoları geniş (robustness.json); bootstrap ΔR@5 %95 GA
 [0.42, 0.74] (taban→exp7); k1=1.8'in +1'i bilinçli ALINMADI (canary'ye ayar olur).
+
+---
+
+## Round 3 — aksansız-Türkçe gerçek-kullanıcı koşulu (2026-08-30)
+
+## #11 — exp11 (ölçüm): aksansız sorgu hasarı
+
+- Mevcut reçete (exp8), sorgular ASCII'ye katlanınca: R@5 **36/43 → 25/43 (0.5814)**.
+- Edge-case sondajının canlı gözlemi sayıya döküldü: aksansız yazan kullanıcı
+  (yaygın Türkçe klavye davranışı) sistemin en büyük gerçek-hayat kırılganlığı.
+
+## #12 — exp12-ascii-fold → KEPT (R26 istisnasıyla)
+
+- **Değişiklik:** tokenizasyonda aksan katlama (çğıöşü+âîû→cgiosu+aiu), iki tarafta;
+  stoplist katlanmış uzayda; F5 sonra.
+- **Sayılar:** aksanlı R@5 **0.8605** (37/43, +1) · aksansız R@5 **0.8605** (+12) —
+  sistem YAZIM-DEĞİŞMEZ · R@20 0.9302 (=) · visual 1.0 (=) · MRR 0.655→0.632 (−0.023)
+  · R@1 −2 (düşenler top-5 içinde) · chip'ler 2/2
+- **Karar:** KEPT — R26 istisnası (program round-3'e gerekçesiyle işlendi).
+- **Öğrenilen:** katlama çakışmaları (ör. sıra/sira birleşmesi) hassasiyeti çok az
+  törpülüyor ama iki koşulu tek davranışta birleştirmek üründe belirleyici.
+
+## #13 — exp13-dual-form → DISCARDED
+
+- **Hipotez:** çift-biçim yayım (özgün+katlanmış) MRR'yi geri kazandırır.
+- **Sayılar:** aksanlı R@5 0.8372 (−1 exp12'ye göre) · R@20 0.907 (↓) · visual 0.875 (↓)
+  · MRR 0.649 · aksansız 0.8605/0.6512
+- **Karar:** DISCARDED — iki guardrail birden düştü (sorgu token'ı ikilenmesi IDF/pay
+  dağılımını bozuyor). exp12 Pareto-üstün.
+
+## ROUND 3 SONU
+
+Final reçete: **exp12 — BM25 + F5 + katlanmış-stoplist + aksan katlama + pencere-50
+yönlendirme**. İki yazım koşulunda da R@5 **0.8605 (37/43)**, R@20 0.9302, visual 8/8.
+Üretime devir: implementer sprintinde (aksan katlama portu + eşik yeniden taşıma
+ölçümü — katlama BM25 skor dağılımını değiştirir, eşik bandı yeniden ölçülmeli).

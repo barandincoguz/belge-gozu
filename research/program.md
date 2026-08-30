@@ -93,3 +93,23 @@ Kurallar aynen geçerli; ek çerçeve:
   taraması (KEPT edilmez, yalnız rapora — reçete bıçak sırtında mı?);
   dilim-bazlı kırılım; 43 soruda bootstrap %95 GA (taban vs final);
   aşırı-uyum uyarısı (aynı 43 soruya yinelenen iterasyon) raporda açık.
+
+## Round 3 (2026-08-30) — aksansız-Türkçe gerçek-kullanıcı koşulu
+
+Edge-case sondajı gerçek-hayat kritik vakayı doğruladı: aksansız yazılan sorgular
+("Is Kanunu'na gore yillik ucretli izin suresi") gold'u tamamen kaybediyor.
+Çerçeve eki:
+
+- **İkinci koşul:** her deney iki koşulda ölçülür — (1) standart canary (aksanlı;
+  resmî evaluate.py) ve (2) AKSANSIZ türev (sorgular ASCII'ye katlanmış; analiz
+  script'i — harness donuk kalır, sorular/gold'lar değişmez, yalnız yazım katlanır).
+- **Round-3 karar kuralı (şeffaf ek):** KEPT ⇔ aksanlı R@5 GERİLEMEZ VE aksansız
+  R@5 kesin artar; guardrail'ler (R@20, visual-R@5, aksanlı MRR) gerilemez.
+  **R26 istisnası (exp12 kararında eklendi, gerekçeli):** aksanlı MRR'de ≤0.025
+  gerileme, (a) birincil metrik İKİ koşulda da iyileşiyor, (b) R@20 ve visual-R@5
+  aynen, (c) düşen sıralar sunulan top-5 içinde kalıyorsa kabul edilir — bedel,
+  yazım-değişmezlik ürün özelliğinin karşılığıdır; alternatif (exp13 çift-biçim)
+  denenmiş ve iki guardrail'i düşürdüğü için reddedilmiştir.
+- Aday: tokenizasyonda aksan katlama (ç→c, ğ→g, ı/i→i, ö→o, ş→s, ü→u, â/î/û→a/i/u)
+  iki tarafta (indeks+sorgu), stopword listesi de katlanarak eşlenir. Ayarsız,
+  deterministik, Türkçe IR'de standart uygulama.
