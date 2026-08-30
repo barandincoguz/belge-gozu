@@ -616,10 +616,10 @@ def _verify_fixture(tmp_path: Path, verdict: str, max_claims: int = 8):
                 client=client,
                 model=s.gemini_model,
                 cache=VerifierCache(s.data_dir / "cache" / "verifier"),
-                budget=budget,
             ),
             {"k4721:4": "TÜRK MEDENİ KANUNU\nYerleşim yeri sürekli kalma niyetiyle..."},
             max_claims=max_claims,
+            budget=budget,
         )
         svc = AskService(
             StubRetriever(), StubAnswerer(), -1e9, lambda p: b"img", gate1=None, gate2=gate2
@@ -659,7 +659,13 @@ def test_verify_run_writes_a_kunyeli_report(tmp_path: Path, monkeypatch):
     assert report["summary"]["by_status"] == {"answered": 2}
     assert report["summary"]["verdicts"] == {"supported": 2}
     assert report["summary"]["gate2_demoted"] == 0
-    assert report["budget"] == {"max_llm_calls": 4, "used": 2, "stopped": None}
+    assert report["budget"] == {
+        "unit": "api_attempts",
+        "max_attempts": 4,
+        "used": 2,
+        "stopped": None,
+    }
+    assert report["summary"]["verifier_api_attempts"] == 2
     assert report["config"]["gate_calibrated"] and report["config"]["gate_verifier"]
     assert report["bench"]["sha256"] and report["git_commit"]
     assert [q["qid"] for q in report["per_question"]] == ["q1", "q2"]

@@ -29,6 +29,8 @@ from belge_gozu.index.manifest import (
     IndexManifest,
     QueryFormat,
     QueryFormatChoice,
+    index_revision,
+    read_manifest,
 )
 from belge_gozu.index.store import PackedIndex
 from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
@@ -362,6 +364,19 @@ def create_app(
     if s.retrieval_pipeline == "hybrid":
         require_text_artifact(s.index_dir)
 
+    # Kalibrasyon artefaktı kontrolü de AYNI GEREKÇEYLE burada (review L1):
+    # `BG_GATE_CALIBRATED=true` + eksik artefakt, `build_gates` aşağıda
+    # çağrıldığında ancak VLM ağırlıkları ve 474 MB'lık indeks yüklendikten
+    # SONRA patlıyordu — tek satırlık "`calibrate fit` çalıştır" mesajı için
+    # dakikalarca bekleme. Kontrol saf dosya sistemi + JSON'dur.
+    if s.gate_calibrated:
+        from belge_gozu.answer.verify import load_gate1_artifact
+
+        early_manifest = read_manifest(s.index_dir)
+        load_gate1_artifact(
+            s, index_revision(early_manifest) if early_manifest is not None else None
+        )
+
     resolved_query_format, resolved_doc_prompt = resolve_formats(s)
     if encoder is None:
         from belge_gozu.index.encode import ColSmolEncoder
@@ -384,14 +399,15 @@ def create_app(
         return (s.data_dir / image_path).read_bytes()
 
     if manifest is not None:
-        index_revision = (
-            f"{manifest.corpus_checksum[:12]}/{manifest.query_format.format_id}/"
-            f"{manifest.quantization}"
-        )
+        # `index_revision()` (index/manifest.py) — CLI'nin kalibrasyon anahtarı
+        # da AYNI fonksiyondan gelir. Burada elle kurulmuş bir f-string kopyası
+        # duruyordu; iki üretim yeri, artefakt anahtarının servis ile CLI
+        # arasında sessizce ayrışabileceği bir yüzeydi.
+        revision = index_revision(manifest)
         query_format_id = manifest.query_format.format_id
         quantization = manifest.quantization
     else:
-        index_revision = None
+        revision = None
         query_format_id = None
         quantization = None
 
@@ -402,7 +418,7 @@ def create_app(
     # sessizce ortadan kaldırırdı.
     from belge_gozu.answer.verify import build_gates
 
-    gates = build_gates(s, retriever, index_revision=index_revision)
+    gates = build_gates(s, retriever, index_revision=revision)
     if gates.detail:
         logger.info("P2 kapıları etkin: %s", gates.detail)
     service = AskService(
@@ -410,8 +426,8 @@ def create_app(
         answerer,
         s.min_score_threshold,
         load_image,
-        gate1=gates.retrieval,  # pyright: ignore[reportArgumentType]
-        gate2=gates.evidence,  # pyright: ignore[reportArgumentType]
+        gate1=gates.retrieval,
+        gate2=gates.evidence,
     )
 
     rec = recorder or EventRecorder(s.data_dir / "requests.sqlite")
@@ -437,7 +453,7 @@ def create_app(
         device=s.device,
         version=app_version,
         threshold=s.min_score_threshold,
-        index_revision=index_revision or "unknown",
+        index_revision=revision or "unknown",
         query_format=query_format_id or "unknown",
     )
 
@@ -551,7 +567,7 @@ def create_app(
             error_type=error_type or (noted_error if isinstance(noted_error, str) else None),
             pipeline=s.retrieval_pipeline,
             score_scale=PIPELINE_SCORE_SCALE[s.retrieval_pipeline],
-            index_revision=index_revision,
+            index_revision=revision,
             detail={
                 "hits": [{"page_id": h.page_id, "score": h.score} for h in hits],
                 "threshold": s.min_score_threshold,
@@ -612,7 +628,7 @@ def create_app(
                     error_type=reason,
                     pipeline=s.retrieval_pipeline,
                     score_scale=PIPELINE_SCORE_SCALE[s.retrieval_pipeline],
-                    index_revision=index_revision,
+                    index_revision=revision,
                 )
             )
         except Exception:
@@ -651,7 +667,7 @@ def create_app(
             "threshold": s.min_score_threshold,
             "top_k": s.top_k,
             "pipeline": s.retrieval_pipeline,
-            "index": {"quantization": quantization, "revision": index_revision},
+            "index": {"quantization": quantization, "revision": revision},
         }
 
     @app.post("/search")

@@ -4,6 +4,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from belge_gozu.answer.base import HONEST_MISS_MARKER, Answer, AnswererError
@@ -52,6 +53,23 @@ GEMINI_TOTAL_BUDGET_S = 35.0
 # çok daha geniştir: 429 aynı anahtarda umutsuzdur ama BAŞKA bir anahtarda
 # tam olarak umut vaat eden hatadır.
 RETRYABLE_ERROR_TYPES = frozenset({"timeout", "http_5xx"})
+
+# İSTEK-YEREL API deneme sayacı (`telemetry/collect.py` ile aynı ContextVar
+# deseni). Süreç düzeyinde bir sayaç eşzamanlı isteklerde birbirinin
+# denemelerini sayardı; ContextVar her isteğe kendi sayacını verir.
+#
+# Var oluş sebebi kota: bir `generate*` çağrısı retry ve anahtar rotasyonu
+# yüzünden 3 HTTP denemesine kadar çıkabilir ve ücretsiz katman DENEME sayar
+# (ölçüldü: `quotaValue: '20'`/gün/anahtar). Doğrulayıcı bütçesi bu sayacı
+# okuyarak yüklenir — aksi halde `--max-llm-calls 20` 60 denemeye izin
+# verebiliyordu (review M1).
+_API_ATTEMPTS: ContextVar[int] = ContextVar("bg_gemini_api_attempts", default=0)
+
+
+def api_attempts() -> int:
+    """Bu istek bağlamında şimdiye kadar yapılmış GERÇEK API denemesi sayısı."""
+    return _API_ATTEMPTS.get()
+
 
 # --- ANAHTAR ROTASYONU -------------------------------------------------------
 #
@@ -190,6 +208,20 @@ class GeminiClient:
 
     Kurulum artık KİLİTLİ (Y15/K33): iki eşzamanlı ilk `/ask` yavaş
     `from google import genai` import'unu istek yolunda ÇAKIŞARAK yapıyordu.
+
+    İÇ API — `RotatingGeminiClient` İÇİN (review L6). Alt çizgili olmalarına
+    rağmen şu ikisi rotasyon katmanının SÖZLEŞMESİDİR ve imzaları o katman
+    hesaba katılmadan değiştirilemez:
+
+      * ``_generate(contents, config, *, started=None, max_attempts=None)`` —
+        paylaşılan duvar-saati başlangıcı ve deneme tavanı dışarıdan verilir;
+        merdivenin "hepsi TEK bütçe altında" invariantı buna dayanır.
+      * ``_json_config(schema)`` — DURUMSUZDUR (anahtardan bağımsız), bu yüzden
+        rotasyon katmanı onu daima `_slots[0]` üzerinden kurar ve tüm slotlarda
+        aynı yapılandırmayı kullanır. `build_contents` için de aynısı geçerli.
+
+    Alt çizgi "kararsız" değil "uygulama tarafına ait" anlamındadır: bu iki
+    metodun kullanıcısı uygulama kodu değil, aynı dosyadaki sarmalayıcıdır.
     """
 
     def __init__(
@@ -322,6 +354,11 @@ class GeminiClient:
         attempts = self.max_attempts if max_attempts is None else max_attempts
         for attempt in range(1, attempts + 1):
             try:
+                # KOTA MUHASEBESİ (review M1): sayaç GERÇEK HTTP denemesinin
+                # hemen öncesinde artar — yani retry ve anahtar rotasyonu dahil
+                # her deneme sayılır. `answer/verify.py` bunu okuyup doğrulayıcı
+                # bütçesine işler; kota "çağrı" değil DENEME ile tükenir.
+                _API_ATTEMPTS.set(_API_ATTEMPTS.get() + 1)
                 # `config` YOKSA kwarg hiç geçilmez: bayrak-kapalı yanıtlama
                 # yolu SDK'ya birebir eskisi gibi görünsün.
                 resp = (
@@ -457,8 +494,15 @@ class RotatingGeminiClient:
     zaman daha iyi bir ikinci hamledir.
 
     HAVUZ TEK ANAHTARLIYSA rotasyon dalı HİÇ girilmez ve davranış bu katman
-    eklenmeden önceki `GeminiClient.generate()` ile birebir aynıdır (deneme
-    sayısı, backoff, taksonomi, notlar) — mevcut testler bunun kilididir.
+    eklenmeden önceki `GeminiClient.generate()` ile birebir aynıdır: deneme
+    sayısı, backoff ve hata taksonomisi — mevcut testler bunun kilididir.
+
+    NOTLAR BUNUN İSTİSNASIDIR (review L7): tek anahtarlı BAŞARILI çağrı da
+    `detail.llm.key = "key1"` yazar (`_served`), yani `events.detail` bu katman
+    eklendikten sonra yeni bir `llm` bloğu taşır. Ekleme kasıtlı ve faydalıdır
+    (hangi anahtarın servis ettiği her satırda görünür) ama "notlar da birebir
+    aynı" demek yanlış olurdu; testi de bunu söylüyor
+    (`test_single_key_success_still_records_which_key_served`).
     """
 
     def __init__(self, slots: list[KeySlot], sticky: StickyKeyIndex | None = None) -> None:

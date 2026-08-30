@@ -1160,8 +1160,8 @@ def _verify_service(s: Settings, budget):
         GeminiAnswerer(s.gemini_model, s.gemini_api_key, api_key_2=s.google_api_key_2),
         s.min_score_threshold,
         lambda p: (s.data_dir / p).read_bytes(),
-        gate1=gates.retrieval,  # pyright: ignore[reportArgumentType]
-        gate2=gates.evidence,  # pyright: ignore[reportArgumentType]
+        gate1=gates.retrieval,
+        gate2=gates.evidence,
     )
     return service, gates, revision
 
@@ -1173,7 +1173,12 @@ def verify_run(
     # ZORUNLU ve varsayılansız (`...`). "Sınırsız varsayılan" bir bütçe bayrağı
     # bütçe değildir: doğrulayıcı iddia başına çağrı yapar ve 300 soruluk bir
     # koşum kotayı tek hamlede bitirebilir (2026-08-30: günde 2× http_429).
-    max_llm_calls: int = typer.Option(..., "--max-llm-calls"),  # noqa: B008
+    #
+    # BİRİM = API DENEMESİ (review M1). `--max-llm-attempts` asıl addır;
+    # `--max-llm-calls` geriye uyum için korunur ama "çağrı" yanıltıcıydı:
+    # anahtar rotasyon merdiveni tek bir doğrulayıcı çağrısını 3 denemeye kadar
+    # çarpar ve ücretsiz kota DENEME sayar (ölçülen: 20/gün/anahtar).
+    max_llm_calls: int = typer.Option(..., "--max-llm-attempts", "--max-llm-calls"),  # noqa: B008
     limit: int = typer.Option(0, "--limit"),  # noqa: B008
     splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
     only_verified: bool = typer.Option(True, "--only-verified/--all"),  # noqa: B008
@@ -1194,7 +1199,7 @@ def verify_run(
 
     _gate_test_split(split, yes_final_gate)
     if max_llm_calls < 0:
-        raise typer.BadParameter("--max-llm-calls negatif olamaz")
+        raise typer.BadParameter("--max-llm-attempts negatif olamaz")
     base = _settings()
     if base.retrieval_pipeline != "hybrid":
         raise typer.BadParameter(
@@ -1221,7 +1226,10 @@ def verify_run(
             # Bütçe dolduğunda DEVAM ETMEK anlamsız: kalan her soru
             # doğrulanamadığı için düşerdi ve rapor sahte bir "demote" yığını
             # üretirdi. Koşum burada DÜRÜSTÇE kesilir.
-            stopped = f"bütçe doldu ({budget.used}/{budget.max_calls}) — {len(rows)} soru koşuldu"
+            stopped = (
+                f"bütçe doldu ({budget.used}/{budget.max_attempts} API denemesi) "
+                f"— {len(rows)} soru koşuldu"
+            )
             break
         with collecting() as col:
             answer, hits = service.ask(str(rec["question"]), k=s.top_k)
@@ -1245,10 +1253,11 @@ def verify_run(
         )
 
     verdict_counts: Counter[str] = Counter()
-    llm_calls = cache_hits = demoted = 0
+    llm_calls = cache_hits = demoted = api_attempts = 0
     for row in rows:
         g2 = row["gate2"] or {}
         llm_calls += int(g2.get("llm_calls", 0) or 0)
+        api_attempts += int(g2.get("api_attempts", 0) or 0)
         cache_hits += int(g2.get("cache_hits", 0) or 0)
         demoted += 1 if g2.get("demoted") else 0
         for claim in g2.get("claims") or []:
@@ -1283,7 +1292,14 @@ def verify_run(
             "n_run": len(rows),
         },
         "splits": {"path": str(splits_path), "sha256": sha256_file(splits_path)},
-        "budget": {"max_llm_calls": budget.max_calls, "used": budget.used, "stopped": stopped},
+        "budget": {
+            # BİRİM = API DENEMESİ. `used` ile `summary.verifier_api_attempts`
+            # AYNI sayıyı iki yerden verir; birbirini yalanlayamazlar (L3).
+            "unit": "api_attempts",
+            "max_attempts": budget.max_attempts,
+            "used": budget.used,
+            "stopped": stopped,
+        },
         "summary": {
             "n": len(rows),
             "by_status": dict(Counter(r["status"] for r in rows)),
@@ -1291,6 +1307,7 @@ def verify_run(
             "gate2_demoted": demoted,
             "verdicts": dict(verdict_counts),
             "verifier_llm_calls": llm_calls,
+            "verifier_api_attempts": api_attempts,
             "verifier_cache_hits": cache_hits,
         },
         "per_question": rows,
@@ -1303,8 +1320,8 @@ def verify_run(
     typer.echo(f"kapı1 geçen={gate1_passed}  kapı2 düşürülen={demoted}")
     typer.echo(f"kararlar: {dict(verdict_counts)}")
     typer.echo(
-        f"LLM doğrulayıcı çağrısı={llm_calls} önbellek isabeti={cache_hits} "
-        f"bütçe={budget.used}/{budget.max_calls}"
+        f"LLM doğrulayıcı çağrısı={llm_calls} API denemesi={api_attempts} "
+        f"önbellek isabeti={cache_hits} bütçe={budget.used}/{budget.max_attempts} deneme"
     )
     if stopped:
         typer.secho(f"  UYARI: {stopped}", fg=typer.colors.YELLOW, bold=True)

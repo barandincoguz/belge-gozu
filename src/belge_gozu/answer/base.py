@@ -108,6 +108,26 @@ class Answerer(Protocol):
     ) -> Answer: ...
 
 
+def gate2_skip_reason(answer: Answer) -> str | None:
+    """Kanıt kapısının ATLANMA sebebi (yoksa None) — tek karar yolu.
+
+    Dürüst ıska ve atıfsız yanıtlar atlanır: ikisi de zaten "kesin yanıt" diye
+    sunulmuyor, doğrulamak yalnız kota yakardı.
+
+    `answer/verify.py` yerine BURADA durur (review L5): yalnız `Answer`a
+    dokunuyor ve `verify.py`de dururken `AskService` onu her istekte FONKSİYON
+    İÇİNDE ithal etmek zorunda kalıyordu — bu, tek amacı `base <-> verify`
+    döngüsünü kırmak olan bir kaçamaktı.
+    """
+    if answer.abstained:
+        return "abstained"
+    if is_honest_miss(answer):
+        return "honest_miss"
+    if not answer.citations:
+        return "no_citations"
+    return None
+
+
 class RetrievalGate(Protocol):
     """Kalibre getirim kapısı (P2 T2, kapı 1) — `answer/calibrate.py` uygular."""
 
@@ -208,8 +228,6 @@ class AskService:
 
     def _apply_gate2(self, answer: Answer, hits: list[PageHit]) -> Answer:
         """Kanıt kapısı: desteklenmeyen tek iddia bile yanıtı DÜŞÜRÜR (ilke 20)."""
-        from belge_gozu.answer.verify import gate2_skip_reason
-
         skip = gate2_skip_reason(answer)
         if skip is not None:
             annotate("gate2", {"demoted": False, "skipped": skip})

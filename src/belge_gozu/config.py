@@ -218,6 +218,20 @@ class Settings(BaseSettings):
     # doğrulanmaz VE yanıt düşürülür — kırpmayı sessizce "geçti" saymak ilke
     # 20'nin yasakladığı şeydir.
     verifier_max_claims: int = 8
+    # İSTEK BAŞINA SERT API DENEME TAVANI (review H1). Birimi **HTTP denemesi**,
+    # "doğrulayıcı çağrısı" DEĞİL: anahtar rotasyon merdiveni tek bir çağrıyı 3
+    # denemeye kadar çarpabilir ve ücretsiz kota denemeyle tükenir (ölçülen:
+    # anahtar başına 20 istek/gün, API'nin kendi 429 gövdesinden).
+    #
+    # BU TAVAN OLMADAN kapı 2 açık bir `serve` frensizdi: ölçülen "tipik yanıt
+    # 6-7 iddia" × `verifier_max_claims=8` × 3 deneme = tek `/ask`te 24
+    # doğrulayıcı denemesi — iki anahtarın günlük toplam kotasının yarısından
+    # fazlası. `rate_limit_ask_per_min` varsayılanı 0 (kapalı) olduğu için
+    # süreçte başka fren de yoktu.
+    #
+    # Tavan dolduğunda kalan iddialar `belirsiz` olur (şüphede-reddet) ve yanıt
+    # düşer; olay `detail.gate2.budget_exhausted=true` taşır.
+    verifier_max_llm_calls: int = 10
 
 
 @lru_cache

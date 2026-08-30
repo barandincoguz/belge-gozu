@@ -205,3 +205,91 @@ def test_both_gates_on_together(tiny_corpus, monkeypatch):
     body = c.post("/ask", json={"question": "yerleşim yeri nedir"}).json()
     assert body["status"] == "answered"
     assert set(body["detail"]) == {"gate1", "gate2"}
+
+
+# --- fix round 1: bütçe kablolaması, sebep ekseni, erken fail-fast ------------
+
+
+def test_serve_wires_a_per_request_budget_that_actually_caps_attempts(tiny_corpus, monkeypatch):
+    """review H1: `serve` yolunda bütçe VARDI ama HİÇ BAĞLANMAMIŞTI.
+
+    `verifier_max_llm_calls=1` ile iki iddialı bir yanıt: ikinci iddia çağrı
+    YAPILMADAN `belirsiz` olur, yanıt düşer ve olay bunu söyler."""
+    stub = StubVerifierClient("supported")
+    monkeypatch.setattr("belge_gozu.answer.verify.GeminiVerifierClient", lambda *a, **kw: stub)
+    data_dir, enc, _ = tiny_corpus
+
+    class TwoClaimAnswerer:
+        def answer(self, question, pages, image_loader):
+            return Answer(
+                text=(
+                    "Yerleşim yeri sürekli kalma niyetiyle oturulan yerdir [S1]. "
+                    "Bir kimsenin birden çok yerleşim yeri olamaz [S1]."
+                ),
+                citations=[pages[0].page_id],
+            )
+
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        min_score_threshold=-1e9,
+        gate_verifier=True,
+        verifier_max_llm_calls=1,
+    )
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=TwoClaimAnswerer()))
+    body = c.post("/ask", json={"question": "yerleşim yeri nedir"}).json()
+    g2 = body["detail"]["gate2"]
+    assert g2["budget_max_attempts"] == 1 and g2["budget_used"] == 1
+    assert g2["budget_exhausted"] is True and g2["api_attempts"] == 1
+    assert len(stub.prompts) == 1, "tavan GERÇEKTEN ikinci çağrıyı kesti"
+    assert body["status"] == "abstained" and g2["demoted"] is True
+    assert [cl["verdict"] for cl in g2["claims"]] == ["supported", "belirsiz"]
+    # Bütçe İSTEK başınadır: ikinci istek taze tavanla gelir.
+    c.post("/ask", json={"question": "yerleşim yeri nedir"})
+    assert len(stub.prompts) == 2
+
+
+def test_abstain_reason_distinguishes_threshold_gate1_and_gate2(tiny_corpus, monkeypatch):
+    """review M2: üç ayrı fren üç ayrı etiket."""
+    data_dir, enc, _ = tiny_corpus
+
+    # (a) eski eşik
+    high = Settings(data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=100.0)
+    c_a = TestClient(create_app(settings=high, encoder=enc, answerer=CitingAnswerer()))
+    c_a.post("/ask", json={"question": "yerleşim yeri nedir"})
+    assert 'bg_abstain_total{reason="threshold"} 1.0' in c_a.get("/metrics").text
+
+    # (b) kapı 1
+    c_b = _client(tiny_corpus, tau=0.9, gate_calibrated=True)
+    c_b.post("/ask", json={"question": "yerleşim yeri nedir"})
+    assert 'bg_abstain_total{reason="gate1"} 1.0' in c_b.get("/metrics").text
+
+    # (c) kapı 2 düşürmesi
+    c_c = _client(tiny_corpus, verdict="unsupported", monkeypatch=monkeypatch, gate_verifier=True)
+    c_c.post("/ask", json={"question": "yerleşim yeri nedir"})
+    metrics = c_c.get("/metrics").text
+    assert 'bg_abstain_total{reason="gate2_demote"} 1.0' in metrics
+    assert 'bg_abstain_total{reason="threshold"}' not in metrics
+
+
+def test_calibrator_failfast_happens_before_the_heavy_encoder_load(tiny_corpus):
+    """review L1: tek satırlık `calibrate fit` mesajı için VLM yüklenmemeli."""
+    data_dir, _, _ = tiny_corpus
+
+    class ExplodingEncoder:
+        """Kullanılırsa test anlamını kaybeder: kontrol ONDAN ÖNCE olmalı."""
+
+        def encode_pages(self, images):
+            raise AssertionError("ağır yükleme yapılmamalıydı")
+
+        def encode_query(self, text):
+            raise AssertionError("ağır yükleme yapılmamalıydı")
+
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        min_score_threshold=-1e9,
+        gate_calibrated=True,
+    )
+    with pytest.raises(IndexCompatibilityError, match="calibrate fit"):
+        create_app(settings=settings, encoder=ExplodingEncoder(), answerer=CitingAnswerer())

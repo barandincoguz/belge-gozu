@@ -41,6 +41,37 @@ TPS_BUCKETS = (5, 10, 20, 40, 80, 160)
 # aynısı. Olay künyesi zaten `pipeline` taşıyor.
 BM25_SCALE_PIPELINES = pipelines_on_scale(BM25_SCALE)
 
+# `bg_abstain_total{reason}` KAPALI etiket kümesi (review M2). Üç ayrı fren
+# eskiden tek bir `threshold` etiketinde toplanıyordu — `base.py`nin
+# VERIFIER_DEMOTE_TEXT için yazdığı ilkenin ("ikisi farklı şey söyler ve ikisi
+# de doğru olmak zorunda") Prometheus katmanındaki ihlaliydi. Somut bedel
+# ölçülmüştü: kapı 1 açıldığında dev kapsaması %2.2, yani seri patlayacak ve
+# operatör artışı eşiğe mi, kalibratöre mi, doğrulayıcıya mı atfedeceğini
+# metrikten ÇIKARAMAYACAKTI. Olay satırında ayrım zaten vardı
+# (`detail.gate1`/`detail.gate2`), metrikte yoktu.
+ABSTAIN_REASONS: tuple[str, ...] = ("degraded", "threshold", "gate1", "gate2_demote")
+
+
+def abstain_reason(ev: RequestEvent) -> str | None:
+    """Olayın çekimserlik SEBEBİ (çekimser değilse None) — TEK karar yolu.
+
+    Sıra ÖNEMLİ: `degraded` (yanıtlayıcı patladı) en dışta; sonra kapı 2
+    düşürmesi (yanıt ÜRETİLDİ ama kanıtlanamadı), sonra kapı 1 (kalibre güven
+    eşiği), en sonda eski skor eşiği. Bayraklar kapalıyken `detail`de kapı
+    bloğu HİÇ olmadığı için sonuç birebir eski davranıştır: `threshold`.
+    """
+    if ev.status == "degraded":
+        return "degraded"
+    if not ev.abstained:
+        return None
+    if (ev.detail.get("gate2") or {}).get("demoted"):
+        return "gate2_demote"
+    gate1 = ev.detail.get("gate1") or {}
+    if gate1 and not gate1.get("passed", True):
+        return "gate1"
+    return "threshold"
+
+
 _STAGE_COLS = {
     "query_encode": "encode_ms",
     "stage1_hamming": "stage1_ms",
@@ -106,6 +137,7 @@ class PromMetrics:
             registry=r,
         )
         self.abstain = Counter("bg_abstain", "Abstain sayısı", ["reason"], registry=r)
+        # `reason` etiketleri için bkz. `ABSTAIN_REASONS` / `abstain_reason()`.
         # review L3 (2026-08-30): 429'lar `collecting()`/`record_event`den ÖNCE
         # fırlatıldığı için hiçbir RequestEvent'e girmez (getirici çağrılmaz,
         # bu bilinçli) — bu sayaç olmadan sınırlayıcının çalıştığına dair
@@ -217,10 +249,9 @@ class PromMetrics:
                 self.top_score.labels(quantization=quant).observe(ev.top_score)
             if ev.margin_1_2 is not None:
                 self.margin.labels(quantization=quant).observe(ev.margin_1_2)
-        if ev.status == "degraded":
-            self.abstain.labels(reason="degraded").inc()
-        elif ev.abstained:
-            self.abstain.labels(reason="threshold").inc()
+        reason = abstain_reason(ev)
+        if reason is not None:
+            self.abstain.labels(reason=reason).inc()
         if ev.honest_miss:
             self.honest_miss.inc()
         for claim in (ev.detail.get("gate2") or {}).get("claims") or []:
