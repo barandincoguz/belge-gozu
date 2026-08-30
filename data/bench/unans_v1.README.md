@@ -246,8 +246,8 @@ sabit kodluyor:
 ```python
 VERIF_EXPECT = {
     "korpus-disi": ("verified", "script:validate_unans", "mechanical:manifest-absence"),
-    "anlamsiz-ood": ("draft", "", "model-cross-check"),   # <- çapraz-kontrol ÖNCESİ
-    "eksik-kanit": ("draft", "", "model-cross-check"),    # <- çapraz-kontrol ÖNCESİ
+    "anlamsiz-ood": ("draft", "", "model-cross-check"),  # <- çapraz-kontrol ÖNCESİ
+    "eksik-kanit": ("draft", "", "model-cross-check"),  # <- çapraz-kontrol ÖNCESİ
 }
 ```
 
