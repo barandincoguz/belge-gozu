@@ -412,9 +412,16 @@ def main() -> int:
         if set(meta["dev_docs"]) | set(meta["test_docs"]) != corpus_ids:
             errs.append("split: dev+test birleşimi korpusu tam kapsamıyor")
 
+        # Bileşim, TÜKETİCİ gerçeğiyle sayılır: rejected satırlar dışarıda
+        # (metrik tüketicileri status ile dışlar); rejected'lar ayrı satırda görünür.
         comp: Counter[tuple[str, str]] = Counter()
+        rej: Counter[str] = Counter()
         for r in rows:
-            comp[(assign_split(r, splits), r["slice"])] += 1
+            k = assign_split(r, splits)
+            if r.get("verification_status") == "rejected":
+                rej[k] += 1
+                continue
+            comp[(k, r["slice"])] += 1
         for c in canary:
             kind = "cevaplanabilir" if c["answerable"] else "cevaplanamaz"
             comp[(assign_split(c, splits), f"canary-{kind}")] += 1
@@ -431,7 +438,10 @@ def main() -> int:
                 n for (kk, sl), n in comp.items() if kk == k and sl != "canary-cevaplanabilir"
             )
             ans = comp.get((k, "canary-cevaplanabilir"), 0)
-            print(f"{k:<6}{'TOPLAM cevaplanamaz':<24}{una:>6}   cevaplanabilir: {ans}")
+            print(
+                f"{k:<6}{'TOPLAM cevaplanamaz':<24}{una:>6}   "
+                f"cevaplanabilir: {ans}   (rejected hariç; rejected: {rej.get(k, 0)})"
+            )
         print()
 
     if errs:
