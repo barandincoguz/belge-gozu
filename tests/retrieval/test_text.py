@@ -7,6 +7,7 @@ davranış değil, SABİTLER ve YAPISAL SÖZLEŞMELER kilitlenir.
 
 import math
 import random
+import re
 
 import numpy as np
 import pytest
@@ -19,6 +20,7 @@ from belge_gozu.retrieval.text import (
     BM25Index,
     ascii_fold,
     extract_doc_name_tokens,
+    rank_order,
     recipe_fingerprint,
     route_window,
     routed_docs,
@@ -361,6 +363,13 @@ def test_recipe_fingerprint_is_a_stable_short_hex():
         ("STOPWORDS", frozenset({"ve"})),
         ("_GENERIC", frozenset({"kanun"})),
         ("RECIPE_VERSION", 2),
+        # review m6: bunlar hash'te ZATEN vardı ama parametrize listesinde yoktu,
+        # yani "testle kilitli" iddiası ikisi için fazlaydı. Artık kilitli.
+        ("_WORD", re.compile(r"[a-z]+")),
+        ("_TITLE_LINE", re.compile(r"^X+$")),
+        # review M2: gövde literalinden modül sabitine terfi eden ikisi.
+        ("_TITLE_KEYWORDS", ("KANUN",)),
+        ("_TR_LOWER_MAP", (("İ", "i"),)),
     ],
 )
 def test_recipe_fingerprint_changes_with_every_behaviour_bearing_constant(
@@ -384,3 +393,31 @@ def test_recipe_fingerprint_covers_the_fold_table(monkeypatch):
     before = recipe_fingerprint()
     monkeypatch.setattr(text_mod, "_FOLD", str.maketrans("ç", "c"))
     assert recipe_fingerprint() != before
+
+
+def test_title_keywords_and_tr_lower_map_still_drive_behaviour(monkeypatch):
+    """M2'nin gerekçesi: bu iki sabit yalnız hash'te değil, DAVRANIŞTA da yaşıyor.
+
+    Sabite terfi ettirmek onları parmak izine soktu; bu test terfinin
+    kozmetik olmadığını, gerçekten aynı kod yolunu beslediğini gösterir.
+    """
+    import belge_gozu.retrieval.text as text_mod
+
+    ids, texts = ["k1:1"], ["MEDENİ KANUNU\n"]
+    assert extract_doc_name_tokens(ids, texts) == {"k1": frozenset({"meden"})}
+    # kapı kelimesi kaldırılınca başlık artık aday değil -> yönlendirme kapsamı boşalır
+    monkeypatch.setattr(text_mod, "_TITLE_KEYWORDS", ("ANAYASA",))
+    assert extract_doc_name_tokens(ids, texts) == {}
+
+    monkeypatch.undo()
+    assert tr_lower("İSTANBUL IRAK") == "istanbul ırak"
+    # eşleme boşaltılınca Python'un kendi lower()'ına düşer (I -> i, İ -> i̇)
+    monkeypatch.setattr(text_mod, "_TR_LOWER_MAP", ())
+    assert tr_lower("IRAK") == "irak"
+
+
+def test_rank_order_is_the_stable_descending_contract():
+    """Sıralama ifadesi tek yerde (m11): azalan, beraberlikte indeks sırası korunur."""
+    scores = np.array([1.0, 3.0, 3.0, 2.0], dtype=np.float32)
+    assert rank_order(scores).tolist() == [1, 2, 3, 0]  # 3.0'lar arasında 1 önce
+    np.testing.assert_array_equal(rank_order(scores), np.argsort(-scores, kind="stable"))

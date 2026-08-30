@@ -843,7 +843,7 @@ def _calibration_setup(s: Settings, canary: Path, unans: Path, splits_path: Path
     özellikler AUC .34 ile ölçülmüş TERS yönde ve reddedildi), yani 481 MB'lık
     `codes.npy`'yi mmap'lemek için hiçbir neden yok.
     """
-    from belge_gozu.answer.calibrate import build_rows, load_rows, sha256_file
+    from belge_gozu.answer.calibrate import build_rows, git_blob_sha, load_rows, sha256_file
     from belge_gozu.bench.dataset import load_splits
     from belge_gozu.index.manifest import index_revision
     from belge_gozu.retrieval.hybrid import load_text_channel
@@ -870,7 +870,16 @@ def _calibration_setup(s: Settings, canary: Path, unans: Path, splits_path: Path
         raw = load_rows(path, only_verified=True)
         rows.extend(build_rows(raw, splits, bm25, doc_names, source=label))
         data_files.append(
-            {"name": label, "path": str(path), "sha256": sha256_file(path), "n_verified": len(raw)}
+            {
+                "name": label,
+                "path": str(path),
+                "sha256": sha256_file(path),
+                # review M4: içeriği GERİ GETİREN referans (`git cat-file -p <blob>`),
+                # yalnız kimliklendiren değil.
+                "git_blob": git_blob_sha(path),
+                "n_lines": len(path.read_text(encoding="utf-8").splitlines()),
+                "n_verified": len(raw),
+            }
         )
     splits_meta = json.loads(splits_path.read_text(encoding="utf-8"))
     kunye = {
@@ -878,6 +887,7 @@ def _calibration_setup(s: Settings, canary: Path, unans: Path, splits_path: Path
         "splits": {
             "path": str(splits_path),
             "sha256": sha256_file(splits_path),
+            "git_blob": git_blob_sha(splits_path),
             "version": splits_meta.get("version"),
             "seed": splits_meta.get("seed"),
             "scheme": splits_meta.get("scheme"),
@@ -924,8 +934,10 @@ def calibrate_fit(
     """
     from belge_gozu.answer.calibrate import (
         CALIBRATOR_FILENAME,
+        GUARANTEE_CP,
         calibration_dir,
         fit_calibration,
+        per_question_rows,
     )
 
     _gate_test_split(split, yes_final_gate)
@@ -973,6 +985,8 @@ def calibrate_fit(
         "calibrator": artifact.calibrator.to_dict(),
         "thresholds": artifact.thresholds,
         "metrics": metrics,
+        # review M3: raporun HER sayısı yalnız bu dosyadan yeniden hesaplanabilsin.
+        "per_question": per_question_rows(artifact, subset),
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -1001,8 +1015,24 @@ def calibrate_fit(
 
     ch = artifact.thresholds["chosen"]
     typer.echo(
-        f"tau({ch['name']})={ch['value']:.6f} coverage={ch['coverage']:.3f} risk={ch['risk']:.3f}"
+        f"tau({ch['name']})={ch['value']:.6f} coverage={ch['coverage']:.3f} "
+        f"risk={ch['risk_point']:.3f} (nokta tahmini)"
     )
+    typer.echo(
+        f"  belirsizlik: n_answered={ch['n_answered']} hata={ch['errors']} "
+        f"%95 CP üst sınır={ch['risk_cp_upper_95']:.3f} "
+        f"guarantee={ch['statistical_guarantee']}"
+    )
+    # review J1: seçilen eşiğin güvencesi yoksa bunu artefakt kadar CLI de
+    # yüksek sesle söylemeli — conformal dalının "n yetersiz" kaydının aynısı.
+    if ch["statistical_guarantee"] != GUARANTEE_CP:
+        typer.secho(
+            f"  UYARI: v1 eşiği NOKTA TAHMİNİDİR, n={ch['n_answered']}, "
+            f"CP üst %{ch['risk_cp_upper_95'] * 100:.1f} — İSTATİSTİKSEL GÜVENCE YOK; "
+            "kapı koşumu verifier sinyali olmadan yapılmayacak",
+            fg=typer.colors.YELLOW,
+            bold=True,
+        )
     typer.echo(f"  gerekçe: {ch['rationale']}")
     conf = artifact.thresholds["conformal"]
     typer.echo(f"  conformal: {conf['note']}")
@@ -1064,6 +1094,13 @@ def calibrate_eval(
     risk_txt = f"{risk_at:.3f}" if risk_at is not None else "tanımsız (kapsama 0)"
     typer.echo(
         f"tau={metrics['tau']:.6f} coverage={metrics['coverage_at_tau']:.3f} risk={risk_txt}"
+    )
+    # review J1: eşiğin güvence durumu artefaktın parçası — eval de göstermeli.
+    ch = artifact.thresholds["chosen"]
+    typer.echo(
+        f"  artefakt eşiği: n_answered={ch['n_answered']} hata={ch['errors']} "
+        f"%95 CP üst sınır={ch['risk_cp_upper_95']:.3f} "
+        f"guarantee={ch['statistical_guarantee']}"
     )
     auroc_val = metrics.get("auroc")
     auroc_txt = f"{auroc_val:.4f}" if auroc_val is not None else "yok (tek sınıf)"

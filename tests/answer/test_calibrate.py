@@ -18,6 +18,8 @@ from typer.testing import CliRunner
 
 from belge_gozu.answer.calibrate import (
     FEATURE_ORDER,
+    GUARANTEE_CP,
+    GUARANTEE_NONE,
     CalibrationArtifact,
     CalibrationKeyMismatch,
     Calibrator,
@@ -33,8 +35,10 @@ from belge_gozu.answer.calibrate import (
     fit_calibration,
     load_calibrator,
     load_rows,
+    per_question_rows,
     retrieval_context,
     to_vector,
+    univariate_auc,
 )
 from belge_gozu.cli import app
 from belge_gozu.index.manifest import CPE_0_3_18, IndexManifest, RenderConfig, write_manifest
@@ -260,6 +264,52 @@ def test_choose_threshold_falls_back_to_all_abstain():
     assert ch.name == "abstain_all"
     assert ch.coverage == 0.0
     assert "hiçbir çalışma noktası yok" in ch.rationale
+    # tam çekimserde "risk kanıtlanmış 0" YAZILMAZ: hiçbir şey dışlanmadı
+    assert ch.n_answered == 0
+    assert ch.risk_cp_upper_95 == 1.0
+    assert ch.statistical_guarantee == GUARANTEE_NONE
+
+
+def test_small_n_threshold_is_labelled_as_having_no_guarantee():
+    """review J1: `risk=0.0` az satırdan ölçüldüyse artefakt bunu SÖYLEMELİ.
+
+    0/4 hatanın %95 Clopper-Pearson üst sınırı ~0.527 — yani nokta tahmini
+    "sıfır risk" ile %50 risk istatistiksel olarak ayırt edilemez. Modül bu
+    korumayı conformal dalında zaten uyguluyordu; seçilen eşikte de uygular.
+    """
+    probs = np.array([0.9, 0.85, 0.8, 0.75, 0.4, 0.3, 0.2, 0.1])
+    labels = np.array([1.0, 1, 1, 1, 0, 0, 0, 0])
+    ch = choose_threshold(probs, labels, max_risk=0.05)
+    assert ch.risk == 0.0  # nokta tahmini gerçekten sıfır...
+    assert ch.n_answered == 4  # ...ama yalnız 4 satırdan
+    assert ch.errors == 0
+    assert ch.risk_cp_upper_95 == pytest.approx(0.5271, abs=1e-3)
+    assert ch.statistical_guarantee == GUARANTEE_NONE
+    # gerekçe dizesi de uyarıyı taşır (artefaktı okuyan tek satırda görsün)
+    assert "İSTATİSTİKSEL GÜVENCE YOK" in ch.rationale
+    d = ch.to_dict()
+    assert d["risk_point"] == d["risk"] == 0.0
+    assert set(d) >= {"n_answered", "errors", "risk_cp_upper_95", "statistical_guarantee"}
+
+
+def test_large_n_zero_error_threshold_earns_the_cp_guarantee():
+    """Aynı 0.0 riski YETERİNCE satırdan ölçülünce bayrak değişir.
+
+    Negatiflerin TAMAMI tek bir olasılıkta toplanıyor, yani bir sonraki
+    çalışma noktası 40 hatayı birden içeri alıp bütçeyi (0.0909 > 0.05)
+    aşıyor. Böylece kapsamayı en büyükleyen nokta sıfır-hatalı 400 satır
+    oluyor ve CP üst sınırı (~0.0075) bütçenin altına düşüyor.
+    """
+    n = 400
+    probs = np.concatenate([np.linspace(0.6, 0.99, n), np.full(40, 0.5)])
+    labels = np.concatenate([np.ones(n), np.zeros(40)])
+    ch = choose_threshold(probs, labels, max_risk=0.05)
+    assert ch.errors == 0
+    assert ch.n_answered == n
+    assert ch.risk_cp_upper_95 == pytest.approx(1 - 0.05 ** (1 / n), abs=1e-6)
+    assert ch.risk_cp_upper_95 <= 0.05
+    assert ch.statistical_guarantee == GUARANTEE_CP
+    assert "GÜVENCE YOK" not in ch.rationale
 
 
 def test_conformal_reports_insufficient_n_instead_of_a_vacuous_number():
@@ -415,8 +465,7 @@ def _unans(qid: str, question: str, **over) -> dict:
         reference_answer="",
         slice="eksik-kanit",
         unanswerable_reason="eksik-kanit",
-        _subject_doc="k1",
-        **over,
+        **{"_subject_doc": "k1", **over},
     )
 
 
@@ -498,8 +547,15 @@ def test_load_rows_reports_the_bad_line_number(tmp_path: Path):
 # --- CLI ---------------------------------------------------------------------
 
 
-def _fixture_env(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path]:
-    """Kendi kendine yeten kurulum: indeks dizini = page_ids + manifest + metin."""
+def _fixture_env(
+    tmp_path: Path, monkeypatch, test_docs: tuple[str, ...] = ("kx",)
+) -> tuple[Path, Path, Path]:
+    """Kendi kendine yeten kurulum: indeks dizini = page_ids + manifest + metin.
+
+    `test_docs` varsayılanı korpusta olmayan bir doküman ("kx") — yani TÜM
+    sorular dev'e düşer. Kapı (`--split test`) testi bunu `("k2",)` yaparak
+    kendi küçük test bölmesini kurar; gerçek `splits_v1.json` hiç okunmaz.
+    """
     index_dir = tmp_path / "index"
     index_dir.mkdir(parents=True)
     (index_dir / "page_ids.json").write_text(json.dumps(IDS), encoding="utf-8")
@@ -549,13 +605,23 @@ def _fixture_env(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path]:
                 _unans("u3", "eeefff ggghhh"),
                 _unans("u4", "iiijjj kkklll"),
                 _unans("u5", "mmmnnn oooppp", verification_status="rejected", verified_by=""),
+                # `_subject_doc="k2"`: varsayılan bölmede dev'e, `test_docs=["k2"]`
+                # varyantında test'e düşer — kapı testine negatif sınıfı verir.
+                _unans("u6", "qqqrrr ssstttt", _subject_doc="k2"),
             ]
         ),
         encoding="utf-8",
     )
     splits = tmp_path / "splits.json"
     splits.write_text(
-        json.dumps({"version": "vt", "seed": "s", "dev_docs": ["k1", "k2"], "test_docs": ["kx"]}),
+        json.dumps(
+            {
+                "version": "vt",
+                "seed": "s",
+                "dev_docs": ["k1", "k2"],
+                "test_docs": list(test_docs),
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setenv("BG_DATA_DIR", str(tmp_path / "data"))
@@ -587,20 +653,41 @@ def test_cli_calibrate_fit_writes_artifact_and_report(tmp_path: Path, monkeypatc
 
     report = json.loads(out.read_text(encoding="utf-8"))
     assert report["split"] == "dev"
-    # rejected satır (u5) sayıma girmemeli: 4 cevaplanabilir + 4 cevaplanamaz
-    assert report["kunye"]["counts"]["total"] == 8
-    assert report["kunye"]["counts"]["unanswerable"] == 4
+    # rejected satır (u5) sayıma girmemeli: 4 cevaplanabilir + 5 cevaplanamaz
+    assert report["kunye"]["counts"]["total"] == 9
+    assert report["kunye"]["counts"]["unanswerable"] == 5
     assert report["key"].endswith(f"__hybrid__{recipe_fingerprint()}")
     assert report["artifact_committed"] is False
     assert [f["name"] for f in report["kunye"]["data_files"]] == ["canary", "unans"]
     assert all(len(f["sha256"]) == 64 for f in report["kunye"]["data_files"])
+    # review M4: içeriği GERİ GETİREN referans da künyede
+    assert all(len(f["git_blob"]) == 40 for f in report["kunye"]["data_files"])
     assert report["calibrator"]["feature_names"] == list(FEATURE_ORDER)
     assert "risk_coverage" in report["metrics"]
+
+    # review M3: her sayı yalnız bu dosyadan yeniden hesaplanabilmeli
+    rows = report["per_question"]
+    assert len(rows) == 9
+    assert {r["qid"] for r in rows} == {"a1", "a2", "a3", "a4", "u1", "u2", "u3", "u4", "u6"}
+    assert all(set(r["features"]) == set(FEATURE_ORDER) for r in rows)
+    assert sum(r["label"] for r in rows) == report["kunye"]["counts"]["positive_safe_to_answer"]
+    # tau'da yanıtlanan satır sayısı eşik kaydıyla tutarlı
+    ch = report["thresholds"]["chosen"]
+    assert sum(r["answered_at_tau"] for r in rows) == ch["n_answered"]
+    # review J1: belirsizlik alanları artefaktta VE raporda
+    assert set(ch) >= {"risk_point", "n_answered", "errors", "risk_cp_upper_95"}
+    assert ch["statistical_guarantee"] in {"none", "cp_upper<=target"}
+    # review M3: §5.3/§5.4'ün dayanağı künyede
+    assert all("auc" in v for v in report["kunye"]["feature_stats"].values())
+    assert report["kunye"]["feature_correlations"]["served_top1"]["served_top1"] == pytest.approx(
+        1.0
+    )
 
     artifact = Path(report["artifact_path"])
     assert artifact.exists()
     assert load_calibrator(artifact, report["key"]).key == report["key"]
     assert "risk-coverage" in res.output
+    assert "guarantee=" in res.output
 
 
 def test_cli_calibrate_fit_records_the_data_pin_note(tmp_path: Path, monkeypatch):
@@ -654,6 +741,39 @@ def test_cli_calibrate_test_split_needs_explicit_gate(tmp_path: Path, monkeypatc
     combined = res.output + (res.stderr or "")
     assert "--yes-final-gate" in combined
     assert "KAPI KOŞUMU DIŞINDA KULLANMAYIN" in combined
+
+
+def test_cli_calibrate_test_split_proceeds_with_the_gate_flag(tmp_path: Path, monkeypatch):
+    """review m7: kapının MUTLU YOLU da kilitli olmalı.
+
+    Reddi test etmek yetmiyordu — kapıyı koşulsuz `raise`e çeviren bir refactor
+    suite'ten geçer ve ancak faz sonu kapı koşumunda, yani TEKRARLANAMAYAN tek
+    koşumda ortaya çıkardı.
+
+    TAMAMEN SENTETİK bir test bölmesi kullanılır (`test_docs=("k2",)` ile üç
+    satır); gerçek `data/bench/splits_v1.json` test yakası HİÇ okunmaz.
+    """
+    canary, unans, splits = _fixture_env(tmp_path, monkeypatch, test_docs=("k2",))
+    out = tmp_path / "gate.json"
+    res = runner.invoke(
+        app, _fit_args(canary, unans, splits, out, ["--split", "test", "--yes-final-gate"])
+    )
+    assert res.exit_code == 0, res.output + (res.stderr or "")
+    # banner yine basılır (onay, uyarıyı susturmaz)
+    assert "KAPI KOŞUMU DIŞINDA KULLANMAYIN" in (res.output + (res.stderr or ""))
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["split"] == "test"
+    # a3 + a4 (cevaplanabilir, k2 gold) + u6 (cevaplanamaz, _subject_doc=k2)
+    assert {r["qid"] for r in report["per_question"]} == {"a3", "a4", "u6"}
+    assert report["kunye"]["counts"] == {
+        "total": 3,
+        "positive_safe_to_answer": 2,
+        "negative": 1,
+        "answerable": 2,
+        "answerable_gold_in_top5": 2,
+        "answerable_retrieval_miss": 0,
+        "unanswerable": 1,
+    }
 
 
 def test_cli_calibrate_fit_rejects_non_hybrid_pipeline(tmp_path: Path, monkeypatch):
@@ -711,3 +831,82 @@ def test_evaluate_labels_the_dev_false_answer_rate_as_not_the_gate(tmp_path: Pat
 def test_feature_matrix_rejects_empty_input():
     with pytest.raises(ValueError, match="boş girdi"):
         feature_matrix([])
+
+
+def test_univariate_auc_works_on_raw_unscaled_features():
+    """review M3: raporun §5.3 AUC'leri depoda hesaplanabilmeli.
+
+    `bench.calibration_metrics.auroc` ham özellikte ValueError fırlatır (girdiyi
+    [0,1] KALİBRE OLASILIK sayar) — doğru davranış, ama bu iş için yanlış araç.
+    AUC monoton dönüşümlere duyarsız olduğundan ölçek serbest bırakılır.
+    """
+    from belge_gozu.bench.calibration_metrics import auroc
+
+    raw = np.array([4.36, 10.0, 25.0, 66.68])  # BM25 ölçeği, [0,1] DEĞİL
+    y = np.array([0.0, 0.0, 1.0, 1.0])
+    with pytest.raises(ValueError, match=r"\[0,1\]"):
+        auroc(raw, y)
+    assert univariate_auc(raw, y) == 1.0
+    # monoton dönüşüm AUC'yi değiştirmez (ölçekten bağımsızlık)
+    assert univariate_auc(raw / 100.0, y) == 1.0
+    assert univariate_auc(-raw, y) == 0.0  # ters yön
+    # beraberlikler 0.5 kredisiyle
+    assert univariate_auc(np.array([1.0, 1.0]), np.array([1.0, 0.0])) == 0.5
+    with pytest.raises(ValueError, match="hem pozitif hem negatif"):
+        univariate_auc(raw, np.ones(4))
+
+
+def test_per_question_rows_are_the_recomputable_base(tmp_path: Path):
+    """Kayıt kendi kendini kanıtlamalı: toplu metrikler satırlardan türetilebilir."""
+    art, _ = _tiny_artifact(tmp_path)
+    X, y = _separable()
+    rows = _rows_from_matrix(X, y)
+    out = per_question_rows(art, rows)
+
+    assert len(out) == len(rows)
+    assert [r["qid"] for r in out] == [r.question_id for r in rows]
+    assert [r["label"] for r in out] == [r.label for r in rows]
+    # olasılıklar artefaktın kendi tahminleriyle birebir
+    np.testing.assert_array_equal(
+        np.array([r["prob"] for r in out]), art.calibrator.predict_proba(X)
+    )
+    # tau'da yanıtlanan sayısı eşik kaydıyla tutarlı
+    assert sum(r["answered_at_tau"] for r in out) == art.thresholds["chosen"]["n_answered"]
+    # satırlardan AUROC yeniden hesaplanabiliyor
+    from belge_gozu.bench.calibration_metrics import auroc
+
+    recomputed = auroc(
+        np.array([r["prob"] for r in out]), np.array([float(r["label"]) for r in out])
+    )
+    assert recomputed == pytest.approx(art.kunye["dev_metrics"]["auroc"])
+
+
+def test_fit_info_counts_updates_not_gradient_evaluations():
+    """review m8: künyeye yazılan provenans sayısı 'yaklaşık' olamaz."""
+    X, y = _separable()
+    cal = Calibrator.fit(X, y)
+    fi = cal.fit_info
+    assert fi["converged"] is True
+    # yakınsamada tolerans kontrolü güncellemeden ÖNCE gelir -> bir fazla değerlendirme
+    assert fi["n_gradient_evals"] == fi["n_iter"] + 1
+
+
+def test_feature_stats_std_matches_the_calibrator_std_exactly(tmp_path: Path):
+    """review m9: aynı büyüklük iki yerde son ulp'te ayrışmamalı."""
+    X, y = _separable()
+    rows = _rows_from_matrix(X, y)
+    art = fit_calibration(rows, index_revision="rev/x/int8", pipeline="hybrid")
+    stats = art.kunye["feature_stats"]
+    for name, std in zip(art.calibrator.feature_names, art.calibrator.std, strict=True):
+        assert stats[name]["std"] == std  # yaklaşık değil, BİREBİR
+
+
+def test_threshold_candidate_is_keyed_by_its_own_name():
+    """review m10: anahtar içeriğiyle çelişmemeli."""
+    X, y = _separable()
+    rows = _rows_from_matrix(X, y)
+    art = fit_calibration(rows, index_revision="r/x/i", pipeline="hybrid")
+    chosen_name = art.thresholds["chosen"]["name"]
+    assert chosen_name in art.thresholds
+    assert art.thresholds[chosen_name]["name"] == chosen_name
+    assert "abstain_all" not in art.thresholds or chosen_name == "abstain_all"

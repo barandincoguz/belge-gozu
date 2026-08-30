@@ -44,6 +44,7 @@ from belge_gozu.retrieval.text import (
     WINDOW,
     BM25Index,
     extract_doc_name_tokens,
+    rank_order,
     route_window,
 )
 from belge_gozu.retrieval.text import routed_docs as _routed_docs
@@ -195,7 +196,7 @@ class HybridRetriever:
         PUBLIC çünkü bench adapter'ı (`bench/harness.py`) da bunu çağırır:
         kompozisyonu orada yeniden kurmak, üretim sırası değiştiğinde bench'in
         sessizce BAŞKA bir şey ölçmesi demekti (review L7)."""
-        order = np.argsort(-bm25, kind="stable")
+        order = rank_order(bm25)
         ranking = [self.index.page_ids[i] for i in order]
         routed = self.routed_docs(query)
         return route_window(ranking, routed, self.window), routed

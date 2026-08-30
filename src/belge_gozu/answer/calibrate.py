@@ -44,6 +44,7 @@ import hashlib
 import json
 import math
 import re
+import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -56,6 +57,7 @@ from belge_gozu.provenance import git_commit
 from belge_gozu.retrieval.text import (
     WINDOW,
     BM25Index,
+    rank_order,
     recipe_fingerprint,
     route_window,
     routed_docs,
@@ -117,7 +119,7 @@ def retrieval_context(
     n = len(text.page_ids)
     if scores.shape != (n,):
         raise ValueError(f"bm25 skorları page_ids ile hizalı olmalı: {scores.shape} != ({n},)")
-    order = np.argsort(-scores, kind="stable")
+    order = rank_order(scores)
     routed = routed_docs(query, doc_names)
     win = [text.page_ids[int(i)] for i in order[:window]]
     return RetrievalContext(
@@ -318,17 +320,22 @@ class Calibrator:
         n = Xa.shape[0]
         w = np.zeros(Xa.shape[1], dtype=np.float64)
         b = 0.0
-        n_iter, converged = 0, False
-        for step in range(1, max_iter + 1):
+        # review m8: `n_iter` GERÇEKTEN YAPILAN GÜNCELLEME sayısıdır. Tolerans
+        # kontrolü güncellemeden ÖNCE geldiği için gradyan değerlendirmesi bir
+        # fazladır (yakınsandığında); ikisi ayrı ayrı künyeye yazılır — artefakta
+        # yazılan bir provenans sayısı "yaklaşık" olamaz.
+        n_updates, n_grad_evals, converged = 0, 0, False
+        for _ in range(max_iter):
             resid = _sigmoid(Z @ w + b) - ya
             gw = Z.T @ resid / n + (l2 / n) * w
             gb = float(resid.mean())
-            n_iter = step
+            n_grad_evals += 1
             if max(float(np.max(np.abs(gw))), abs(gb)) < tol:
                 converged = True
                 break
             w -= lr * gw
             b -= lr * gb
+            n_updates += 1
 
         p = _sigmoid(Z @ w + b)
         eps = 1e-12
@@ -345,7 +352,8 @@ class Calibrator:
                 "l2": l2,
                 "max_iter": max_iter,
                 "tol": tol,
-                "n_iter": n_iter,
+                "n_iter": n_updates,
+                "n_gradient_evals": n_grad_evals,
                 "converged": converged,
                 "init": "zeros",
                 "rng": "none",
@@ -388,22 +396,84 @@ DEFAULT_RISK_BUDGET = 0.05
 DEFAULT_ALPHA = 0.05
 
 
+# İstatistiksel güvence etiketleri (review J1). Conformal dalının "n yetersiz"
+# kaydının SEÇİLEN eşikteki karşılığı: nokta-tahmini bir riskin kaç satırdan
+# ölçüldüğü artefaktın kendisinde durmalı.
+GUARANTEE_NONE = "none"
+GUARANTEE_CP = "cp_upper<=target"
+
+
 @dataclass(frozen=True)
 class ThresholdChoice:
+    """Seçilen eşik + BELİRSİZLİĞİ.
+
+    `risk` bir NOKTA TAHMİNİDİR ve tek başına yanıltıcıdır: 0/4 ile 0/400 aynı
+    `0.0`ı yazar. Bu modül aynı ilkeyi conformal dalında zaten uyguluyordu
+    (`conformal_candidate` n yetersizken SAYI YAZMAZ) — ama koruma, seçilmeyen
+    adaydaydı; SERVİSE ÇIKAN eşikte yoktu (review J1). Artık her seçim
+    `n_answered`/`errors`/`risk_cp_upper_95` ve bir `statistical_guarantee`
+    bayrağı taşır.
+
+    `statistical_guarantee`:
+      * ``"cp_upper<=target"`` — %95 Clopper-Pearson ÜST SINIRI da bütçenin
+        altında; risk iddiası tek bir örneklemin şansına bağlı değil.
+      * ``"none"`` — yalnız nokta tahmini bütçeyi sağlıyor. Sayı doğru ama
+        GÜVENCE YOK; okuyan taraf `risk_cp_upper_95`e bakmak zorunda.
+
+    SEÇİM ÖLÇÜTÜ DEĞİŞMEDİ (bilinçli, v1): eşik hâlâ nokta-tahmini riske göre
+    seçilir. CP-üst-sınırını ölçüt yapmak bugünkü n'de feasible kümeyi
+    boşaltır ve sistemi tam-çekimsere iter; o karar beş metin özelliğiyle
+    değil, verifier sinyali geldiğinde verilmelidir. Buradaki düzeltme
+    SEÇİM değil, DÜRÜST ETİKETLEMEdir.
+    """
+
     name: str
     value: float
     coverage: float
     risk: float
     rationale: str
+    n_answered: int
+    errors: int
+    risk_cp_upper_95: float
+    statistical_guarantee: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "value": self.value,
             "coverage": self.coverage,
+            # nokta tahmini; `risk_point` aynı sayının kendini açıklayan adı
             "risk": self.risk,
+            "risk_point": self.risk,
+            "n_answered": self.n_answered,
+            "errors": self.errors,
+            "risk_cp_upper_95": self.risk_cp_upper_95,
+            "statistical_guarantee": self.statistical_guarantee,
             "rationale": self.rationale,
         }
+
+
+def _threshold_uncertainty(
+    probs: np.ndarray, labels: np.ndarray, tau: float, max_risk: float
+) -> tuple[int, int, float, str]:
+    """(n_answered, errors, %95 CP üst sınırı, güvence bayrağı) — seçilen eşikte."""
+    from belge_gozu.bench.calibration_metrics import clopper_pearson_upper_bound
+
+    answered = np.asarray(probs) >= tau
+    n_answered = int(np.sum(answered))
+    if n_answered == 0:
+        # Tam çekimser: hiç yanıt yok -> hata da yok, ama bu bir ÖLÇÜM değil.
+        # Üst sınır 0.0 yazmak "risk kanıtlanmış sıfır" gibi okunurdu; 1.0
+        # (hiçbir şey dışlanmadı) dürüst olan.
+        return 0, 0, 1.0, GUARANTEE_NONE
+    errors = int(np.sum(np.asarray(labels)[answered] == 0.0))
+    upper = clopper_pearson_upper_bound(errors, n_answered, confidence=0.95)
+    return (
+        n_answered,
+        errors,
+        upper,
+        GUARANTEE_CP if upper <= max_risk else GUARANTEE_NONE,
+    )
 
 
 def choose_threshold(
@@ -411,9 +481,9 @@ def choose_threshold(
 ) -> ThresholdChoice:
     """dev risk-coverage taramasında `risk <= max_risk` iken KAPSAMAYI en büyükleyen tau.
 
-    Eşitlik bozma sırası (deterministik): en yüksek kapsama -> en düşük risk ->
-    en YÜKSEK tau (aynı çalışma noktasını veren eşikler içinde en ihtiyatlısı,
-    görülmemiş veride biraz daha güvenli).
+    Seçim NOKTA TAHMİNİNE göredir (v1 kararı, bkz. `ThresholdChoice`), ama
+    dönen kayıt belirsizliği de taşır: `n_answered`, `errors`,
+    `risk_cp_upper_95` ve `statistical_guarantee`.
 
     Bütçeyi sağlayan hiçbir nokta yoksa TAM ÇEKİMSER eşik döner (coverage=0) —
     sessizce bütçe gevşetilmez; gerekçe dizesi bunu açıkça yazar.
@@ -424,25 +494,47 @@ def choose_threshold(
     feasible = [(t, c, r) for t, c, r in points if c > 0.0 and r <= max_risk]
     if not feasible:
         tau, cov, risk = max(points, key=lambda p: p[0])
+        n_ans, errs, upper, guarantee = _threshold_uncertainty(probs, labels, tau, max_risk)
         return ThresholdChoice(
             name="abstain_all",
             value=tau,
             coverage=cov,
             risk=risk,
+            n_answered=n_ans,
+            errors=errs,
+            risk_cp_upper_95=upper,
+            statistical_guarantee=guarantee,
             rationale=(
                 f"dev'de risk<={max_risk:.3f} sağlayan hiçbir çalışma noktası yok "
                 "(kapsama>0 olan her tau bütçeyi aşıyor); tam çekimser eşik seçildi"
             ),
         )
-    tau, cov, risk = min(feasible, key=lambda p: (-p[1], p[2], -p[0]))
+    # `risk_coverage` BENZERSİZ olasılıkları tarar, yani her tau farklı bir
+    # kapsama verir (kapsama tau'da kesin azalan). Bu yüzden "en yüksek kapsama"
+    # tek bir noktayı seçer ve ek bir eşitlik-bozma kuralı ULAŞILAMAZDIR
+    # (review m12: eski `-tau` dalı ölü koddu).
+    tau, cov, risk = max(feasible, key=lambda p: p[1])
+    n_ans, errs, upper, guarantee = _threshold_uncertainty(probs, labels, tau, max_risk)
+    caveat = (
+        ""
+        if guarantee == GUARANTEE_CP
+        else (
+            f"; DİKKAT: bu bir NOKTA TAHMİNİDİR (n={n_ans}, hata={errs}), "
+            f"%95 CP üst sınırı {upper:.3f} > bütçe {max_risk:.3f} — İSTATİSTİKSEL GÜVENCE YOK"
+        )
+    )
     return ThresholdChoice(
         name="risk_budget",
         value=tau,
         coverage=cov,
         risk=risk,
+        n_answered=n_ans,
+        errors=errs,
+        risk_cp_upper_95=upper,
+        statistical_guarantee=guarantee,
         rationale=(
             f"dev taramasında risk<={max_risk:.3f} kısıtı altında kapsamayı en büyükleyen tau "
-            f"(coverage={cov:.3f}, risk={risk:.3f})"
+            f"(coverage={cov:.3f}, risk={risk:.3f}){caveat}"
         ),
     )
 
@@ -615,6 +707,24 @@ def sha256_file(path: Path | str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def git_blob_sha(path: Path | str) -> str:
+    """Dosya içeriğinin git BLOB kimliği (`git hash-object`), ya da "unknown".
+
+    review M4: künyedeki `sha256` içeriği kimliklendirir ama içeriği GERİ
+    GETİRMEZ. Blob sha'sı getirir — içerik git nesne veritabanındaysa
+    `git cat-file -p <blob>` onu aynen üretir, dosya sonradan değişmiş olsa
+    bile. Yani koşum girdisi prosa değil, YENİDEN OYNATILABİLİR bir referans
+    olur. git yoksa/başarısızsa "unknown" (künye yine sha256 taşır).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "hash-object", str(path)], capture_output=True, text=True, check=True
+        )
+        return out.stdout.strip() or "unknown"
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return "unknown"
+
+
 def load_rows(path: Path | str, *, only_verified: bool = True) -> list[dict[str, Any]]:
     """Bench JSONL -> HAM sözlükler (şema `BenchQuestion` ile yine de doğrulanır).
 
@@ -725,24 +835,75 @@ def class_counts(rows: Sequence[LabeledRow]) -> dict[str, int]:
     }
 
 
+def univariate_auc(values: np.ndarray, labels: np.ndarray) -> float:
+    """Tek bir HAM özelliğin ayırt etme gücü (rank-tabanlı AUC, beraberlik düzeltmeli).
+
+    `bench.calibration_metrics.auroc` burada KULLANILAMAZ: o fonksiyon girdiyi
+    [0,1] KALİBRE OLASILIK olarak doğrular (`_check_probs_labels`) ve
+    `served_top1` gibi ham BM25 skorlarında `ValueError` fırlatır — doğru
+    davranış, çünkü orada girdi bir olasılıktır. AUC ise sıralama ölçüsüdür ve
+    monoton dönüşümlere duyarsızdır; o yüzden ham özellikler için ayrı ve
+    açıkça adlandırılmış bir yol (review M3: rapordaki §5.3 sayıları depoda
+    yeniden üretilebilir olmalı, ad-hoc bir betikte değil).
+    """
+    from belge_gozu.bench.calibration_metrics import _average_ranks
+
+    v = np.asarray(values, dtype=np.float64)
+    y = np.asarray(labels, dtype=np.float64)
+    n_pos, n_neg = int(np.sum(y == 1.0)), int(np.sum(y == 0.0))
+    if n_pos == 0 or n_neg == 0:
+        raise ValueError("univariate_auc için hem pozitif hem negatif etiket gerekli")
+    ranks = _average_ranks(v)
+    return (float(np.sum(ranks[y == 1.0])) - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+
+
 def feature_stats(rows: Sequence[LabeledRow]) -> dict[str, dict[str, float]]:
-    """Özellik başına genel + sınıf kırılımlı ortalama/std/min/maks."""
+    """Özellik başına genel + sınıf kırılımlı istatistikler + tek-değişkenli AUC."""
     X = feature_matrix([r.features for r in rows])
     y = np.array([r.label for r in rows], dtype=np.float64)
+    # review m9: std ile `Calibrator.fit`in std'si AYNI çağrıdan gelmeli.
+    # Sütun görünümünde `col.std()` ile 2B `X.std(axis=0)` farklı toplama
+    # sırası kullanıyor ve son ulp'lerde ayrışıyordu; artefaktı çapraz
+    # kontrol eden okuyucu bunu bir tutarsızlık sanırdı.
+    means, stds = X.mean(axis=0), X.std(axis=0)
+    both_classes = bool(np.any(y == 1.0)) and bool(np.any(y == 0.0))
     out: dict[str, dict[str, float]] = {}
     for j, name in enumerate(FEATURE_ORDER):
         col = X[:, j]
         stats = {
-            "mean": float(col.mean()),
-            "std": float(col.std()),
+            "mean": float(means[j]),
+            "std": float(stds[j]),
             "min": float(col.min()),
             "max": float(col.max()),
         }
         for cls_name, mask in (("pos", y == 1.0), ("neg", y == 0.0)):
             if bool(np.any(mask)):
                 stats[f"mean_{cls_name}"] = float(col[mask].mean())
+        if both_classes:
+            stats["auc"] = univariate_auc(col, y)
         out[name] = stats
     return out
+
+
+def feature_correlations(rows: Sequence[LabeledRow]) -> dict[str, dict[str, float]]:
+    """Özellikler arası Pearson korelasyonu — ağırlık İŞARETLERİNİ okumak için şart.
+
+    Eşdoğrusal özelliklerde çok değişkenli bir ağırlığın işareti tek-değişkenli
+    yönü YANSITMAZ (kısmi etki). Bu matris olmadan "neden `matched_terms_top1`
+    ağırlığı negatif?" sorusu depodaki veriyle cevaplanamazdı.
+    """
+    X = feature_matrix([r.features for r in rows])
+    if X.shape[0] < 2:
+        return {}
+    with np.errstate(invalid="ignore", divide="ignore"):
+        C = np.corrcoef(X.T)
+    return {
+        a: {
+            b: (float(C[i, j]) if np.isfinite(C[i, j]) else 0.0)
+            for j, b in enumerate(FEATURE_ORDER)
+        }
+        for i, a in enumerate(FEATURE_ORDER)
+    }
 
 
 def evaluate(
@@ -836,7 +997,10 @@ def fit_calibration(
         recipe_fingerprint=fp,
         calibrator=cal,
         thresholds={
-            "risk_budget": {"max_risk": max_risk, **chosen.to_dict()},
+            # review m10: aday, ADIYLA anahtarlanır. Sabit "risk_budget" anahtarı
+            # bütçe sağlanamadığında içinde `name: "abstain_all"` taşıyordu —
+            # anahtar içeriğiyle çelişiyordu.
+            chosen.name: {"max_risk": max_risk, **chosen.to_dict()},
             "conformal": conformal,
             "chosen": chosen.to_dict(),
         },
@@ -845,6 +1009,7 @@ def fit_calibration(
             "created_at": datetime.now(UTC).isoformat(),
             "counts": class_counts(rows),
             "feature_stats": feature_stats(rows),
+            "feature_correlations": feature_correlations(rows),
             **(dict(data_kunye) if data_kunye else {}),
         },
     )
@@ -852,3 +1017,35 @@ def fit_calibration(
     # başına "hangi veride, hangi çalışma noktasında ölçüldü"yü taşımalı.
     artifact.kunye["dev_metrics"] = evaluate(artifact, rows)
     return artifact
+
+
+def per_question_rows(
+    artifact: CalibrationArtifact, rows: Sequence[LabeledRow]
+) -> list[dict[str, Any]]:
+    """Satır satır `(qid, split, label, prob, features, ...)` — koşum kaydının ham tabanı.
+
+    review M3: rapordaki HER sayı (AUC'ler, korelasyonlar, risk-coverage eğrisi,
+    seçilen eşikteki hata sayısı) yalnız depodaki dosyalardan yeniden
+    hesaplanabilmeli. Toplu metrikler bunu tek başına sağlamıyordu —
+    değerlendirmeyi tekrarlamak için indeksi kurup özellikleri yeniden çıkarmak
+    gerekiyordu. 173 satır × ~10 alan JSON'a rahatça sığar ve kayıt
+    KENDİ KENDİNİ KANITLAR hale gelir.
+    """
+    X = feature_matrix([r.features for r in rows])
+    probs = artifact.calibrator.predict_proba(X)
+    tau = artifact.tau
+    return [
+        {
+            "qid": r.question_id,
+            "source": r.source,
+            "split": r.split,
+            "answerable": r.answerable,
+            "unanswerable_reason": r.unanswerable_reason,
+            "gold_in_topk": r.gold_in_topk,
+            "label": r.label,
+            "prob": float(p),
+            "answered_at_tau": bool(p >= tau),
+            "features": {k: float(v) for k, v in r.features.items()},
+        }
+        for r, p in zip(rows, probs.tolist(), strict=True)
+    ]

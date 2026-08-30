@@ -124,13 +124,27 @@ _GENERIC = frozenset({"kanun", "türk", "türki", "cumhu"})
 # canary'den sızıntı yok; ad korpusun kendisinden türetiliyor).
 _TITLE_LINE = re.compile(r"^[A-ZÇĞİÖŞÜÂÎÛ0-9 ()'’.,;:-]{8,}$")
 
+# Başlık adayı KAPISI: satırın doküman adı sayılabilmesi için içermesi gereken
+# anahtar kelimeler. Modül sabiti (review M2): gövdeye gömülü bir literal olarak
+# durduğunda `recipe_fingerprint()` onu göremiyordu, oysa bu küme `doc_names` ->
+# `routed_docs` -> `routed` ÖZELLİĞİ ve `route_window` üzerinden hem `served_top1`i
+# hem top-5 etiketini değiştirir. Yani değiştirmek reçeteyi değiştirir.
+_TITLE_KEYWORDS = ("KANUN", "ANAYASA")
+
+# Türkçe küçültmenin ÖZEL EŞLEMESİ (Python'un `lower()`ından ayrılan kısım).
+# Yine modül sabiti (review M2): bu bir tablo, algoritmik biçim değil — değişirse
+# HER sorgu ve HER sayfa yeniden tokenleşir, bu yüzden parmak izine girmek zorunda.
+_TR_LOWER_MAP = (("İ", "i"), ("I", "ı"))
+
 
 def tr_lower(s: str) -> str:
     """Türkçe küçültme: İ->i, I->ı (Python'un `lower()`ı ikisini de 'i' yapar).
 
     autoresearch exp7 reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md.
     """
-    return s.replace("İ", "i").replace("I", "ı").lower()
+    for src, dst in _TR_LOWER_MAP:
+        s = s.replace(src, dst)
+    return s.lower()
 
 
 # ASCII aksan katlama tablosu (exp12). tr_lower'dan SONRA uygulanır: "İ"/"I"
@@ -212,6 +226,11 @@ def recipe_fingerprint() -> str:
         "word_re": _WORD.pattern,
         "min_token_chars": MIN_TOKEN_CHARS,
         "f5": F5,
+        # review M2: `tr_lower`ın özel eşlemesi ve başlık kapısı da BİRER DEĞERDİR
+        # (algoritmik biçim değil) — ikisi de tokenleştirmeyi/yönlendirmeyi
+        # değiştirir, dolayısıyla anahtarı değiştirmeleri gerekir.
+        "tr_lower_map": ["".join(pair) for pair in _TR_LOWER_MAP],
+        "title_keywords": sorted(_TITLE_KEYWORDS),
         # `str.maketrans` ORDİNAL -> ORDİNAL sözlüğü üretir; JSON'a yazılabilir
         # ve okunabilir olsun diye karakter çiftlerine geri çevriliyor.
         "fold": "".join(chr(k) + chr(v) for k, v in sorted(_FOLD.items())),
@@ -309,7 +328,7 @@ def extract_doc_name_tokens(page_ids: list[str], texts: list[str]) -> dict[str, 
         cands = [
             ln.strip()
             for ln in text.splitlines()
-            if ("KANUN" in ln or "ANAYASA" in ln) and _TITLE_LINE.match(ln.strip())
+            if any(kw in ln for kw in _TITLE_KEYWORDS) and _TITLE_LINE.match(ln.strip())
         ]
         if not cands:
             continue
@@ -317,6 +336,24 @@ def extract_doc_name_tokens(page_ids: list[str], texts: list[str]) -> dict[str, 
         if toks:
             names[doc] = toks
     return names
+
+
+def rank_order(scores: np.ndarray) -> np.ndarray:
+    """Skor dizisinin AZALAN sırasındaki indeksler — reçetenin sıralama sözleşmesi.
+
+    `kind="stable"` reçetenin parçasıdır: beraberlikte `page_ids` sırası korunur,
+    yani aynı skoru alan sayfalar korpus sırasıyla gelir ve sıralama
+    deterministiktir. Tek satırlık bir ifade ama İKİ yerde birden kullanılıyordu
+    (`HybridRetriever.rank` ve P2 özellik çıkarımı); kopya kalsaydı biri
+    "iyileştirildiğinde" kalibratör ölçtüğünden başka bir sıraya takılırdı
+    (review m11).
+
+    NOT (T8 borcu): `HybridRetriever.rank` bugün `(ranking, routed)` döndürüyor,
+    `order`ı DEĞİL — bu yüzden serve tarafı özellik çıkarımına geçtiğinde argsort
+    hâlâ iki kez koşar. Ortadan kaldırmak `rank`ın imzasını değiştirmeyi gerektirir
+    ve serve'e dokunmak T8'in işidir; burada yalnız İFADE tekilleştirildi.
+    """
+    return np.argsort(-scores, kind="stable")
 
 
 def routed_docs(query: str, doc_names: Mapping[str, frozenset[str]]) -> set[str]:
