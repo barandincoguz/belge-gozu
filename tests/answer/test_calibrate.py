@@ -660,8 +660,12 @@ def test_cli_calibrate_fit_writes_artifact_and_report(tmp_path: Path, monkeypatc
     assert report["artifact_committed"] is False
     assert [f["name"] for f in report["kunye"]["data_files"]] == ["canary", "unans"]
     assert all(len(f["sha256"]) == 64 for f in report["kunye"]["data_files"])
-    # review M4: içeriği GERİ GETİREN referans da künyede
-    assert all(len(f["git_blob"]) == 40 for f in report["kunye"]["data_files"])
+    # review M4: içeriği GERİ GETİREN referans da künyede; re-review N1: tmp
+    # fikstürleri commit'lenmemiş olduğundan dürüst "-uncommitted" son eki taşır
+    assert all(
+        len(f["git_blob"]) == 40 or f["git_blob"].endswith("-uncommitted")
+        for f in report["kunye"]["data_files"]
+    )
     assert report["calibrator"]["feature_names"] == list(FEATURE_ORDER)
     assert "risk_coverage" in report["metrics"]
 
@@ -910,3 +914,15 @@ def test_threshold_candidate_is_keyed_by_its_own_name():
     assert chosen_name in art.thresholds
     assert art.thresholds[chosen_name]["name"] == chosen_name
     assert "abstain_all" not in art.thresholds or chosen_name == "abstain_all"
+
+
+def test_git_blob_sha_marks_uncommitted_content(tmp_path):
+    """re-review N1: commit'lenmemiş içerik '-uncommitted' son ekiyle işaretlenir."""
+    import uuid
+
+    from belge_gozu.answer.calibrate import git_blob_sha
+
+    f = tmp_path / "dirty.jsonl"
+    f.write_text(f"benzersiz-{uuid.uuid4()}\n")
+    sha = git_blob_sha(f)
+    assert sha.endswith("-uncommitted") and len(sha) == 40 + len("-uncommitted")

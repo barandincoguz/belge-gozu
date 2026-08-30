@@ -715,12 +715,22 @@ def git_blob_sha(path: Path | str) -> str:
     `git cat-file -p <blob>` onu aynen üretir, dosya sonradan değişmiş olsa
     bile. Yani koşum girdisi prosa değil, YENİDEN OYNATILABİLİR bir referans
     olur. git yoksa/başarısızsa "unknown" (künye yine sha256 taşır).
+
+    re-review N1: `hash-object` commit'lenmemiş içerik için de sözdizimsel
+    olarak geçerli ama nesne veritabanında ÇÖZÜLEMEYEN bir sha üretir — bu,
+    "yeniden oynatılabilir referans" amacını sessizce boşa çıkarır. Bu yüzden
+    sha, `git cat-file -e` ile erişilebilirlik kontrolünden geçirilir;
+    erişilemiyorsa `"<sha>-uncommitted"` döner ki künye dürüst kalsın.
     """
     try:
         out = subprocess.run(
             ["git", "hash-object", str(path)], capture_output=True, text=True, check=True
         )
-        return out.stdout.strip() or "unknown"
+        sha = out.stdout.strip()
+        if not sha:
+            return "unknown"
+        reachable = subprocess.run(["git", "cat-file", "-e", sha], capture_output=True, text=True)
+        return sha if reachable.returncode == 0 else f"{sha}-uncommitted"
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return "unknown"
 
