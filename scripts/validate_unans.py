@@ -321,8 +321,12 @@ def main() -> int:
     dupes = find_near_dupes(rows, canary)
     errs += [f"yakın-tekrar: {a} ~ {b} (jaccard {s:.2f})" for a, b, s in dupes]
 
+    try:
+        shown_path = bench_path.relative_to(REPO)
+    except ValueError:  # repo dışı --bench yolu: mutlak göster, çökme (inceleme L1)
+        shown_path = bench_path
     print("=" * 72)
-    print(f"unans doğrulama — {bench_path.relative_to(REPO)}")
+    print(f"unans doğrulama — {shown_path}")
     print("=" * 72)
     print(f"korpus: {len(corpus_ids)} belge, {len(corpus_law_numbers(corpus_ids))} kanun numarası")
     print(f"satır : {len(rows)}")

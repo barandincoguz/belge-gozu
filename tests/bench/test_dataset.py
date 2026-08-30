@@ -346,3 +346,18 @@ def test_assign_split_is_pure_no_file_access(tmp_path: Path):
     results = {assign_split(row, SPLITS) for _ in range(5)}
     assert len(results) == 1
     assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+def test_load_bench_and_splits_accept_str_paths(tmp_path: Path):
+    """İnceleme L2: load_bench/load_splits düz `str` yol kabul etmeli (Path'e çevrilir)."""
+    bench = tmp_path / "mini.jsonl"
+    row = unans_dict(question_id="u001", slice="korpus-disi", unanswerable_reason="korpus-disi")
+    bench.write_text(json.dumps(row) + "\n")
+    qs = load_bench(str(bench), only_verified=False)
+    assert len(qs) == 1
+    splits = tmp_path / "splits.json"
+    splits.write_text(
+        json.dumps({"seed": 1, "rule": "test", "dev_docs": ["k1"], "test_docs": ["k2"]})
+    )
+    loaded = load_splits(str(splits))
+    assert loaded["test_docs"] == {"k2"}
