@@ -16,6 +16,19 @@ SERVICE_ERROR_TEXT = (
     "Bulunan sayfalar aşağıda listeleniyor."
 )
 
+# KANIT KAPISI DÜŞÜRMESİ (P2 T2 / ilke 20). Yanıt ÜRETİLDİ ama iddialarının
+# tamamı atıf yaptıkları sayfa metninde doğrulanamadı.
+#
+# Metin ABSTAIN_TEXT'ten AYRI olmak zorunda: ikisi farklı şeyler söyler ve
+# ikisi de doğru olmak zorunda. "Dayanak bulamadım" (eşik altı, LLM hiç
+# çağrılmadı) ile "yanıt üretildi ama kanıtlanamadı" aynı cümleye
+# sıkıştırılırsa sistem kendi durumu hakkında yanlış konuşur. `status` yine
+# `abstained`tır (istemci sözlüğü GENİŞLEMEZ, K12 kilidi korunur); ayrım
+# `detail.gate2.demoted` alanındadır.
+VERIFIER_DEMOTE_TEXT = (
+    "Yanıt üretildi ancak kanıt doğrulamasından geçemedi; dayanak gösterilemiyor."
+)
+
 # DÜRÜST-ISKA MÜHÜRÜ — sistemin en bilgilendirici olayının TEK kaynağı (Y17/K27).
 #
 # "Dürüst ıska" = getirim sayfaları getirdi, eşik geçti, LLM çağrıldı, ve model
@@ -95,14 +108,48 @@ class Answerer(Protocol):
     ) -> Answer: ...
 
 
+class RetrievalGate(Protocol):
+    """Kalibre getirim kapısı (P2 T2, kapı 1) — `answer/calibrate.py` uygular."""
+
+    def evaluate(self, question: str, *, bm25=None) -> dict: ...
+
+
+class EvidenceGateProtocol(Protocol):
+    """Kanıt kapısı (P2 T2, kapı 2) — `answer/verify.py` uygular."""
+
+    def evaluate(self, answer: Answer, hits: list[PageHit]) -> dict: ...
+
+
 class AskService:
+    """İki kapılı yanıt servisi. HER İKİ KAPI DA VARSAYILAN OLARAK YOKTUR.
+
+    `gate1`/`gate2` None iken bu sınıfın davranışı P1'inkiyle BİREBİR AYNIDIR
+    (tek eşik + degradasyon koruması) — bayrak-kapalı üretim davranışının
+    değişmemesi bir tercih değil, kapı kuralının gereğidir (master §1: G1+G2
+    raporlanana kadar default-açık entegrasyon YOK).
+
+    DÜRÜST SINIR (p2-reality-audit T2/1): bayraklar kapalıyken geri düşülen
+    eşik GÜVENLİ bir kapı DEĞİLDİR — ölçümde cevaplanamaz 5 sorunun 4'ü onu
+    geçiyor (`tests/retrieval/test_semantic_canary.py` xfail(strict) kilidi).
+    Yani "flag kapalı = eski davranış" cümlesi bir güvence değil, bir
+    değişmezlik beyanıdır.
+    """
+
     def __init__(
-        self, retriever, answerer: Answerer, min_score: float, image_loader: Callable[[str], bytes]
+        self,
+        retriever,
+        answerer: Answerer,
+        min_score: float,
+        image_loader: Callable[[str], bytes],
+        gate1: RetrievalGate | None = None,
+        gate2: EvidenceGateProtocol | None = None,
     ):
         self.retriever = retriever
         self.answerer = answerer
         self.min_score = min_score
         self.image_loader = image_loader
+        self.gate1 = gate1
+        self.gate2 = gate2
 
     def ask(
         self, question: str, k: int, candidates: int | None = None
@@ -111,11 +158,18 @@ class AskService:
             hits = self.retriever.search(question, k=k)
         else:
             hits = self.retriever.search(question, k=k, candidates=candidates)
+        # KAPI 1 — kalibre getirim güveni. Eşik kontrolünden ÖNCE ÖLÇÜLÜR
+        # (p her koşulda telemetriye girsin: eşik altı satırlar kalibratörün
+        # kendi değerlendirmesinin en bilgilendirici yarısıdır), ama eşikten
+        # SONRA UYGULANIR ki bayrak açıkken bile eski frenin önceliği bozulmasın.
+        gate1_detail = self._eval_gate1(question)
         if not hits or hits[0].score < self.min_score:
+            return Answer(text=ABSTAIN_TEXT, citations=[], abstained=True), hits
+        if gate1_detail is not None and not gate1_detail.get("passed", True):
             return Answer(text=ABSTAIN_TEXT, citations=[], abstained=True), hits
         try:
             with stage("answerer"):
-                return self.answerer.answer(question, hits, self.image_loader), hits
+                answer = self.answerer.answer(question, hits, self.image_loader)
         except Exception as exc:
             # Y20: degraded olayı artık BİR HATA SINIFI taşır. Yanıtlayıcı
             # taksonomiyi kendisi bildiriyorsa (GeminiAnswerer -> AnswererError)
@@ -127,3 +181,47 @@ class AskService:
             annotate("degraded", True)
             annotate("error_type", error_type)
             return Answer(text=SERVICE_ERROR_TEXT, citations=[], abstained=True), hits
+        if self.gate2 is None:
+            return answer, hits
+        return self._apply_gate2(answer, hits), hits
+
+    def _eval_gate1(self, question: str) -> dict | None:
+        """Kalibre olasılık + eşik (kapı kapalıysa None). Hiçbir koşulda patlamaz.
+
+        BM25 skorları getiriciden GERİ ALINIR (`last_bm25_scores`), yeniden
+        hesaplanmaz: kalibrasyon istek başına İKİNCİ bir korpus taraması
+        eklememelidir (`answer/calibrate.py::retrieval_context` sözleşmesi).
+        """
+        if self.gate1 is None:
+            return None
+        try:
+            detail = self.gate1.evaluate(
+                question, bm25=getattr(self.retriever, "last_bm25_scores", None)
+            )
+        except Exception:
+            # Kapı 1 bir FREN'dir; freni hesaplayamamak yanıtı düşürmez ama
+            # görünmez de kalmaz. Açık kalır (eski eşik hâlâ yerinde).
+            logger.exception("kalibre getirim kapısı hesaplanamadı — kapı atlanıyor")
+            detail = {"error": "gate1_failed", "passed": True}
+        annotate("gate1", detail)
+        return detail
+
+    def _apply_gate2(self, answer: Answer, hits: list[PageHit]) -> Answer:
+        """Kanıt kapısı: desteklenmeyen tek iddia bile yanıtı DÜŞÜRÜR (ilke 20)."""
+        from belge_gozu.answer.verify import gate2_skip_reason
+
+        skip = gate2_skip_reason(answer)
+        if skip is not None:
+            annotate("gate2", {"demoted": False, "skipped": skip})
+            return answer
+        try:
+            detail = self.gate2.evaluate(answer, hits)  # pyright: ignore[reportOptionalMemberAccess]
+        except Exception as exc:
+            # ŞÜPHEDE REDDET: doğrulayıcı arızası (kota, bütçe, disk) bir
+            # yanıtı KESİN diye sunmak için gerekçe değildir.
+            logger.exception("kanıt kapısı çalıştırılamadı — yanıt düşürülüyor")
+            detail = {"demoted": True, "error": type(exc).__name__}
+        annotate("gate2", detail)
+        if not detail.get("demoted"):
+            return answer
+        return Answer(text=VERIFIER_DEMOTE_TEXT, citations=[], abstained=True)

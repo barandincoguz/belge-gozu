@@ -395,7 +395,24 @@ def create_app(
         query_format_id = None
         quantization = None
 
-    service = AskService(retriever, answerer, s.min_score_threshold, load_image)
+    # P2 iki kapı (T1+T2). İKİSİ DE VARSAYILAN KAPALI: `build_gates` bayraklar
+    # kapalıyken hiçbir şey yüklemez ve `AskService` birebir P1 yolunu koşar.
+    # Bayrak açıkken artefakt/metin eksikliği BAŞLANGIÇTA patlar (fail-fast);
+    # yarı kurulmuş bir kapıyla servise çıkmak, kapının var olma sebebini
+    # sessizce ortadan kaldırırdı.
+    from belge_gozu.answer.verify import build_gates
+
+    gates = build_gates(s, retriever, index_revision=index_revision)
+    if gates.detail:
+        logger.info("P2 kapıları etkin: %s", gates.detail)
+    service = AskService(
+        retriever,
+        answerer,
+        s.min_score_threshold,
+        load_image,
+        gate1=gates.retrieval,  # pyright: ignore[reportArgumentType]
+        gate2=gates.evidence,  # pyright: ignore[reportArgumentType]
+    )
 
     rec = recorder or EventRecorder(s.data_dir / "requests.sqlite")
     prom = PromMetrics()
@@ -488,6 +505,10 @@ def create_app(
         extra = getattr(retriever, "last_retrieval_meta", None)
         if isinstance(extra, dict):
             retrieval_detail.update(extra)
+        # P2 kapı künyeleri YALNIZ bayrak açıkken yazılır (`AskService` notu
+        # ancak o zaman koyar). Bayrak kapalıyken `detail` sözlüğü BİREBİR
+        # eskisi kalır — olay şemasının bayrak-kapalı değişmezliği budur.
+        gate_detail = {k: col.notes[k] for k in ("gate1", "gate2") if k in col.notes}
         return RequestEvent(
             ts=datetime.now(UTC).isoformat(),
             endpoint=endpoint,
@@ -531,6 +552,7 @@ def create_app(
                 "app_version": app_version,
                 "stages": dict(col.stages),
                 "retrieval": retrieval_detail,
+                **gate_detail,
             },
         )
 
@@ -693,6 +715,10 @@ def create_app(
             else:
                 status = "answered"
             honest_miss = is_honest_miss(answer)
+            # P2 kapı künyeleri (bayrak açıkken). Gövdeye YALNIZ dolu olduğunda
+            # girer: bayrak kapalıyken `/ask` gövdesi ANAHTAR ANAHTAR eskisidir
+            # (mevcut app testleri bunu DEĞİŞMEDEN kilitler).
+            gates_body = {k: col.notes[k] for k in ("gate1", "gate2") if k in col.notes}
             record_event(
                 endpoint="/ask",
                 status=status,
@@ -719,12 +745,21 @@ def create_app(
         # `status`'a yeni bir değer eklemek her mevcut istemciyi sessizce
         # yanlış dala düşürürdü. Sunucunun HESAPLADIĞI değerin ta kendisidir —
         # `events.honest_miss` ve `bg_honest_miss_total` ile aynı satır.
-        return {
+        #
+        # `status` SÖZLÜĞÜ P2'de GENİŞLEMEDİ (bilinçli): kanıt kapısının
+        # düşürdüğü yanıt da `abstained`tır — dördüncü bir değer eklemek her
+        # mevcut istemciyi (arayüz dahil, `KNOWN_STATES`) sessizce
+        # "bilinmeyen durum" dalına düşürürdü. Ayrım `detail.gate2.demoted`
+        # alanındadır ve o alan yalnız bayrak açıkken vardır.
+        payload: dict = {
             "status": status,
             "honest_miss": honest_miss,
             "answer": answer.model_dump(),
             "hits": [h.model_dump() for h in hits],
         }
+        if gates_body:
+            payload["detail"] = gates_body
+        return payload
 
     @app.get("/metrics")
     def metrics() -> Response:

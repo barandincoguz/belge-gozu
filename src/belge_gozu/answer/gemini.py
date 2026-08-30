@@ -219,7 +219,45 @@ class GeminiClient:
         return contents
 
     def generate(self, prompt: str, images: list[bytes], markers: list[str]) -> GenResult:
-        contents = self.build_contents(prompt, images, markers)
+        return self._generate(self.build_contents(prompt, images, markers), None)
+
+    def generate_json(self, prompt: str, schema: dict | None = None) -> GenResult:
+        """YALNIZ METİN + yapılandırılmış JSON çıktı (P2 doğrulayıcısı).
+
+        `temperature=0`: doğrulayıcı bir YARGIÇTIR, üretici değil — aynı iddia
+        + aynı kanıt aynı kararı vermeli, aksi halde sha256 önbelleği bir
+        rastgele seçimi kalıcılaştırırdı.
+
+        Görüntü GÖNDERİLMEZ (bilinçli sapma, gerekçesi `answer/verify.py`
+        modül açıklamasında): kanıt, sıralamayı üreten metin kanalının ta
+        kendisidir. `generate()` ile AYNI retry/zaman aşımı/bütçe
+        invariantından geçer — ikinci bir HTTP politikası yoktur.
+        """
+        return self._generate([prompt], self._json_config(schema))
+
+    def _json_config(self, schema: dict | None):
+        """SDK'nın yapılandırılmış-çıktı yapılandırması, kurulamıyorsa None.
+
+        None dönmek bir arıza DEĞİL, tanımlı bir geri düşüştür: istem zaten
+        JSON istiyor ve `verify.parse_verdict` şema-dışı çıktıyı katı regex ile
+        ayrıştırıp, ayrıştıramazsa `belirsiz` sayıyor.
+        """
+        try:
+            from google.genai import types
+
+            return types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=0.0,
+            )
+        except Exception:
+            logger.warning(
+                "google-genai yapılandırılmış çıktı yapılandırması kurulamadı; "
+                "düz JSON istemi + katı regex ayrıştırmasına düşülüyor"
+            )
+            return None
+
+    def _generate(self, contents: list, config) -> GenResult:
         try:
             client = self._ensure_client()
         except Exception as exc:
@@ -231,7 +269,15 @@ class GeminiClient:
         started = time.monotonic()
         for attempt in range(1, self.max_attempts + 1):
             try:
-                resp = client.models.generate_content(model=self.model, contents=contents)
+                # `config` YOKSA kwarg hiç geçilmez: bayrak-kapalı yanıtlama
+                # yolu SDK'ya birebir eskisi gibi görünsün.
+                resp = (
+                    client.models.generate_content(model=self.model, contents=contents)
+                    if config is None
+                    else client.models.generate_content(
+                        model=self.model, contents=contents, config=config
+                    )
+                )
             except Exception as exc:
                 error_type = classify_error(exc)
                 last = AnswererError(error_type, f"gemini {error_type}: {exc}")
@@ -288,9 +334,27 @@ def _block_reason(resp) -> str | None:
     return None
 
 
+def build_gemini_client(model: str, api_key: str) -> GeminiClient:
+    """Gemini istemcisinin TEK kurulum noktası.
+
+    Bu projede Gemini'nin İKİ tüketicisi var: yanıtlayıcı (`GeminiAnswerer`,
+    görüntü + metin) ve P2 kanıt doğrulayıcısı (`answer/verify.py`, yalnız
+    metin + JSON şeması). İkisi de kendi `GeminiClient(...)` çağrısını yaparsa
+    istemci düzeyindeki her politika (zaman aşımı, retry, ANAHTAR SEÇİMİ) iki
+    yerde ayrı ayrı uygulanmak zorunda kalır ve biri sessizce geride kalır.
+    Kurulum burada TOPLANIR: istemci davranışını değiştiren her katman bu tek
+    fonksiyonu sarmalayarak her iki tüketiciyi birden kapsar.
+
+    `genai.Client`in kendisi zaten tek yerde kuruluyor
+    (`GeminiClient._ensure_client`, tembel + kilitli); bu fonksiyon SARMALAYICI
+    düzeyinin aynı tekilliğidir.
+    """
+    return GeminiClient(model, api_key)
+
+
 class GeminiAnswerer:
     def __init__(self, model: str, api_key: str, client=None):
-        self._client = client or GeminiClient(model, api_key)
+        self._client = client or build_gemini_client(model, api_key)
 
     def answer(
         self, question: str, pages: list[PageHit], image_loader: Callable[[str], bytes]

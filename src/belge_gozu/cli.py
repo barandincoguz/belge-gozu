@@ -43,11 +43,13 @@ index_app = typer.Typer()
 metrics_app = typer.Typer()
 bench_app = typer.Typer()
 calibrate_app = typer.Typer(help="P2 güven kalibratörü: özellik çıkarımı, fit, değerlendirme")
+verify_app = typer.Typer(help="P2 kanıt doğrulayıcı: iki kapılı ask hattının koşum harness'ı")
 app.add_typer(corpus_app, name="corpus")
 app.add_typer(index_app, name="index")
 app.add_typer(metrics_app, name="metrics")
 app.add_typer(bench_app, name="bench")
 app.add_typer(calibrate_app, name="calibrate")
+app.add_typer(verify_app, name="verify")
 
 DEFAULT_MANIFEST = Path("data/manifest/v0_manifest.csv")
 
@@ -1122,6 +1124,191 @@ def calibrate_eval(
         }
         out.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         typer.echo(f"rapor -> {out}")
+
+
+# --------------------------------------------------------------------------
+# verify — P2 T1+T2 kanıt kapısı koşum harness'ı
+# --------------------------------------------------------------------------
+
+
+def _verify_service(s: Settings, budget):
+    """İKİ KAPISI DA AÇIK bir `AskService` + kapı künyesi + indeks sürümü.
+
+    Serve ile AYNI parçalar (`load_text_channel` + `HybridRetriever` +
+    `GeminiAnswerer` + `build_gates`): harness'ın ölçtüğü şey üretimin
+    koştuğu şeyden sapamaz. Ağır kurulum (VLM ağırlıkları) burada TOPLANIR;
+    testler bu tek fonksiyonu değiştirerek stub bir istemciyle koşabilir.
+    """
+    from belge_gozu.answer.base import AskService
+    from belge_gozu.answer.gemini import GeminiAnswerer
+    from belge_gozu.answer.verify import build_gates
+    from belge_gozu.index.encode import ColSmolEncoder
+    from belge_gozu.index.loader import load_scorable_index
+    from belge_gozu.index.manifest import index_revision
+    from belge_gozu.retrieval.hybrid import HybridRetriever, load_text_channel
+
+    idx = load_scorable_index(s.index_dir)
+    meta = pd.read_parquet(s.index_dir / "meta.parquet")
+    query_format = idx.manifest.query_format if idx.manifest else CPE_0_3_18
+    encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=query_format)
+    bm25, doc_names = load_text_channel(s.index_dir, list(idx.page_ids))
+    retriever = HybridRetriever(idx, meta, encoder, bm25, doc_names)
+    revision = index_revision(idx.manifest) if idx.manifest else None
+    gates = build_gates(s, retriever, index_revision=revision, budget=budget)
+    service = AskService(
+        retriever,
+        GeminiAnswerer(s.gemini_model, s.gemini_api_key),
+        s.min_score_threshold,
+        lambda p: (s.data_dir / p).read_bytes(),
+        gate1=gates.retrieval,  # pyright: ignore[reportArgumentType]
+        gate2=gates.evidence,  # pyright: ignore[reportArgumentType]
+    )
+    return service, gates, revision
+
+
+@verify_app.command("run")
+def verify_run(
+    bench: Path = typer.Option(DEFAULT_CANARY, "--bench"),  # noqa: B008
+    split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
+    # ZORUNLU ve varsayılansız (`...`). "Sınırsız varsayılan" bir bütçe bayrağı
+    # bütçe değildir: doğrulayıcı iddia başına çağrı yapar ve 300 soruluk bir
+    # koşum kotayı tek hamlede bitirebilir (2026-08-30: günde 2× http_429).
+    max_llm_calls: int = typer.Option(..., "--max-llm-calls"),  # noqa: B008
+    limit: int = typer.Option(0, "--limit"),  # noqa: B008
+    splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
+    only_verified: bool = typer.Option(True, "--only-verified/--all"),  # noqa: B008
+    out: Path | None = typer.Option(None, "--out"),  # noqa: B008
+    yes_final_gate: bool = typer.Option(False, "--yes-final-gate"),  # noqa: B008
+) -> None:
+    """İki kapı AÇIK ask hattını bench sorularında koşar; künyeli JSON yazar.
+
+    Bayraklar ENV'den OKUNMAZ, bu komutta ZORLA açılır: harness'ın amacı tam
+    olarak kapıları ölçmektir. Üretim davranışı bundan etkilenmez (`serve`
+    kendi `Settings`'ini okur ve varsayılanlar kapalıdır).
+    """
+    from belge_gozu.answer.calibrate import git_blob_sha, load_rows, sha256_file
+    from belge_gozu.answer.verify import VerifierBudget
+    from belge_gozu.bench.dataset import assign_split, load_splits
+    from belge_gozu.retrieval.text import recipe_fingerprint
+    from belge_gozu.telemetry.collect import collecting
+
+    _gate_test_split(split, yes_final_gate)
+    if max_llm_calls < 0:
+        raise typer.BadParameter("--max-llm-calls negatif olamaz")
+    base = _settings()
+    if base.retrieval_pipeline != "hybrid":
+        raise typer.BadParameter(
+            "verify run yalnız hibrit boru hattında tanımlı (kalibre kapı BM25 metin "
+            f"kanalından okur); BG_RETRIEVAL_PIPELINE={base.retrieval_pipeline}"
+        )
+    s = base.model_copy(update={"gate_calibrated": True, "gate_verifier": True})
+
+    splits = load_splits(splits_path)
+    raw = load_rows(bench, only_verified=only_verified)
+    subset = [r for r in raw if assign_split(r, splits) == split.value]
+    if limit > 0:
+        subset = subset[:limit]
+    if not subset:
+        raise typer.BadParameter(f"{split.value} bölmesinde koşulacak soru yok: {bench}")
+
+    budget = VerifierBudget(max_llm_calls)
+    service, gates, revision = _verify_service(s, budget)
+
+    rows: list[dict] = []
+    stopped = None
+    for rec in subset:
+        if budget.remaining == 0 and rows:
+            # Bütçe dolduğunda DEVAM ETMEK anlamsız: kalan her soru
+            # doğrulanamadığı için düşerdi ve rapor sahte bir "demote" yığını
+            # üretirdi. Koşum burada DÜRÜSTÇE kesilir.
+            stopped = f"bütçe doldu ({budget.used}/{budget.max_calls}) — {len(rows)} soru koşuldu"
+            break
+        with collecting() as col:
+            answer, hits = service.ask(str(rec["question"]), k=s.top_k)
+        status = (
+            "degraded"
+            if col.notes.get("degraded")
+            else ("abstained" if answer.abstained else "answered")
+        )
+        rows.append(
+            {
+                "qid": rec["question_id"],
+                "answerable": bool(rec["answerable"]),
+                "unanswerable_reason": rec.get("unanswerable_reason"),
+                "slice": rec.get("slice"),
+                "status": status,
+                "citations": list(answer.citations),
+                "top_score": hits[0].score if hits else None,
+                "gate1": col.notes.get("gate1"),
+                "gate2": col.notes.get("gate2"),
+            }
+        )
+
+    verdict_counts: Counter[str] = Counter()
+    llm_calls = cache_hits = demoted = 0
+    for row in rows:
+        g2 = row["gate2"] or {}
+        llm_calls += int(g2.get("llm_calls", 0) or 0)
+        cache_hits += int(g2.get("cache_hits", 0) or 0)
+        demoted += 1 if g2.get("demoted") else 0
+        for claim in g2.get("claims") or []:
+            verdict_counts[claim["verdict"]] += 1
+    gate1_passed = sum(1 for r in rows if (r["gate1"] or {}).get("passed"))
+
+    run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-verify-{split.value}"
+    out_path = out or (Path("data/bench/results") / f"{run_id}.json")
+    report = {
+        "run_id": run_id,
+        "git_commit": git_commit(),
+        "created_at": datetime.now(UTC).isoformat(),
+        "split": split.value,
+        "index_revision": revision,
+        "pipeline": s.retrieval_pipeline,
+        "recipe_fingerprint": recipe_fingerprint(),
+        "gates": gates.detail,
+        "config": {
+            "gate_calibrated": s.gate_calibrated,
+            "gate_verifier": s.gate_verifier,
+            "gemini_model": s.gemini_model,
+            "min_score_threshold": s.min_score_threshold,
+            "top_k": s.top_k,
+            "verifier_max_claims": s.verifier_max_claims,
+            "only_verified": only_verified,
+        },
+        "bench": {
+            "path": str(bench),
+            "sha256": sha256_file(bench),
+            "git_blob": git_blob_sha(bench),
+            "n_selected": len(subset),
+            "n_run": len(rows),
+        },
+        "splits": {"path": str(splits_path), "sha256": sha256_file(splits_path)},
+        "budget": {"max_llm_calls": budget.max_calls, "used": budget.used, "stopped": stopped},
+        "summary": {
+            "n": len(rows),
+            "by_status": dict(Counter(r["status"] for r in rows)),
+            "gate1_passed": gate1_passed,
+            "gate2_demoted": demoted,
+            "verdicts": dict(verdict_counts),
+            "verifier_llm_calls": llm_calls,
+            "verifier_cache_hits": cache_hits,
+        },
+        "per_question": rows,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    typer.echo(f"bölme={split.value} koşulan={len(rows)}/{len(subset)}")
+    typer.echo(f"durum: {report['summary']['by_status']}")
+    typer.echo(f"kapı1 geçen={gate1_passed}  kapı2 düşürülen={demoted}")
+    typer.echo(f"kararlar: {dict(verdict_counts)}")
+    typer.echo(
+        f"LLM doğrulayıcı çağrısı={llm_calls} önbellek isabeti={cache_hits} "
+        f"bütçe={budget.used}/{budget.max_calls}"
+    )
+    if stopped:
+        typer.secho(f"  UYARI: {stopped}", fg=typer.colors.YELLOW, bold=True)
+    typer.echo(f"rapor -> {out_path}")
 
 
 @app.command("serve")

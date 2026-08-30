@@ -175,6 +175,33 @@ class Settings(BaseSettings):
     rate_limit_ask_per_min: int = 0
     rate_limit_search_per_min: int = 0
 
+    # --- P2 İKİ KAPI (T1+T2) — İKİSİ DE VARSAYILAN KAPALI --------------------
+    #
+    # Master §1'in kapı kuralı (`:38-40`): "bir sonraki fazın hiçbir
+    # default-açık entegrasyonu önceki kapı raporu commit'lenmeden yapılamaz."
+    # P1'in resmî G1 koşumu YOKTUR (R23 ile kapsam daraltıldı,
+    # `p2-reality-audit.md §6`), bu yüzden bu iki bayrağın varsayılan-kapalı
+    # olması bir tercih değil, kuralın kendisidir. Açık bir bayrak +
+    # `BG_GATE_*=false` ile anında geri alma, entegrasyonun tek meşru biçimi.
+    #
+    # gate_calibrated: kalibre GETİRİM kapısı. `data/calibration/<anahtar>/`
+    #   altındaki artefaktı yükler ve `p < tau` ise çekimser kalır. Artefakt
+    #   yok/anahtar uyuşmuyorsa başlangıçta FAIL-FAST (sessizce kalibrasyonsuz
+    #   açılmaz). ÖLÇÜLMÜŞ BEDEL: bugünkü artefaktta tau=0.504 ve dev kapsaması
+    #   %2.2 — yani bu bayrak açıkken sistem soruların çok büyük çoğunluğunda
+    #   çekimser kalır. Bu bir arıza değil, retrieval-yanı güvenin tek başına
+    #   yetmediğinin ölçüsüdür (`2026-08-30-p2-baslangic.md §4`).
+    # gate_verifier: KANIT kapısı. Üretilen yanıtın her iddiası atıf yaptığı
+    #   sayfanın METNİNE karşı LLM ile doğrulanır; desteklenmeyen tek iddia
+    #   yanıtı düşürür. İddia başına bir Gemini çağrısıdır (sha256 önbellekli)
+    #   — kotayı doğrudan etkiler, `verifier_max_claims` üst sınırdır.
+    gate_calibrated: bool = False
+    gate_verifier: bool = False
+    # İstek başına doğrulanacak EN FAZLA iddia (kota tavanı). Aşan iddialar
+    # doğrulanmaz VE yanıt düşürülür — kırpmayı sessizce "geçti" saymak ilke
+    # 20'nin yasakladığı şeydir.
+    verifier_max_claims: int = 8
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -11,6 +11,7 @@ from prometheus_client import (
     generate_latest,
 )
 
+from belge_gozu.answer.verify import VERDICTS
 from belge_gozu.config import BM25_SCALE, pipelines_on_scale
 from belge_gozu.telemetry.schema import RequestEvent
 
@@ -125,6 +126,17 @@ class PromMetrics:
         # "cevaplanmaması gereken"in en temiz sınıfıdır.
         self.rejected = Counter("bg_rejected", "Reddedilen istek (422/429)", ["reason"], registry=r)
         self.honest_miss = Counter("bg_honest_miss", "'bulamadım' yanıtları", registry=r)
+        # P2 kanıt kapısı: iddia başına karar dağılımı. Etiket kümesi
+        # `answer/verify.VERDICTS`ten GELİR, burada kopya tutulmaz (duplike
+        # sözleşme denetimi) — hem kardinaliteyi kapatır hem de bozuk bir model
+        # çıktısının etiket olarak sızmasını engeller (`parse_verdict` zaten
+        # kapalı kümeye indirger, bu ikinci kilit).
+        #
+        # Bayrak kapalıyken bu seri BOŞTUR (yalnız HELP/TYPE satırları): olay
+        # `detail.gate2` taşımıyorsa hiçbir çocuk seri oluşmaz.
+        self.verifier_verdicts = Counter(
+            "bg_verifier_verdicts", "Kanıt doğrulayıcı kararları", ["verdict"], registry=r
+        )
         self.tokens = Counter("bg_llm_tokens", "LLM token sayısı", ["direction"], registry=r)
         self.tps = Histogram(
             "bg_llm_tokens_per_second", "Üretim hızı", buckets=TPS_BUCKETS, registry=r
@@ -203,6 +215,10 @@ class PromMetrics:
             self.abstain.labels(reason="threshold").inc()
         if ev.honest_miss:
             self.honest_miss.inc()
+        for claim in (ev.detail.get("gate2") or {}).get("claims") or []:
+            verdict = claim.get("verdict") if isinstance(claim, dict) else None
+            if verdict in VERDICTS:
+                self.verifier_verdicts.labels(verdict=verdict).inc()
         if ev.tokens_in:
             self.tokens.labels(direction="input").inc(ev.tokens_in)
         if ev.tokens_out:

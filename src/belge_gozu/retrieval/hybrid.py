@@ -64,6 +64,16 @@ TEXT_ARTIFACT_NAME = "page_texts.parquet"
 # ile aynı desendir: uç nokta gövdesi ve `search()` aynı bağlamda çalışır.
 _LAST_META: ContextVar[dict | None] = ContextVar("bg_hybrid_meta", default=None)
 
+# Son `search()` çağrısının HAM BM25 skor vektörü (istek-yerel, `_LAST_META`
+# ile aynı desen). `_LAST_META`ya konulamaz: o sözlük JSON'a serileşip
+# telemetriye yazılıyor, bir numpy dizisi orada hem patlar hem anlamsız olurdu.
+#
+# Var oluş sebebi P2 kapı 1: kalibratör özellikleri aynı skorlardan okunur
+# (`answer/calibrate.py::extract_features(bm25=...)`). Bu referans olmadan kapı
+# istek başına İKİNCİ bir korpus taraması eklerdi — 4222 sayfa, sorgu token'ı
+# başına bir Python döngüsü.
+_LAST_BM25: ContextVar = ContextVar("bg_hybrid_bm25", default=None)
+
 
 def require_text_artifact(index_dir: Path) -> Path:
     """Metin kanalı artefaktının VARLIĞINI doğrular (saf dosya sistemi kontrolü).
@@ -120,6 +130,24 @@ def load_text_channel(
     return bm25, extract_doc_name_tokens(list(page_ids), texts)
 
 
+def load_page_texts(index_dir: Path) -> dict[str, str]:
+    """`page_id -> sayfa metni` (P2 kanıt kapısının kanıt yüzeyi).
+
+    AYNI ARTEFAKT, AYNI DOSYA: doğrulayıcı, sıralamayı üreten kanalın gördüğü
+    metnin ta kendisini görür. Ayrı bir çıkarım hattı (PDF'i yeniden okumak,
+    OCR) kurulmaz — kurulsaydı "doğrulayıcının okuduğu metin" ile "BM25'in
+    skorladığı metin" sessizce ayrışabilir ve doğrulama başka bir korpusu
+    yargılamış olurdu.
+
+    `BM25Index` ham metinleri SAKLAMAZ (yalnız token sayaçları) — bu yüzden
+    metin ayrıca yüklenir. Yalnız `BG_GATE_VERIFIER=true` iken çağrılır;
+    bayrak kapalıyken bu bellek hiç ayrılmaz.
+    """
+    path = require_text_artifact(index_dir)
+    df = pd.read_parquet(path)
+    return dict(zip(df["page_id"].tolist(), df["text"].fillna("").tolist(), strict=True))
+
+
 class HybridRetriever:
     """BM25 sıralaması + pencere-içi doküman yönlendirmesi; görsel kanal telemetride.
 
@@ -173,6 +201,16 @@ class HybridRetriever:
         """
         return _LAST_META.get()
 
+    @property
+    def last_bm25_scores(self) -> np.ndarray | None:
+        """Son `search()` çağrısının ham BM25 skorları (istek-yerel) ya da None.
+
+        P2 kapı 1 bunu `extract_features(bm25=...)`e geçirir; sözleşme
+        `page_ids` ile hizalı olmasıdır (`BM25Index.scores` çıktısının aynısı,
+        yönlendirme ÖNCESİ).
+        """
+        return _LAST_BM25.get()
+
     def routed_docs(self, query: str) -> set[str]:
         """Adının jenerik-dışı TÜM token'ları sorguda geçen doküman(lar).
 
@@ -214,6 +252,7 @@ class HybridRetriever:
             visual = self.index.score_all(q_emb, chunk_tokens=self.CHUNK_TOKENS)
         with stage("text_bm25"):
             bm25 = self.text.scores(query)
+        _LAST_BM25.set(bm25)
         with stage("route_fuse"):
             ranking, routed = self.rank(query, bm25)
         by_id = dict(zip(self.index.page_ids, bm25.tolist(), strict=True))

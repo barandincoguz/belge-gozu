@@ -530,3 +530,256 @@ def test_broken_env_gives_readable_message_not_a_traceback(tmp_path: Path):
     assert "Yapılandırma hatası" in r.stderr
     assert "query_format_id" in r.stderr
     assert "Traceback" not in r.stderr
+
+
+# --- P2: `verify run` harness'ı (stub istemci, AĞ YOK) ------------------------
+
+
+def _bench_row(**over) -> dict:
+    base = dict(
+        question_id="q1",
+        question="Yerleşim yeri nedir?",
+        query_style="dogal",
+        answerable=True,
+        gold_doc_ids=["k4721"],
+        gold_page_ids=["k4721:4"],
+        gold_article_ids=[],
+        minimal_evidence_spans=["Yerleşim yeri ..."],
+        reference_answer="Sürekli kalma niyetiyle oturulan yerdir.",
+        slice="paraphrase",
+        difficulty="orta",
+        source_type="insan",
+        requires_visual=False,
+        requires_multi_hop=False,
+        unanswerable_reason=None,
+        verified_by="baran",
+        verification_status="verified",
+    )
+    base.update(over)
+    return base
+
+
+def _verify_fixture(tmp_path: Path, verdict: str, max_claims: int = 8):
+    """`verify run`un ihtiyaç duyduğu her şeyi stub'lar: bench, split, servis."""
+    from belge_gozu.answer.base import Answer, AskService
+    from belge_gozu.answer.verify import ClaimVerifier, EvidenceGate, Gates, VerifierCache
+    from belge_gozu.retrieval.types import PageHit
+
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text(
+        "\n".join(
+            json.dumps(r, ensure_ascii=False)
+            for r in [_bench_row(), _bench_row(question_id="q2", question="Yıllık izin kaç gün?")]
+        ),
+        encoding="utf-8",
+    )
+    splits = tmp_path / "splits.json"
+    splits.write_text(json.dumps({"dev_docs": ["k4721"], "test_docs": []}), encoding="utf-8")
+
+    class StubClient:
+        def __init__(self):
+            self.prompts = []
+
+        def generate_json(self, prompt, schema=None):
+            self.prompts.append(prompt)
+            return json.dumps({"verdict": verdict, "gerekce": "stub"})
+
+    class StubRetriever:
+        last_bm25_scores = None
+
+        def search(self, query, k=5, candidates=200):
+            return [
+                PageHit(
+                    page_id="k4721:4",
+                    score=42.0,
+                    doc_name="TMK",
+                    page_no=4,
+                    image_path="images/x.webp",
+                    source_url="https://example.org",
+                )
+            ]
+
+    class StubAnswerer:
+        def answer(self, question, pages, image_loader):
+            # Soruyu metne KATAR: iki soru iki AYRI iddia üretsin, yoksa
+            # ikincisi önbellekten gelir ve bütçe testi ölçtüğünü ölçmez.
+            return Answer(
+                text=f"Sorunun ({question}) yanıtı sürekli kalma niyetiyle belirlenir [S1].",
+                citations=[pages[0].page_id],
+            )
+
+    client = StubClient()
+
+    def factory(s, budget):
+        gate2 = EvidenceGate(
+            ClaimVerifier(
+                client=client,
+                model=s.gemini_model,
+                cache=VerifierCache(s.data_dir / "cache" / "verifier"),
+                budget=budget,
+            ),
+            {"k4721:4": "TÜRK MEDENİ KANUNU\nYerleşim yeri sürekli kalma niyetiyle..."},
+            max_claims=max_claims,
+        )
+        svc = AskService(
+            StubRetriever(), StubAnswerer(), -1e9, lambda p: b"img", gate1=None, gate2=gate2
+        )
+        return svc, Gates(evidence=gate2, detail={"gate2": {"stub": True}}), "rev/x/int8"
+
+    return bench, splits, factory, client
+
+
+def test_verify_run_writes_a_kunyeli_report(tmp_path: Path, monkeypatch):
+    """Harness iki soruyu koşar, kararları sayar ve künyeli JSON yazar."""
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, client = _verify_fixture(tmp_path, "supported")
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+    out = tmp_path / "report.json"
+
+    r = runner.invoke(
+        cli_mod.app,
+        [
+            "verify",
+            "run",
+            "--bench",
+            str(bench),
+            "--splits",
+            str(splits),
+            "--max-llm-calls",
+            "4",
+            "--out",
+            str(out),
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["summary"]["n"] == 2
+    assert report["summary"]["by_status"] == {"answered": 2}
+    assert report["summary"]["verdicts"] == {"supported": 2}
+    assert report["summary"]["gate2_demoted"] == 0
+    assert report["budget"] == {"max_llm_calls": 4, "used": 2, "stopped": None}
+    assert report["config"]["gate_calibrated"] and report["config"]["gate_verifier"]
+    assert report["bench"]["sha256"] and report["git_commit"]
+    assert [q["qid"] for q in report["per_question"]] == ["q1", "q2"]
+    assert len(client.prompts) == 2
+
+
+def test_verify_run_second_pass_is_free_thanks_to_the_sha256_cache(tmp_path: Path, monkeypatch):
+    """AYNI koşum ikinci kez: sıfır LLM çağrısı (önbellek `BG_DATA_DIR` altında)."""
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, client = _verify_fixture(tmp_path, "supported")
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+    argv = ["verify", "run", "--bench", str(bench), "--splits", str(splits), "--max-llm-calls", "4"]
+
+    first = tmp_path / "a.json"
+    assert runner.invoke(cli_mod.app, [*argv, "--out", str(first)]).exit_code == 0
+    assert json.loads(first.read_text(encoding="utf-8"))["summary"]["verifier_llm_calls"] == 2
+    assert len(client.prompts) == 2
+
+    second = tmp_path / "b.json"
+    assert runner.invoke(cli_mod.app, [*argv, "--out", str(second)]).exit_code == 0
+    summary = json.loads(second.read_text(encoding="utf-8"))["summary"]
+    assert summary["verifier_llm_calls"] == 0 and summary["verifier_cache_hits"] == 2
+    assert len(client.prompts) == 2, "ikinci koşumda istemciye HİÇ gidilmedi"
+
+
+def test_verify_run_demotes_and_reports_unsupported(tmp_path: Path, monkeypatch):
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, _ = _verify_fixture(tmp_path, "unsupported")
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+    out = tmp_path / "report.json"
+
+    r = runner.invoke(
+        cli_mod.app,
+        [
+            "verify",
+            "run",
+            "--bench",
+            str(bench),
+            "--splits",
+            str(splits),
+            "--max-llm-calls",
+            "4",
+            "--out",
+            str(out),
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["summary"]["by_status"] == {"abstained": 2}
+    assert report["summary"]["gate2_demoted"] == 2
+
+
+def test_verify_run_requires_an_explicit_llm_budget(tmp_path: Path, monkeypatch):
+    """`--max-llm-calls` ZORUNLU: sınırsız varsayılan bir bütçe değildir."""
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, _ = _verify_fixture(tmp_path, "supported")
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+    r = runner.invoke(
+        cli_mod.app, ["verify", "run", "--bench", str(bench), "--splits", str(splits)]
+    )
+    assert r.exit_code != 0
+    assert "max-llm-calls" in r.output
+
+
+def test_verify_run_stops_when_the_budget_is_exhausted(tmp_path: Path, monkeypatch):
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, client = _verify_fixture(tmp_path, "supported")
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+    out = tmp_path / "report.json"
+
+    r = runner.invoke(
+        cli_mod.app,
+        [
+            "verify",
+            "run",
+            "--bench",
+            str(bench),
+            "--splits",
+            str(splits),
+            "--max-llm-calls",
+            "1",
+            "--out",
+            str(out),
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["summary"]["n"] == 1 and report["budget"]["used"] == 1
+    assert "bütçe doldu" in report["budget"]["stopped"]
+    assert len(client.prompts) == 1, "bütçe tavanı GERÇEKTEN çağrıyı kesiyor"
+
+
+def test_verify_run_test_split_needs_the_final_gate_flag(tmp_path: Path, monkeypatch):
+    """G2.4: test bölmesi tek koşumdur, kazayla koşulamaz (calibrate ile aynı bariyer)."""
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, _ = _verify_fixture(tmp_path, "supported")
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+    r = runner.invoke(
+        cli_mod.app,
+        [
+            "verify",
+            "run",
+            "--bench",
+            str(bench),
+            "--splits",
+            str(splits),
+            "--split",
+            "test",
+            "--max-llm-calls",
+            "1",
+        ],
+    )
+    assert r.exit_code != 0 and "--yes-final-gate" in r.output

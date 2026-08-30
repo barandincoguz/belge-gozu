@@ -699,6 +699,50 @@ def load_calibrator(path: Path | str, expected_key: str) -> CalibrationArtifact:
 
 
 # ---------------------------------------------------------------------------
+# 4b. ÇALIŞMA ANI KAPISI (T2, kapı 1) — `AskService`e takılan yüzey
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CalibratedRetrievalGate:
+    """Kalibre güven + artefaktın SEÇTİĞİ eşik: `p < tau` ise çekimser.
+
+    Eşik BURADA SEÇİLMEZ, artefakttan OKUNUR (`thresholds.chosen.value`).
+    Servis tarafında ikinci bir eşik seçimi olsaydı "hangi tau ölçüldü?"
+    sorusunun iki cevabı olurdu; G2.5'in versiyonlama fikri tam olarak bunu
+    engellemek için var.
+
+    DÜRÜSTLÜK: bugünkü artefaktın `statistical_guarantee` alanı `"none"` —
+    seçilen tau'nun riski n=4 üzerinde ölçülmüş bir NOKTA TAHMİNİDİR (CP üst
+    sınırı %52.7). Kapı bunu saklamaz; künye `detail.gate1.guarantee` olarak
+    her olaya yazılır.
+    """
+
+    artifact: CalibrationArtifact
+    text: BM25Index
+    doc_names: Mapping[str, frozenset[str]]
+    window: int = WINDOW
+
+    @property
+    def tau(self) -> float:
+        return self.artifact.tau
+
+    def evaluate(self, question: str, *, bm25: np.ndarray | None = None) -> dict:
+        """`{p, tau, passed, features, key}` — `bm25` verilirse YENİDEN skorlamaz."""
+        feats = extract_features(question, self.text, self.doc_names, bm25=bm25, window=self.window)
+        p = self.artifact.calibrator.predict_one(feats)
+        tau = self.tau
+        return {
+            "p": p,
+            "tau": tau,
+            "passed": bool(p >= tau),
+            "key": self.artifact.key,
+            "guarantee": self.artifact.thresholds["chosen"].get("statistical_guarantee"),
+            "features": {k: float(v) for k, v in feats.items()},
+        }
+
+
+# ---------------------------------------------------------------------------
 # 5. OFFLINE: veri kümesi, fit, değerlendirme (yalnız CLI'den çağrılır)
 # ---------------------------------------------------------------------------
 
