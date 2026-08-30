@@ -121,9 +121,8 @@ def index_revision(m: IndexManifest) -> str:
     `bg_app_info` etiketi). P2 kalibrasyon artefaktı aynı dizeyi anahtarının
     BİRİNCİ bileşeni olarak kullandığı için ortak nokta manifest modülüne
     alındı: iki taraf aynı dizeyi iki ayrı yerde kurarsa, biri değiştiğinde
-    artefakt yanlış bir indekse "ait" görünür. (`app/main.py`'nin satır içi
-    kopyası T8'de bu fonksiyona çevrilecek — serve tarafı bu commit'te
-    bilinçli olarak değiştirilmedi.)
+    artefakt yanlış bir indekse "ait" görünür. (`app/main.py` 418b028'den
+    itibaren bu fonksiyonu kullanır — satır içi kopya kaldırıldı.)
 
     `/` içerir; dosya yolu bileşeni olarak kullanan taraf güvenli ada
     çevirmelidir (bkz. `answer/calibrate.calibration_key`).

@@ -92,3 +92,27 @@ zorunluluk olarak sayıyla kanıtlı. Eşik ayarıyla çıkış yok (ilke 21 zat
 2. T8 servis entegrasyonu (kalibre kapı + güvenli fallback) — verifier'la birlikte.
 3. G2 kapı koşumu: test split TEK SEFER, verifier sinyali + kota planı hazır olunca.
 4. UI claim-citation (T9 kalanı) + T10 judge (PPI çiftleri: eksik-kanıt 31 doğrulanmış).
+
+---
+
+## Ek (2026-08-31): T1/T2 verifier + anahtar rotasyonu — yük taşıyıcı kapı kuruldu
+
+- **T1/T2 (d051918 → 418b028):** Türkçe-farkında iddia bölütleme ([Sn]-bağlı; en-yakın-önceki
+  marker kalıtımı), sayfa-metnine karşı LLM doğrulama, kalıcı sha256 önbellek (yalnız
+  iyi-biçimli model yanıtı yazılır — zehirlenme kapalı, R37; restart-sonrası 0-çağrı kanıtlı),
+  **API-denemesi birimli** sert bütçe (rotasyon çarpanı dahil, R36; canlı kanıt: tavan=3'te
+  tam durma, kalan iddialar şüphede-reddet), iki kapı bayrak-KAPALI (üretim bayt-uyumlu
+  kilitli). Canlı: gate-2 demote yolu gerçek cevapta çalıştı; gate-1 tüm vitrin chip'lerinde
+  abstain (p 0.14-0.32 < tau 0.504) — §4'teki %2.2-kapsam bulgusunun canlı teyidi.
+- **Anahtar rotasyonu (348fb63, kullanıcı direktifi):** tek istemci-fabrikası sarımı; HERHANGİ
+  API hatasında (parse hariç) diğer anahtara yapışkan fallback; ≤3 deneme tek 35sn bütçede;
+  ikisi de düşerse degraded + keys_tried. CANLI: key1 429 → key2 servis; yapışkanlık teyit;
+  anahtar değeri hiçbir yüzeyde yok. Review: doğrudan APPROVE (API çağrısı kilit DIŞINDA —
+  serileşme yok; anyio copy_context istek-izolasyonu kaynak-okumayla teyit).
+- **Kota gerçeği ölçüldü:** free tier 20 çağrı/gün/model (429 gövdesinden); tipik cevap 6-7
+  iddia → tam-doğrulamalı /ask ≈ 8 deneme. G2 kapı koşumu matematiği: gate-1 eleğinden
+  geçenler × ~8 ≈ yüzlerce deneme → 2 anahtar × 20/gün ile ÇOK-GÜNLÜ takvim (önbellek
+  birikimli — tekrar koşumlar bedava) YA DA ücretli katman (kullanıcı kararı).
+- SDD: birleşik review (0 kritik; verifier bayrak-öncesi 15 bulgu) → fix (15/15; 1 itiraz
+  KABUL — R38 tek-kaynak etiket sözlüğü) → re-review ALL RESOLVED (ContextVar izolasyonu +
+  `is`-kimlik kanıtları). 666 test. Kanıt: evidence/agent-reports/2026-08-31-*.

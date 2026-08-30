@@ -495,6 +495,12 @@ class VerifierBudget:
     okunup (`api_attempts`) buraya işlenir; sayamayan bir istemci (stub) için
     taban 1'dir, yani tavan hiçbir koşulda ALTTAN sayılmaz.
 
+    Bilinen sınır (re-review N1): tükenme kontrolü ÇAĞRIDAN ÖNCE yapılır ama
+    o çağrının gerçek maliyeti (1-3 deneme) ancak SONRA bilinir — en kötü
+    durumda tavan 2 deneme aşılabilir (`max_attempts + 2`). İstek-kapsamlı ve
+    sınırlı olduğu için kabul edilmiş, ZORLANMAMIŞ bir üst sınırdır; kota
+    planlaması bu payı hesaba katmalıdır.
+
     TÜKENDİĞİNDE FIRLATMAZ: kalan iddialar `belirsiz` olur (şüphede-reddet) ve
     yanıt düşer. Fırlatmak, `EvidenceGate.evaluate`i yarıda kesip `claims` ve
     `api_attempts` alanlarını raporsuz bırakıyordu — aynı JSON'daki
