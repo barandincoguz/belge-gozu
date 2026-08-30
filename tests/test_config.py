@@ -87,3 +87,39 @@ def test_env_file_and_google_alias(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("GOOGLE_API_KEY=test-key-123\n")
     assert Settings().gemini_api_key == "test-key-123"
+
+
+# --- ikinci (yedek) anahtar: anahtar rotasyonunun kaynağı ---------------------
+#
+# Anahtar DEĞERLERİ testlerde apaçık sahtedir; gerçek bir anahtar dizesi
+# depoya giremez.
+
+_KEY2_ENVS = ("GOOGLE_API_KEY_2", "BG_GOOGLE_API_KEY_2", "GEMINI_API_KEY_2")
+
+
+def _isolated_env(monkeypatch, tmp_path, dotenv: str = "") -> None:
+    """Süreç ortamından ve depo kökündeki gerçek `.env`ten YALITILMIŞ ayar."""
+    for name in _KEY2_ENVS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(dotenv)
+
+
+def test_second_key_is_read_from_the_env_file(monkeypatch, tmp_path):
+    """`extra="ignore"` yüzünden BEYAN EDİLMEYEN bir ortam değişkeni sessizce
+    yok sayılır — ".env'e yazdım ama hiçbir şey olmadı" sınıfı arıza. Bu test
+    `GOOGLE_API_KEY_2` -> `Settings.google_api_key_2` eşlemesini kilitler."""
+    _isolated_env(monkeypatch, tmp_path, "GOOGLE_API_KEY_2=sahte-yedek-anahtar\n")
+    assert Settings().google_api_key_2 == "sahte-yedek-anahtar"
+
+
+def test_second_key_env_override(monkeypatch, tmp_path):
+    _isolated_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("GOOGLE_API_KEY_2", "sahte-ortam-anahtari")
+    assert Settings().google_api_key_2 == "sahte-ortam-anahtari"
+
+
+def test_second_key_defaults_to_empty(monkeypatch, tmp_path):
+    """Boş = tek anahtarlı havuz = bugünkü davranış (rotasyon KAPALI)."""
+    _isolated_env(monkeypatch, tmp_path)
+    assert Settings().google_api_key_2 == ""

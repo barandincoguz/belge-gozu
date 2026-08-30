@@ -230,6 +230,68 @@ def test_rejected_counter_exists_with_a_reason_label():
     assert 'bg_rejected_total{reason="rate_limited"} 1.0' in body
 
 
+def test_key_rotations_counter_reads_the_event_detail():
+    """`bg_llm_key_rotations_total{from_key}` olayın `detail.llm.rotations`
+    listesinden gelir: HANGİ anahtarda hata alınıp öbürüne geçildi. Etiket
+    kümesi kapalıdır (`KEY_LABELS`) ve anahtar DEĞERİ hiçbir yere yazılmaz."""
+    pm = PromMetrics()
+    pm.observe(
+        _ask_ev(
+            detail={
+                "llm": {
+                    "rotations": [{"from": "key1", "error_type": "http_429"}],
+                    "key": "key2",
+                }
+            }
+        )
+    )
+    pm.observe(_ask_ev(detail={"llm": {"key": "key2"}}))  # rotasyon yok
+    pm.observe(
+        _ask_ev(
+            detail={
+                "llm": {
+                    "rotations": [
+                        {"from": "key2", "error_type": "timeout"},
+                        {"from": "key1", "error_type": "http_5xx"},
+                    ]
+                }
+            }
+        )
+    )
+    body = pm.render()[0].decode()
+    assert 'bg_llm_key_rotations_total{from_key="key1"} 2.0' in body
+    assert 'bg_llm_key_rotations_total{from_key="key2"} 1.0' in body
+
+
+def test_key_rotations_counter_ignores_unknown_labels():
+    """Kardinalite kilidi: bozuk/eski bir olay satırı seriye yeni etiket
+    sızdıramaz (aynı korkuluk `bg_verifier_verdicts_total`ta da var)."""
+    pm = PromMetrics()
+    pm.observe(
+        _ask_ev(
+            detail={
+                "llm": {
+                    "rotations": [
+                        {"from": "key9", "error_type": "other"},
+                        "key1",  # eski/bozuk biçim: dize, sözlük değil
+                        {"error_type": "http_429"},  # `from` yok
+                        {"from": "key1", "error_type": "http_429"},
+                    ]
+                }
+            }
+        )
+    )
+    body = pm.render()[0].decode()
+    assert "key9" not in body
+    assert 'bg_llm_key_rotations_total{from_key="key1"} 1.0' in body
+
+
+def test_single_key_deployment_leaves_the_rotation_series_empty():
+    pm = PromMetrics()
+    pm.observe(_ask_ev(detail={"llm": {"key": "key1"}}))
+    assert "bg_llm_key_rotations_total{" not in pm.render()[0].decode()
+
+
 def test_metrics_catalog_lists_every_series_in_the_registry():
     """Y21: yeni bir seri eklemek KATALOĞU güncellemeye zorlar.
 

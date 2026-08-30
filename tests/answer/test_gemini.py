@@ -1,3 +1,4 @@
+import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -10,11 +11,17 @@ from belge_gozu.answer.gemini import (
     GEMINI_RETRY_BACKOFF_S,
     GEMINI_TIMEOUT_S,
     GEMINI_TOTAL_BUDGET_S,
+    KEY_LABELS,
+    NON_ROTATABLE_ERROR_TYPES,
     RETRYABLE_ERROR_TYPES,
     SYSTEM,
     GeminiAnswerer,
     GeminiClient,
     GenResult,
+    KeySlot,
+    RotatingGeminiClient,
+    StickyKeyIndex,
+    build_gemini_client,
     build_prompt,
     classify_error,
     source_marker,
@@ -424,3 +431,326 @@ def test_parse_error_reaches_the_degraded_row_end_to_end():
     with pytest.raises(AnswererError) as ei:
         _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
     assert ei.value.error_type == "parse"
+
+
+# --- ANAHTAR ROTASYONU -------------------------------------------------------
+#
+# Kural (kullanıcı direktifi): ikinci bir ücretsiz-kota anahtarı var; API
+# katmanındaki HERHANGİ bir hatada aynı istek öbür anahtarla BİR KEZ yeniden
+# denenir. Testlerin tamamı STUB'dur (ağ YOK) ve anahtar DEĞERLERİ apaçık
+# sahtedir; hiçbir iddia anahtar değeri üzerinde değil, YALNIZ "key1"/"key2"
+# etiketleri üzerinedir — gerçek bir anahtar dizesi test dosyasına giremez.
+
+FAKE_KEY_1 = "sahte-birincil-anahtar"
+FAKE_KEY_2 = "sahte-yedek-anahtar"
+
+
+def rate_limit() -> Exception:
+    from google.genai import errors as genai_errors
+
+    return genai_errors.ClientError(429, {"error": {"message": "quota"}})
+
+
+class KeyModels:
+    """Tek bir anahtarın sahte SDK'sı (`genai.Client().models` yerine).
+
+    `always` verilirse her çağrıda o istisna; yoksa `errors` sırayla tüketilir
+    ve liste bitince yanıt döner. Sayaç KİLİTLİ: eşzamanlılık dumanı testinde
+    iki iş parçacığı aynı anda çağırıyor.
+    """
+
+    def __init__(
+        self,
+        *,
+        always: Exception | None = None,
+        errors: list[Exception] | None = None,
+        text: str = "cevap [S1]",
+    ) -> None:
+        self.calls = 0
+        self._always = always
+        self._errors = list(errors or [])
+        self._text = text
+        self._lock = threading.Lock()
+
+    def generate_content(self, *, model, contents, config=None):
+        with self._lock:
+            self.calls += 1
+            err = self._always or (self._errors.pop(0) if self._errors else None)
+        if err is not None:
+            raise err
+        return SimpleNamespace(text=self._text, usage_metadata=None)
+
+
+def _slot(label: str, models) -> KeySlot:
+    client = GeminiClient("m", f"sahte-{label}")
+    client._client = SimpleNamespace(models=models)  # SDK'ya hiç dokunulmaz
+    return KeySlot(label, client)
+
+
+def _rot(*models, sticky: StickyKeyIndex | None = None) -> RotatingGeminiClient:
+    """N slotlu rotasyon istemcisi; her slot KENDİ sahte SDK'sıyla.
+
+    `sticky` her testte YENİ: süreç düzeyindeki gerçek gösterge (`_STICKY`)
+    testler arasında sızmasın.
+    """
+    slots = [_slot(label, m) for label, m in zip(KEY_LABELS, models, strict=True)]
+    return RotatingGeminiClient(slots, sticky=sticky or StickyKeyIndex())
+
+
+def _generate(client) -> GenResult:
+    return client.generate("p", [b"i"], ["[S1] X sayfa 1"])
+
+
+def test_rate_limit_on_key1_rotates_to_key2_and_serves():
+    """Merdivenin 1->2. basamağı: 429 AYNI anahtarda umutsuz, ÖBÜR anahtarda
+    tam olarak umut vaat eden hatadır — kota anahtar başına sayılır."""
+    k1, k2 = KeyModels(always=rate_limit()), KeyModels()
+    with collecting() as col:
+        out = _generate(_rot(k1, k2))
+    assert out.text == "cevap [S1]"
+    assert k1.calls == 1, "ilk anahtarda AYNI anahtar retry'si yok — sıra öbürüne geçer"
+    assert k2.calls == 1
+    assert col.notes["llm"] == {
+        "rotations": [{"from": "key1", "error_type": "http_429"}],
+        "key": "key2",
+    }
+
+
+def test_rotation_is_sticky_next_request_starts_on_the_new_key():
+    """Yapışkanlık: rotasyondan sonra ikinci istek doğrudan key2 ile başlar.
+
+    Aksi (her istek key1 ile başlasın) kotası bitmiş bir anahtarda istek
+    BAŞINA garantili bir başarısız çağrı demektir."""
+    sticky = StickyKeyIndex()
+    k1, k2 = KeyModels(always=rate_limit()), KeyModels()
+    rot = _rot(k1, k2, sticky=sticky)
+    _generate(rot)  # 1. istek: key1 -> 429 -> key2
+    with collecting() as col:
+        out = _generate(rot)  # 2. istek
+    assert out.text == "cevap [S1]"
+    assert k1.calls == 1, "ölü anahtara istek başına bir kez daha çarpılmamalı"
+    assert k2.calls == 2
+    assert col.notes["llm"] == {"key": "key2"}  # 2. istekte rotasyon YOK
+    assert sticky.current(2) == 1
+
+
+def test_both_keys_failing_raises_the_last_taxonomy_with_both_labels():
+    k1, k2 = KeyModels(always=rate_limit()), KeyModels(always=rate_limit())
+    with pytest.raises(AnswererError) as ei:
+        _generate(_rot(k1, k2))
+    assert ei.value.error_type == "http_429"
+    assert "key1, key2" in str(ei.value)  # yalnız ETİKETLER, anahtar değeri DEĞİL
+    assert k1.calls == 1 and k2.calls == 1
+
+
+def test_both_keys_failing_reaches_the_degraded_row_with_keys_tried():
+    """Uçtan uca: iki anahtar da düştü -> degraded + SON hatanın taksonomisi +
+    `detail.llm.keys_tried`. Hiçbir anahtar SERVİS ETMEDİĞİ için `key` yok."""
+    from belge_gozu.answer.base import AskService
+
+    k1, k2 = KeyModels(always=rate_limit()), KeyModels(always=rate_limit())
+    answerer = GeminiAnswerer("m", FAKE_KEY_1, client=_rot(k1, k2))
+
+    class OneHit:
+        def search(self, query, k=5, candidates=200):
+            return [hit("k1:1")]
+
+    svc = AskService(OneHit(), answerer, min_score=-1e9, image_loader=lambda p: b"img")
+    with collecting() as col:
+        answer, hits = svc.ask("soru", k=5, candidates=200)
+    assert col.notes["degraded"] is True and col.notes["error_type"] == "http_429"
+    assert col.notes["llm"] == {
+        "rotations": [{"from": "key1", "error_type": "http_429"}],
+        "keys_tried": ["key1", "key2"],
+    }
+    assert "key" not in col.notes["llm"]
+    assert answer.abstained and hits
+
+
+def test_parse_error_does_not_rotate():
+    """`parse` BAŞARILI bir yanıtın sınıflandırmasıdır (200 geldi, gövde
+    okunamadı): aynı istek başka bir anahtarla aynı gövdeyi geri getirir.
+    Kullanıcının "her hatada dene" kuralı TAŞIMA düzeyinde uygulanır."""
+    from google.genai import errors as genai_errors
+
+    k1 = KeyModels(always=genai_errors.UnknownApiResponseError("bozuk gövde"))
+    k2 = KeyModels()
+    with collecting() as col, pytest.raises(AnswererError) as ei:
+        _generate(_rot(k1, k2))
+    assert ei.value.error_type == "parse"
+    assert k1.calls == 1 and k2.calls == 0
+    assert "llm" not in col.notes  # hiçbir anahtar servis etmedi, rotasyon da yok
+    assert NON_ROTATABLE_ERROR_TYPES == frozenset({"parse"})
+
+
+def test_rotation_is_skipped_when_the_budget_cannot_cover_another_attempt(monkeypatch):
+    """Toplam bütçe invariantı rotasyonu da KAPSAR: "öbür anahtarı da dene"
+    ikinci bir zaman aşımı penceresi açar ve tavan aşılırdı."""
+    clock = {"t": 0.0}
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", lambda s: None)
+    # 25 sn: 25 + 15 = 40 > 35 -> rotasyon KALMIYOR.
+    k1, k2 = SlowFailingModels(clock, cost_s=25.0), KeyModels()
+    with collecting() as col, pytest.raises(AnswererError) as ei:
+        _generate(_rot(k1, k2))
+    assert ei.value.error_type == "timeout"
+    assert k1.calls == 1 and k2.calls == 0, "bütçe dolmuşken ikinci anahtar denenmemeli"
+    assert col.notes["gemini_rotation_skipped_budget"] is True
+    assert "llm" not in col.notes
+    assert clock["t"] <= GEMINI_TOTAL_BUDGET_S
+
+
+def test_rotation_still_happens_when_the_budget_allows_it(monkeypatch):
+    """Invariant rotasyonu TAMAMEN kapatmıyor: 16,2 sn (canlı ölçüm) + 15 sn
+    tavanın altında kalır, öbür anahtar denenir."""
+    clock = {"t": 0.0}
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
+    k1, k2 = SlowFailingModels(clock, cost_s=16.2), KeyModels()
+    with collecting() as col:
+        out = _generate(_rot(k1, k2))
+    assert out.text == "cevap [S1]" and k1.calls == 1 and k2.calls == 1
+    assert col.notes["llm"] == {
+        "rotations": [{"from": "key1", "error_type": "timeout"}],
+        "key": "key2",
+    }
+
+
+def test_the_last_key_keeps_the_same_key_retry_and_the_ladder_caps_at_three(monkeypatch):
+    """Merdivenin 3. basamağı: rotasyondan sonra gidecek yer kalmadığı için
+    mevcut AYNI ANAHTAR retry hakkı SON anahtarda kullanılır (toplam <= 3)."""
+    slept = []
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", slept.append)
+    k1 = KeyModels(always=rate_limit())
+    k2 = KeyModels(errors=[TimeoutError("yavaş")])  # 1 hata, sonra yanıt
+    with collecting() as col:
+        out = _generate(_rot(k1, k2))
+    assert out.text == "cevap [S1]"
+    assert (k1.calls, k2.calls) == (1, 2) and k1.calls + k2.calls == 3
+    assert slept == [GEMINI_RETRY_BACKOFF_S]
+    assert col.notes["gemini_retried"] is True
+    assert col.notes["llm"] == {
+        "rotations": [{"from": "key1", "error_type": "http_429"}],
+        "key": "key2",
+    }
+
+
+def test_the_ladder_never_exceeds_three_attempts(monkeypatch):
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", lambda s: None)
+    k1 = KeyModels(always=rate_limit())
+    k2 = KeyModels(always=TimeoutError("hep yavaş"))
+    with pytest.raises(AnswererError) as ei:
+        _generate(_rot(k1, k2))
+    assert ei.value.error_type == "timeout"  # SON hatanın taksonomisi
+    assert k1.calls + k2.calls == 3
+
+
+def test_generate_json_goes_through_the_same_rotation_ladder():
+    """Doğrulayıcı yolu (yalnız metin + JSON şeması) da AYNI havuzdan geçer —
+    tek fabrikanın (`build_gemini_client`) karşılığı tam olarak budur."""
+    k1, k2 = KeyModels(always=rate_limit()), KeyModels(text='{"verdict": "supported"}')
+    with collecting() as col:
+        out = _rot(k1, k2).generate_json("istem", None)
+    assert out.text == '{"verdict": "supported"}'
+    assert k1.calls == 1 and k2.calls == 1
+    assert col.notes["llm"]["key"] == "key2"
+
+
+def test_verifier_client_shares_the_rotating_pool_and_a_key_agnostic_cache():
+    import inspect
+
+    from belge_gozu.answer.verify import GeminiVerifierClient, cache_key
+
+    vc = GeminiVerifierClient("m", FAKE_KEY_1, api_key_2=FAKE_KEY_2)
+    assert isinstance(vc._client, RotatingGeminiClient)
+    assert vc._client.labels == ["key1", "key2"]
+    # Önbellek ANAHTARDAN BAĞIMSIZ olmalı: hangi API anahtarının servis ettiği
+    # yargıyı değiştirmez, dolayısıyla rotasyon bir isabeti geçersizleştirmez.
+    assert set(inspect.signature(cache_key).parameters) == {
+        "model",
+        "prompt_version",
+        "claim_text",
+        "evidence_sha",
+    }
+
+
+# --- tek anahtarlı havuz: BUGÜNKÜ davranışın kilidi ---------------------------
+
+
+def test_empty_second_key_means_a_single_key_pool():
+    assert build_gemini_client("m", FAKE_KEY_1, "").labels == ["key1"]
+    assert build_gemini_client("m", FAKE_KEY_1, FAKE_KEY_2).labels == ["key1", "key2"]
+
+
+def test_slot_label_follows_the_slot_not_the_position():
+    """Yalnız yedek anahtar doluysa havuz tek elemanlıdır ama etiketi "key2"
+    kalır: etiket SLOTU adlandırır, havuzdaki konumu değil."""
+    assert build_gemini_client("m", "", FAKE_KEY_2).labels == ["key2"]
+
+
+def test_keyless_boot_still_builds_a_pool_and_fails_with_auth_at_call_time():
+    """Anahtarsız `serve` çökmemeli (tembel kurulum); hata ilk çağrıda `auth`."""
+    client = build_gemini_client("m", "", "")
+    assert client.labels == ["key1"]
+    with pytest.raises(AnswererError) as ei:
+        _generate(client)
+    assert ei.value.error_type == "auth"
+
+
+def test_single_key_pool_retries_on_the_same_key_exactly_like_before(monkeypatch):
+    """Havuz tek anahtarlıyken rotasyon dalı HİÇ girilmez: aynı anahtarda tek
+    yeniden deneme, aynı backoff, aynı taksonomi (bu katman eklenmeden önceki
+    davranışın ta kendisi)."""
+    slept = []
+    monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", slept.append)
+    k1 = KeyModels(always=TimeoutError("yavaş"))
+    rot = RotatingGeminiClient([_slot("key1", k1)], sticky=StickyKeyIndex())
+    with collecting() as col, pytest.raises(AnswererError) as ei:
+        _generate(rot)
+    assert ei.value.error_type == "timeout"
+    assert k1.calls == GEMINI_MAX_ATTEMPTS and slept == [GEMINI_RETRY_BACKOFF_S]
+    assert "llm" not in col.notes and "gemini_rotation_skipped_budget" not in col.notes
+
+
+def test_single_key_success_still_records_which_key_served():
+    k1 = KeyModels()
+    with collecting() as col:
+        _generate(RotatingGeminiClient([_slot("key1", k1)], sticky=StickyKeyIndex()))
+    assert col.notes["llm"] == {"key": "key1"}
+
+
+# --- eşzamanlılık: gösterge paylaşılan mutable durumdur -----------------------
+
+
+def test_concurrent_rotations_leave_the_sticky_index_uncorrupted():
+    """Senkron uç noktalar Starlette'in iş parçacığı havuzunda koşar: iki istek
+    aynı anda rotasyon yapabilir. Yarış İYİ HUYLUDUR (ikisi de aynı sıradaki
+    anahtara gider), ama gösterge her an GEÇERLİ bir slot numarası olmalı."""
+    sticky = StickyKeyIndex()
+    k1, k2 = KeyModels(always=rate_limit()), KeyModels()
+    rot = _rot(k1, k2, sticky=sticky)
+    start = threading.Barrier(2)
+    out: list[str] = []
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            start.wait(timeout=5)
+            out.append(_generate(rot).text)
+        except BaseException as exc:  # pragma: no cover - yalnız arıza yolunda
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert not errors and out == ["cevap [S1]"] * 2
+    assert sticky.current(2) == 1  # gösterge GEÇERLİ ve yeni anahtarı işaret ediyor
+    assert k2.calls == 2, "iki istek de servis edilmeli"
+    # İKİ MEŞRU SIRALANIŞ var ve testin ikisini de kabul etmesi ŞART (aksi
+    # halde test yarışı değil, yalnız bir zamanlamayı kilitlerdi):
+    #   * ikisi de key1 ile başladı (ikisi de 429 aldı, ikisi de rotasyon
+    #     yaptı)                                     -> k1.calls == 2
+    #   * biri önce rotasyonu bitirdi, öteki göstergeyi ZATEN key2'de buldu
+    #                                                -> k1.calls == 1
+    assert k1.calls in (1, 2)

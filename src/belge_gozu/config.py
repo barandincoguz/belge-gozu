@@ -68,6 +68,23 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("BG_GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"),
     )
+    # İKİNCİ (yedek) anahtar — BOŞ BIRAKILABİLİR. Doluysa `build_gemini_client`
+    # iki anahtarlık bir havuz kurar ve API katmanındaki HERHANGİ bir hatada
+    # (429/401/5xx/zaman aşımı/bağlantı) aynı isteği öbür anahtarla BİR KEZ
+    # yeniden dener (`answer/gemini.py::RotatingGeminiClient`). Boşken davranış
+    # tek anahtarlı hâliyle BİREBİR aynıdır.
+    #
+    # Alan BEYAN EDİLMEK ZORUNDA: `extra="ignore"` yüzünden beyan edilmeyen bir
+    # ortam değişkeni sessizce YOK SAYILIR — ".env'e yazdım ama hiçbir şey
+    # olmadı" sınıfı bir arıza. Alias listesi birincil anahtarın desenini
+    # izler; `env_prefix="BG_"` yalnız alias VERİLMEYEN alanlara uygulandığı
+    # için `BG_` biçimi de açıkça listelenir.
+    google_api_key_2: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "BG_GOOGLE_API_KEY_2", "GOOGLE_API_KEY_2", "GEMINI_API_KEY_2"
+        ),
+    )
     # T11/Step 6 A/B ölçümü: train-compat-v1 sorgu formatı cpe-0.3.18'i her
     # metrikte geçti (float R@5 0.093->0.233; ölçüm tarihi 2026-08-27; ayrıntı
     # p0-gate raporunda).

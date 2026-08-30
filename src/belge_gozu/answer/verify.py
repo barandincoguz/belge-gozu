@@ -565,14 +565,22 @@ class GeminiVerifierClient:
     İstemci `answer/gemini.py::build_gemini_client` ile kurulur — yanıtlayıcı
     ile AYNI tek nokta. Doğrulayıcı ikinci bir `GeminiClient(...)` çağrı yeri
     AÇMAZ: zaman aşımı, retry, bütçe invariantı ve istemci düzeyindeki her
-    politika (ör. anahtar seçimi) tek yerde uygulansın diye.
+    politika (ör. anahtar seçimi) tek yerde uygulansın diye. ANAHTAR ROTASYONU
+    bu tekilliğin karşılığını doğrudan ödüyor: doğrulayıcı çağrıları da,
+    ekstra bir satır yazılmadan, aynı havuzdan ve aynı yapışkan göstergeden
+    geçer.
+
+    ÖNBELLEK ANAHTARDAN BAĞIMSIZDIR ve öyle kalmalıdır: `cache_key`
+    (model + istem sürümü + iddia + kanıt sha) hangi API anahtarının servis
+    ettiğini İÇERMEZ — aynı yargı aynı karardır, rotasyon önbelleği
+    geçersizleştirmez.
     """
 
-    def __init__(self, model: str, api_key: str, client=None) -> None:
+    def __init__(self, model: str, api_key: str, client=None, *, api_key_2: str = "") -> None:
         from belge_gozu.answer.gemini import build_gemini_client
 
         self.model = model
-        self._client = client or build_gemini_client(model, api_key)
+        self._client = client or build_gemini_client(model, api_key, api_key_2)
 
     def generate_json(self, prompt: str, schema: dict | None = None) -> str:
         return self._client.generate_json(prompt, schema).text
@@ -736,7 +744,9 @@ def build_gates(
 
         page_texts = load_page_texts(s.index_dir)
         verifier = ClaimVerifier(
-            client=GeminiVerifierClient(s.gemini_model, s.gemini_api_key),
+            client=GeminiVerifierClient(
+                s.gemini_model, s.gemini_api_key, api_key_2=s.google_api_key_2
+            ),
             model=s.gemini_model,
             cache=VerifierCache(s.data_dir / "cache" / "verifier"),
             budget=budget,

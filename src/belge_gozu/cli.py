@@ -1157,7 +1157,7 @@ def _verify_service(s: Settings, budget):
     gates = build_gates(s, retriever, index_revision=revision, budget=budget)
     service = AskService(
         retriever,
-        GeminiAnswerer(s.gemini_model, s.gemini_api_key),
+        GeminiAnswerer(s.gemini_model, s.gemini_api_key, api_key_2=s.google_api_key_2),
         s.min_score_threshold,
         lambda p: (s.data_dir / p).read_bytes(),
         gate1=gates.retrieval,  # pyright: ignore[reportArgumentType]

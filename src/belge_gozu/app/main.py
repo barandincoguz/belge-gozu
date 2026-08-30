@@ -375,7 +375,7 @@ def create_app(
     if answerer is None:
         from belge_gozu.answer.gemini import GeminiAnswerer
 
-        answerer = GeminiAnswerer(s.gemini_model, s.gemini_api_key)
+        answerer = GeminiAnswerer(s.gemini_model, s.gemini_api_key, api_key_2=s.google_api_key_2)
 
     retriever, manifest = build_retriever(s, encoder)
     index = retriever.index
@@ -505,10 +505,19 @@ def create_app(
         extra = getattr(retriever, "last_retrieval_meta", None)
         if isinstance(extra, dict):
             retrieval_detail.update(extra)
-        # P2 kapı künyeleri YALNIZ bayrak açıkken yazılır (`AskService` notu
-        # ancak o zaman koyar). Bayrak kapalıyken `detail` sözlüğü BİREBİR
-        # eskisi kalır — olay şemasının bayrak-kapalı değişmezliği budur.
-        gate_detail = {k: col.notes[k] for k in ("gate1", "gate2") if k in col.notes}
+        # Sözlük-değerli notlar olay künyesine OLDUKLARI GİBİ girer; her biri
+        # ancak KENDİ olayı gerçekleştiyse yazılır:
+        #   gate1/gate2 — yalnız ilgili P2 bayrağı açıkken (`AskService` notu
+        #     ancak o zaman koyar); bayraklar kapalıyken `detail` P2 öncesiyle
+        #     BİREBİR aynıdır.
+        #   llm — yalnız GERÇEKTEN bir LLM çağrısı yapıldığında: hangi anahtar
+        #     servis etti (`key`), varsa rotasyonlar (`rotations`) ve iki
+        #     anahtar da düştüyse `keys_tried`. `/search` satırları ve eşik
+        #     altında kalan `/ask` satırları bu alanı TAŞIMAZ — "anahtar
+        #     bilgisi yok" ile "çağrı hiç olmadı" aynı boşlukta karışmasın.
+        #     İçinde YALNIZ "key1"/"key2" ETİKETLERİ bulunur, anahtar DEĞERİ
+        #     hiçbir koşulda yazılmaz.
+        notes_detail = {k: col.notes[k] for k in ("gate1", "gate2", "llm") if k in col.notes}
         return RequestEvent(
             ts=datetime.now(UTC).isoformat(),
             endpoint=endpoint,
@@ -552,7 +561,7 @@ def create_app(
                 "app_version": app_version,
                 "stages": dict(col.stages),
                 "retrieval": retrieval_detail,
-                **gate_detail,
+                **notes_detail,
             },
         )
 

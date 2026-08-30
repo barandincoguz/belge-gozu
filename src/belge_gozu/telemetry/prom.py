@@ -11,6 +11,7 @@ from prometheus_client import (
     generate_latest,
 )
 
+from belge_gozu.answer.gemini import KEY_LABELS
 from belge_gozu.answer.verify import VERDICTS
 from belge_gozu.config import BM25_SCALE, pipelines_on_scale
 from belge_gozu.telemetry.schema import RequestEvent
@@ -137,6 +138,13 @@ class PromMetrics:
         self.verifier_verdicts = Counter(
             "bg_verifier_verdicts", "Kanıt doğrulayıcı kararları", ["verdict"], registry=r
         )
+        # API anahtarı rotasyonu: hangi anahtar üzerinde hata alınıp öbürüne
+        # geçildi. Etiket kümesi `answer/gemini.KEY_LABELS`ten GELİR (kopya
+        # yok, kardinalite kapalı) ve YALNIZ etiketlerden ibarettir — anahtar
+        # değeri metriklere de girmez. Tek anahtarlı dağıtımda seri BOŞTUR.
+        self.key_rotations = Counter(
+            "bg_llm_key_rotations", "API anahtarı rotasyonu", ["from_key"], registry=r
+        )
         self.tokens = Counter("bg_llm_tokens", "LLM token sayısı", ["direction"], registry=r)
         self.tps = Histogram(
             "bg_llm_tokens_per_second", "Üretim hızı", buckets=TPS_BUCKETS, registry=r
@@ -219,6 +227,17 @@ class PromMetrics:
             verdict = claim.get("verdict") if isinstance(claim, dict) else None
             if verdict in VERDICTS:
                 self.verifier_verdicts.labels(verdict=verdict).inc()
+        # `detail.llm.rotations` = `{"from": <etiket>, "error_type": <sınıf>}`
+        # kayıtları, SIRAYLA (bir istekte birden fazla olabilir: doğrulayıcı
+        # iddia başına çağırır). Sayaç yalnız `from`u eksen alır; hata sınıfı
+        # olay satırında kalır — etiket olsaydı kardinaliteyi taksonomi kadar
+        # büyütür ve "hangi anahtar tükendi?" sorusunu bulanıklaştırırdı.
+        # Kapalı kümeye süzülür: bozuk/eski bir olay satırı seriye yeni bir
+        # etiket sızdıramaz.
+        for rotation in (ev.detail.get("llm") or {}).get("rotations") or []:
+            from_key = rotation.get("from") if isinstance(rotation, dict) else None
+            if from_key in KEY_LABELS:
+                self.key_rotations.labels(from_key=from_key).inc()
         if ev.tokens_in:
             self.tokens.labels(direction="input").inc(ev.tokens_in)
         if ev.tokens_out:
