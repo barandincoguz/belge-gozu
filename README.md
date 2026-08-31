@@ -2,416 +2,295 @@
 
 [![ci](https://github.com/barandincoguz/belge-gozu/actions/workflows/ci.yml/badge.svg)](https://github.com/barandincoguz/belge-gozu/actions/workflows/ci.yml)
 
-**Hybrid document RAG for Turkish legal documents — no OCR.**
-Pages are indexed as *images* by a ColPali-class vision-language model, and a swappable
-VLM answerer looks at those page images and answers strictly from what it sees — citing
-pages, or admitting it doesn't know — instead of hallucinating an article number.
-Retrieval was visual-only in v0/P0; **P1 measured that channel against a Turkish-tuned
-BM25 pass over the PDF text layer and the text channel won by 3.7x** (canary Recall@5
-0.233 → 0.8605), so ranking is now hybrid. The visual channel still runs on every query,
-kept for telemetry and P2 calibration — the honest result, not the one that fit the
-original pitch. The tokenizer folds Turkish diacritics on **both** sides, which makes the
-system **writing-invariant**: "yıllık ücretli izin" and "yillik ucretli izin" produce the
-same ranking, and Recall@5 is 0.8605 in both conditions.
+**Grounded question answering over 4,222 pages of Turkish legislation — built measurement-first.**
 
-v0 corpus: 4,222 pages across 50 core Turkish statutes (Anayasa, TBK, TCK, İş Kanunu,
-KVKK, TTK, TMK, tax and finance law, and more) plus 6 historical Official Gazette scans
-spanning 1928–1975.
+Ask a question in plain Turkish. The system finds the page that actually contains the
+answer, reads it, answers from it, and cites the page — or says it could not find one.
+Every design decision below is a measured number, **including the ones that failed and
+were thrown away.**
 
-## Live demo
+| | |
+|---|---|
+| **Corpus** | 4,222 pages · 56 documents (50 statutes + 6 scanned *Resmî Gazete* issues, 1928–1975) |
+| **Retrieval quality** | Recall@5 **0.8605** (37/43) · Recall@20 0.930 — identical with and without Turkish diacritics |
+| **Starting point** | Recall@5 **0.116** on the same benchmark |
+| **Latency** | text retrieval 2–5 ms · end-to-end answer 6–24 s (LLM-bound) |
+| **Engineering** | 667 tests · CI runs the suite **and** builds the deployment image · every number traceable to a dated run artefact |
+| **Stack** | Python 3.12 · FastAPI · PyTorch · Transformers · ColPali-class vision encoder · BM25 (hand-written) · SQLite · Prometheus · Grafana · Docker · GitHub Actions · pytest · ruff · pyright · uv |
 
-**Status: pending — not created yet, by design, not by omission.** The retrieval index
-and all 4,222 page images are already public on HF Datasets:
+Index and all page images are public on Hugging Face Datasets:
 **[barandincoguz/belge-gozu-index](https://huggingface.co/datasets/barandincoguz/belge-gozu-index)**.
-This repo already has everything a Space needs (`Dockerfile`, `pyproject.toml`, `src/`).
-But as of this writing, Hugging Face requires a PRO subscription to create *any* Docker
-or Gradio Space — even on the free `cpu-basic` tier — confirmed live via the Hub API
-(`402 Payment Required`; only the fully-static SDK is free). This account doesn't have
-PRO, so `barandincoguz/belge-gozu` hasn't been created yet rather than deployed and
-guessed at. Creating and pushing it is one `huggingface_hub` call away once that's
-resolved.
 
-In the meantime, the whole system runs locally in a few minutes — see
-[Quickstart](#quickstart) — against the exact same public index, no GPU required.
-(Once live: free-tier Spaces sleep after inactivity, so expect ~1-2 min on first load.)
+---
 
-## How it works
+## 1. Purpose
+
+Turkish legislation is public but practically unsearchable. The text lives in PDFs whose
+layout carries meaning — article numbers, tariff tables, marginal notes, gazettes scanned
+from 1928. Keyword search returns the law but not the *page*; a general chatbot returns a
+fluent article number that does not exist.
+
+Belge-Gözü is built for the opposite failure mode: **it would rather say "I could not find
+it" than invent an article.** Answers are produced only from retrieved pages, each claim
+carries a page citation, and the page image is shown so a human can check it.
+
+The project is also an argument about method. Nothing is claimed without a number, every
+number carries its provenance (which index, which corpus checksum, which commit), and
+rejected experiments stay in the repository with their measurements intact.
+
+## 2. Problem
+
+The first working version retrieved page *images* with a ColPali-class vision-language
+model — late-interaction MaxSim over page screenshots, no OCR, no layout parsing. It
+looked right and measured wrong.
 
 ```mermaid
-flowchart TD
-  subgraph OFF["1 - OFFLINE PIPELINE (one-time)"]
-    M["Manifest CSV<br/>50 statutes + historical Official Gazette list"] --> D["Downloader (download.py)<br/>polite: 1s delay, resumable"]
-    D --> R["Renderer (render.py)<br/>PDF -> WebP page image<br/>+ meta.parquet (page ids)"]
-    R --> E["Encoder: ColSmol-500M (vision-language model)<br/>each page -> ~1000 tokens x 128-dim vectors"]
-    E --> P["f16 master (float_store.py)<br/>-> int8 (476MB, shipped) or 1-bit (58MB, ablation)<br/>quantize.py / store.py"]
-    D --> T["Text extractor (corpus/text.py)<br/>PDF text layer -> page_texts.parquet<br/>(index build-text; 4,221/4,222 pages have text)"]
-  end
+flowchart LR
+    Q["Query:<br/>'annual paid leave<br/>under the Labour Act?'"] --> V["Visual late-interaction<br/>over 4,222 pages"]
+    V --> D["Correct <b>document</b><br/>Labour Act cover page<br/>rank 1"]
+    V --> P["Correct <b>page</b><br/>art. 53, the leave table<br/><b>rank 137</b>"]
+    P --> A["Answer: 'I could not find it<br/>in the given pages'"]
 
-  P -->|"belge-gozu index push"| HUB[("HF Datasets - free storage<br/>barandincoguz/belge-gozu-index")]
-  T --> TXT
-
-  subgraph ON["2 - ONLINE SERVICE (Docker, CPU)"]
-    IDX["In-memory index<br/>int8 (shipped), mmap"]
-    TXT["BM25 text index<br/>page_texts.parquet (PDF text layer)<br/>Turkish F5 + stoplist, built at startup"]
-    U["User<br/>single-page web UI"] -->|"question"| API["FastAPI (app/main.py)"]
-    API --> QE["Query encoder<br/>same VLM, on CPU"]
-    QE --> S2["Exhaustive MaxSim (late interaction)<br/>whole corpus, ~0.24s/query — telemetry only,<br/>does NOT decide the ranking (P1)"]
-    IDX --> S2
-    API --> BM["BM25 + document-name routing<br/>ranks the corpus -> top-5 pages (~2-8 ms)"]
-    TXT --> BM
-    S2 --> G
-    BM --> G{"score >= threshold?"}
-    G -->|"no"| AB["Says 'not found'<br/>hallucination brake"]
-    G -->|"yes"| ANS["Answerer (pluggable)<br/>Gemini Flash: top-5 page IMAGES + question<br/>-> Turkish answer with page citations"]
-    ANS --> API
-    AB --> API
-    API -->|"answer + page thumbnails"| U
-    API -.-> LOG["Telemetry<br/>sqlite request log + /stats"]
-  end
-
-  HUB -->|"pull + mmap at startup"| IDX
+    classDef ok fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
+    classDef bad fill:#fceceb,stroke:#a61c2c,color:#3d1015
+    classDef neutral fill:#eef2f7,stroke:#2c5b8a,color:#12283d
+    class D ok
+    class P,A bad
+    class Q,V neutral
 ```
 
-**Retrieval is hybrid (P1 default).** Ranking is decided by a **BM25 text channel** over
-the PDF text layer, with Turkish-specific handling measured one step at a time: `İ/I`-aware
-lowercasing, a fixed Turkish function-word stoplist applied before stemming, **ASCII
-diacritic folding** (`çğıöşü` + circumflexed `âîû`), F5 prefix
-truncation (first 5 characters — Turkish is agglutinative), and a **document-name routing**
-pass that re-orders *only inside* the BM25 top-50 window when every non-generic token of a
-statute's own title (derived from its page-1 heading, so no hand-written name table and no
-benchmark leakage) appears in the query. The visual MaxSim channel still runs on every
-query but no longer decides the ranking — it is kept for telemetry, for the UI's per-hit
-`visual_score`, and as the input to P2 calibration (both channels' top-1 scores are logged
-side by side in `detail.retrieval`). Measured on the same 43 answerable canary questions
-(`research/journal.md`, [findings](docs/research/findings/2026-08-29-autoresearch-text-channel.md)):
+The model matched the law's *identity* — its title page — and lost the article. The honest
+"could not find it" was correct behaviour on wrong evidence. Measured, the failure was
+unambiguous: **Recall@5 = 0.116**, and the domicile-definition page a user would expect
+first sat at rank 3127 of 4222.
 
-| pipeline | Recall@5 | Recall@20 | MRR | demo chip 1 gold rank | demo chip 2 gold rank |
-|---|---|---|---|---|---|
-| visual only (P0, exhaustive int8) | 0.233 | 0.302 | 0.149 | 664 / 4222 | 137 / 4222 |
-| hybrid, no folding (P1 round 2) | 0.8372 | 0.930 | 0.655 | 2 | 2 |
-| **hybrid + ASCII folding (shipped)** | **0.8605** | **0.930** | **0.632** | **2** | **2** |
+Root cause, once measured rather than guessed: the encoder is trained predominantly on
+English, and a long Turkish legal query aligns with a document's *name* far more strongly
+than with an article's body text.
 
-**Writing-invariance is the point of the last row.** Typing Turkish without diacritics is
-ordinary keyboard behaviour, and the un-folded recipe collapsed on it: folding *only the
-queries* dropped Recall@5 from 0.8372 to **0.5814**. Folding both sides makes the two
-conditions the same system — Recall@5 is **0.8605 with diacritics and 0.8605 without**.
-The price was measured and accepted, not hidden: MRR fell 0.655 → 0.632 and Recall@1 lost
-two questions to fold collisions, and every demoted question stayed *inside* the served
-top-5 (`research/journal.md` #11–#13). A dual-form variant (emitting both spellings) was
-tried next and **discarded** — it regressed both Recall@20 and the visual guardrail.
+## 3. Engineering map
 
-> **Which Recall@5?** Both numbers you may see come from the *same* run and differ only in
-> metric definition. **0.8605 = 37/43** counts a question as a hit if *any* of its gold pages
-> is in the top-5 (binary; the research harness's definition, and what the table above
-> reports). **0.8488** is fractional recall, `|gold ∩ top-5| / |gold|`, which the production
-> `uv run belge-gozu bench run` prints by default (as `recall@5=0.849`) — it scores 0.5 on a
-> question that has two gold pages and only one of them retrieved. Same ranking, two
-> conventions; neither is "the corrected" one. Recall@20 is **0.9302 under both**. The run
-> backing both numbers is committed at
-> [`data/bench/results/20260830-1611-6d5b345-hybrid.json`](data/bench/results/20260830-1611-6d5b345-hybrid.json)
-> — `overall.recall_at["5"]` there is the fractional 0.8488, and the binary 37/43 counts a
-> per-question any-hit over its `diagnostics[].final_ranked[:5]`. Re-run with
-> `uv run belge-gozu bench run --only-verified` (text channel is deterministic) to reproduce.
+Each step is one controlled experiment: one variable changed, one primary metric
+(Recall@5 over a 43-question benchmark), a frozen harness, and a keep-or-revert decision.
+**Dashed branches were measured and rejected** — the part most portfolios delete.
 
-The routing window was 20 in the first measured recipe and 50 in the shipped one: at 20 the
-window set was preserved *by construction* so Recall@20 could not regress, and widening it
-gave that guarantee up — so it had to be measured. It was, and Recall@20 did not merely hold
-but **improved, 0.907 → 0.930**, with Recall@5 0.814 → 0.837 (`research/journal.md` #8).
+```mermaid
+flowchart LR
+    B["visual only<br/><b>0.233</b>"] --> T["+ BM25 over PDF text<br/><b>0.674</b>"]
+    B -.->|rejected| R1["equal-weight RRF fusion<br/>0.395"]
+    T --> F["+ Turkish 5-char prefix<br/><b>0.767</b>"]
+    T -.->|rejected| BG["+ bigram shingles<br/>0.628"]
+    F --> S["+ function-word list<br/>0.767, deep ranks fixed"]
+    S --> W["+ law-name routing, window 20<br/><b>0.814</b>"]
+    S -.->|rejected| AP["absolute document partition<br/>0.791, guardrail veto"]
+    W --> W5["window 50<br/><b>0.837</b>"]
+    W5 -.->|rejected| WR["within-window RRF<br/>0.535"]
+    W5 --> FD["+ diacritic folding<br/><b>0.8605</b> · writing-invariant"]
+    FD -.->|rejected| DF["dual-form tokens<br/>0.837, two guardrails down"]
 
-Three negative results are part of that recipe and are worth as much as the positive one:
-**every fusion of the two channels tried so far made things worse** — global equal-weight RRF
-(0.674 → 0.395), absolute document partitioning (vetoed on a Recall@20 regression), and
-window-local RRF (0.837 → 0.535) — because the weak channel's cover-page pull outranks the
-text channel's gold pages at every granularity. After F5 truncation the visual channel
-contributed **zero unique top-5 questions**. Latency-wise BM25 is
-negligible — ~2-8 ms/query on 4,222 pages, against ~0.24 s for the visual channel it runs
-alongside — and building the BM25 index at startup takes ~0.4 s (one-off, after the
-`page_texts.parquet` artifact is built by `belge-gozu index build-text`).
-The visual-only path remains available as an ablation (`BG_RETRIEVAL_PIPELINE=exhaustive`)
-— **but the threshold does not come with it**, see below.
+    classDef kept fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
+    classDef gone fill:#faf3e4,stroke:#a8741a,color:#3a2a08
+    class B,T,F,S,W,W5,FD kept
+    class R1,BG,AP,WR,DF gone
+```
 
-The visual channel itself is exhaustive: every query is scored against the whole corpus with
-late-interaction MaxSim — no elimination pass — which takes ~0.24 s/query over the
-current 4,222-page int8 index (CPU, idle machine). An earlier two-stage design first narrowed the corpus to ~200 candidates with
-a cheap mean-sign Hamming filter before re-ranking with MaxSim; that filter turned out
-to be discarding good candidates (see [v0 limitations](#v0-limitations)) and was
-removed from the production path — it survives only as an ablation option
-(`BG_RETRIEVAL_PIPELINE=two-stage`, which needs the 1-bit index). Any quantized
-index approximates native float ColPali scoring, and the P0 plan's quantization ablation (C1/C2: float16 oracle vs.
-int8 vs. 1-bit) has now been run on the 48-question canary benchmark (43 answerable;
-**not a human-validated set** — see the caveat below, so treat these numbers as
-provisional), in the production query/document format: **int8 matches float16 exactly
-at every k** (Recall@1/5/20/50/200 all identical); **1-bit loses 7.0 points of
-Recall@20** relative to float16 (0.233 vs. 0.302). 1-bit is also **slower, not
-faster**: scoring all 4,222 pages against a 40-token query takes 1.08 s at 1-bit vs.
-0.24 s at int8 vs. 0.08 s at float16 (CPU, idle machine), because int8/float16 hit a
-BLAS matmul path while the 1-bit path builds large temporaries for the popcount
-reduction. Index size is the one axis where 1-bit still wins (58 MB vs. 476 MB for
-int8 vs. 918 MB for float16). **int8 is now what ships**: serving was the only missing
-piece (the retriever previously accepted the packed 1-bit index only), and it is now
-representation-agnostic, so the measured winner is also the served one. 1-bit remains
-available as the ablation / disk-budget option (`data/index-traincompat-1bit`, 58 MB)
-via `BG_INDEX_DIR`. Full tables:
-[`docs/research/findings/2026-08-27-p0-baseline.md`](docs/research/findings/2026-08-27-p0-baseline.md)
-and
-[`docs/research/findings/2026-08-27-p0-gate.md`](docs/research/findings/2026-08-27-p0-gate.md).
-Separately, the single biggest P0 result to date: switching the document encoder to
-the checkpoint's training-time prompt (instead of the format `colpali-engine==0.3.18`
-emits by default) raised float16 Recall@5 from 0.093 to 0.233 on that same
-canary set.
+Three results worth stating plainly, because each contradicts the obvious approach:
 
-**Benchmark provenance caveat (applies to every canary number on this page).** The
-canary questions were drafted by model agents reading the page images; of the 48 rows,
-only **3 were verified by a human** — the other 45 were checked by an independent model
-pass that re-read the same images (`verification_kind: "model-cross-check"`). That pass
-was not a rubber stamp (it found 5 label/evidence corrections and one real page-span
-error, `c213`), but a model-verified benchmark **cannot be cited as human-validated**,
-and because the verifying model is the same family that drafted the questions,
-correlated blind spots are possible. Full provenance, limitations and the list of
-defects found: [`data/bench/canary_v1.README.md`](data/bench/canary_v1.README.md).
+**Reciprocal Rank Fusion made things worse — three times.** The textbook move is to fuse
+the visual and text rankings. Equal-weight RRF dropped Recall@5 from 0.674 to 0.395;
+absolute document partitioning failed a guardrail; within-window RRF gave 0.535. The weak
+channel's title-page attraction outranks the strong channel's real hits at every
+granularity tried. What survived is lexical-primary ranking with a rule-based re-order.
 
-The score that reaches the abstain gate is itself an **uncalibrated similarity** — under the
-hybrid default it is a raw **BM25 score** (unbounded; the *served* top-1 — the one the gate
-actually reads — runs min 10.53 / median 24.02 / max 69.30 across the answerable canary
-questions), not a confidence or probability. If it doesn't clear a threshold,
-the service returns "I couldn't find grounds for this in the corpus" *before* ever calling
-the LLM — the abstain path costs nothing and can't hallucinate. The threshold
-(`BG_MIN_SCORE_THRESHOLD=10.6`) is a **mechanical transfer** of the previous int8 `0.58`
-(itself a transfer of the older binary-scale `60.0`) onto the BM25 scale: it reproduces the
-same operating point *by count* — 42 of 43 answerable and 4 of 5 unanswerable canary
-questions clear it, exactly as before — which makes it a unit change, not a recalibration.
-The band of thresholds giving that operating point is `(10.528, 10.712]` — the gap between
-the lowest and second-lowest *served* top-1 — and 10.6 is picked from inside it. It is
-therefore still uncalibrated and still non-separating (see
-[v0 limitations](#v0-limitations)); real calibration is P2 work.
+**The visual channel contributes zero unique top-5 hits** once the text channel is tuned.
+It still runs on every query — it feeds telemetry and the calibration dataset, and it is
+the fallback for the 16 pages with a weak text layer — but it no longer ranks. That is the
+honest result, not the one that fits the original pitch.
 
-*(Served vs channel top-1: document-name routing can put a lower-BM25 page first — it ranks
-by "the query names this statute", not by score — so the page the gate reads is not always
-the channel's highest-scoring one. Every threshold number on this page is measured on the
-**served** score, the one `AskService` actually compares; the channel's own top-1 median is
-26.05 and is logged separately as `detail.retrieval.bm25_top1` for P2.)*
+**Diacritics were a production bug, not a nicety.** Turkish keyboards are routinely
+bypassed: users type *"yillik ucretli izin"*. Measured, that collapsed Recall@5 from 0.837
+to 0.581. Folding diacritics on both the index and the query side makes the system
+**writing-invariant** — 0.8605 in both conditions.
 
-**The threshold's scale is tied to the pipeline, not to the index representation.** Switching
-to `BG_RETRIEVAL_PIPELINE=exhaustive` (or the two-stage ablation) puts scores back on the
-normalized [-1, 1] MaxSim band, where 10.6 can never be cleared and the service would abstain
-on everything; the P0 value for that band was `0.58`, and even there it was int8-specific
-(on the 1-bit index the same questions score 0.4676-0.6133, so 0.58 clears only 1 of 43).
-The server **fails fast** at startup on an out-of-band threshold in either direction, and logs
-a warning when the active pipeline's scale differs from the one the threshold was transferred
-on.
+## 4. Architecture
 
-## Example queries
+```mermaid
+flowchart TB
+    subgraph OFF["Offline — run once, versioned by manifest"]
+        PDF["56 PDFs<br/>public legislation"] --> IMG["page images<br/>150 dpi WebP"]
+        PDF --> TXT["text layer<br/>PyMuPDF"]
+        IMG --> EMB["ColSmol-500M<br/>late-interaction embeddings"]
+        EMB --> Q8["int8 index · 476 MB<br/>1-bit 58 MB / f16 918 MB<br/>kept as ablations"]
+        TXT --> BM["BM25 index<br/>fold + prefix + stopwords"]
+    end
 
-> **Stale — these rows describe the v0 pipeline and are kept for the record only.**
-> They were logged before the P0 work replaced the retrieval path (Stage-1 removed,
-> training-compatible prompt format adopted, index rebuilt). Both the ranks and the
-> abstain outcomes below have since changed, and the "clean abstain" reading in
-> particular no longer holds — see the measured threshold behaviour in
-> [v0 limitations](#v0-limitations). They will be re-measured against the current
-> pipeline before any public claim is made.
+    subgraph ON["Online — every request"]
+        QRY["Turkish question"] --> TOK["tokenise<br/>lowercase · fold · prefix"]
+        TOK --> BM25["BM25 scoring<br/>2-5 ms"]
+        BM25 --> ROUTE["law-name routing<br/>reorder inside top 50"]
+        QRY --> VIS["visual MaxSim<br/>telemetry + calibration"]
+        ROUTE --> GATE{"score above<br/>threshold?"}
+        GATE -->|no| ABS["abstain<br/>no grounds found"]
+        GATE -->|yes| LLM["VLM answerer<br/>page images + S1..Sn markers"]
+        LLM --> CITE["answer + page citations<br/>+ clickable page image"]
+    end
 
-Runs against the local server, v0 pipeline, before the P0 changes:
+    Q8 -.-> VIS
+    BM -.-> BM25
 
-| Question | Result (v0, superseded) |
+    classDef store fill:#eef2f7,stroke:#2c5b8a,color:#12283d
+    classDef act fill:#f7f4ec,stroke:#8a6d2c,color:#2f2510
+    classDef out fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
+    class Q8,BM store
+    class TOK,BM25,ROUTE,VIS,LLM act
+    class CITE,ABS out
+```
+
+Two rules hold the system together:
+
+**Identity travels with data.** Every index carries a manifest — model revision, query
+format, document-prompt hash, quantisation, corpus checksum. The server refuses to start
+against an index whose identity does not match its configuration, and the calibration
+artefact is keyed by `index_revision × pipeline × recipe_fingerprint`. This discipline came
+out of an audit that found 139 places where a value had drifted from the context that gave
+it meaning — the worst being a score threshold silently bound to one quantisation scheme.
+
+**Flags and rollback.** New decision layers (calibrated gate, evidence verifier) ship behind
+flags that default to off, with a test asserting the served behaviour is byte-identical
+while they are off.
+
+## 5. Technical detail
+
+### Retrieval
+
+| Configuration | Recall@5 | Recall@20 | MRR | Gold-page rank, query A / B |
+|---|---|---|---|---|
+| visual only, 1-bit (original) | 0.116 | — | — | 3127 / — |
+| visual only, int8 | 0.233 | 0.302 | 0.149 | 664 / 137 |
+| hybrid, before folding | 0.837 | 0.930 | 0.655 | 2 / 2 |
+| **hybrid + folding (shipped)** | **0.8605** | **0.930** | 0.632 | **2 / 2** |
+
+Robustness sweep: BM25 `k1` ∈ [0.9, 1.8] × `b` ∈ [0.5, 0.9] all land in 0.814–0.837, and
+prefix length 4–7 is a plateau — the recipe is not balanced on a knife edge. One tuning
+setting would have added a further question and was deliberately **not** taken: that is
+fitting the benchmark, not the problem.
+
+### Quantisation
+
+int8 matches float16 ranking quality at every k, runs 4.3× faster than 1-bit (0.24 s vs
+1.08 s per query on CPU), and costs 476 MB against 58 MB. 1-bit loses 7 points of Recall@20
+*and* is slower — bit-packing tricks lose to BLAS here. int8 ships; the others stay as
+reproducible ablations.
+
+### Answer path
+
+Page markers are interleaved with images (`[S1]`, image, `[S2]`, image, …) so a citation
+binds to a specific page rather than a positional guess. There is no auto-citation
+fallback: if the model emits no marker, the answer carries none. Failures are classified
+(`timeout`, `http_5xx`, `http_429`, `auth`, `safety_block`, `parse`), and a total time
+budget is enforced as an invariant — a retry may not start if the remaining budget cannot
+cover it. Two API keys rotate: any transport-level error moves the request to the other key,
+and the working key becomes sticky.
+
+### Selective answering (in progress)
+
+The abstain threshold is a **mechanical transfer** of a prior operating point onto the BM25
+scale, not a calibration — and it does not separate answerable from unanswerable questions.
+Measured, moving the number does not fix that:
+
+- A confidence model over five retrieval-side features reaches AUROC 0.782 on the
+  development split, but at a 5% risk budget it answers only 2.2% of questions.
+- Signals that looked strong against 5 unanswerable questions (AUC 0.94) fell to 0.68
+  against 151 realistic ones — the new negatives are lexically plausible.
+
+Stated as a finding rather than a plan: **retrieval-side confidence alone cannot carry
+selective answering here.** A claim-level evidence verifier — segment the answer, check each
+claim against its cited page text, demote the answer if any claim is unsupported — is built
+and tested behind a flag. Wiring it into the default path is the next milestone.
+
+### Benchmarks and their provenance
+
+- **Canary**: 48 questions (43 answerable), behind every retrieval decision above.
+- **Unanswerable set**: 330 questions in three classes — out-of-corpus, nonsense, and the
+  hard one: *about* a corpus law, but the specific detail genuinely is not in the text.
+- Labels come from a drafter ≠ checker regime. Mechanical labels ("the anchored law is
+  absent from the 56-document manifest") are re-verified by a script that runs in CI. A
+  sampled cross-check put residual label noise at 12.5%, after which the entire test side
+  was verified row by row with an evidence quote for every rejection.
+- The split is law-grouped: 22 of 56 documents are test-only. The test side holds 155
+  unanswerable questions — the size at which a zero-error result supports a ≤2% claim at
+  95% confidence.
+
+**Honesty note, repeated wherever these numbers appear:** 3 of the 48 canary rows were
+verified by a human; the other 45 and the whole unanswerable set were verified by model
+cross-check. **These are not human-validated benchmarks.**
+
+### Operations
+
+A SQLite event log (29 fields per request — pipeline, score scale, which API key served,
+whether the model reported an honest miss), a Prometheus endpoint and a provisioned Grafana
+dashboard. Input validation rejects empty, overlong and malformed queries; a per-IP rate
+limiter with eviction and a privacy default that keeps raw query text off disk are both
+enabled in the container image.
+
+CI runs lint, type-check, 667 tests and the benchmark-integrity validator, and separately
+builds the deployment image. Its first two runs were red — catching two portability bugs
+that 147 local commits had not: CLI assertions that depended on terminal colour, and a
+corpus manifest the validator needs that was never tracked.
+
+## 6. Closing
+
+**What works today.** Retrieval is solved to the point where the remaining errors are
+semantic rather than lexical: the six unsolved benchmark questions are pure paraphrases
+sharing no vocabulary with their target pages. The system answers with citations, abstains
+on nonsense, tolerates missing diacritics, and survives an exhausted API quota by rotating
+keys.
+
+**What is honestly unfinished.**
+
+| Area | Status |
 |---|---|
-| *"Kişisel Verilerin Korunması Kanunu'na göre açık rızanın geçerlilik şartları nelerdir?"* (KVKK: conditions for valid explicit consent) | **Substantive, correctly cited.** Retrieval put the actual KVKK pages at rank 1-2; the answer states the three real statutory conditions (specific to a matter, based on being informed, freely given) with citations. |
-| *"Katma Değer Vergisi Kanunu'na göre KDV oranını belirlemeye kim yetkilidir?"* (who sets the VAT rate) | **Abstained** — the top score fell under the 60.0 threshold. Read at the time as the hallucination brake working; the P0 measurements show the threshold does not actually separate answerable from unanswerable questions, so this outcome cannot be credited to a working brake. |
-| *"Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"* (definition of legal domicile) | **Abstained**, same mechanism — and this is the query P0 used as its root-cause probe: the correct page (`k4721:4`) was ranked 3127/4222 by the old Stage-1, then 1221 (1-bit) and 664 (int8) under exhaustive MaxSim. Under the shipped hybrid pipeline it ranks **2**. |
+| Selective answering | Confidence model built and measured; too conservative to enable. Verifier built, behind a flag. |
+| Formal gate reports | Phase 0 passed and documented. Phase 1 has two measured failures (Recall@50 0.930 against a 0.95 target; paraphrase slice 0.571) **not yet adjudicated in a report**. |
+| Human validation | 3 of 48 rows. A human-gated benchmark is the honest next step. |
+| Public deployment | Runs locally; hosting needs a paid tier. The image builds in CI but has never been deployed. |
+| Article structure & OCR | Article-level hierarchy was specified but never built; 16 pages have a weak text layer and no OCR fallback. |
 
-Those were honestly representative of v0, not the best 3 out of hundreds: across 17 varied
-legal questions tried in that session (see [v0 limitations](#v0-limitations)), 1 produced
-a fully substantive correct answer and 3 abstained; the rest got an honest "not
-found in the given pages" from the answerer despite retrieval clearing the score gate.
-Explicitly naming the statute in the question measurably helped ("KVKK'na göre..." beat
-"KVKK ne der?"-style phrasing every time it was tried) — a hint, in hindsight, of the
-query-format problem P0 later found and fixed.
+All of it is tracked as issues in this repository — the failures included, filed rather
+than footnoted.
 
-## Quickstart
+**What this project argues.** The interesting part was not the model. It was building a
+measurement apparatus honest enough to overturn its own design: a visual-retrieval project
+whose measurements said the visual channel should stop ranking, a fusion strategy rejected
+three times on evidence, and a confidence model whose own numbers said it was not ready to
+ship. The runs behind those calls are in `docs/research/findings/`, dated, with the raw
+artefacts beside them.
 
-Run these in order — the last command is the blocking one.
+---
 
-```bash
-make setup                  # dev deps: ruff, pyright, pytest
-uv sync --all-extras        # + ml deps (torch, colpali-engine) — needed for index/serve
-uv run belge-gozu --help
-
-# 1. pull the published visual index + page images (int8, 476 MB)
-#    -> data/index-traincompat-int8 by default (see BG_INDEX_DIR)
-BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index uv run belge-gozu index pull
-
-# 2. the hybrid (default) pipeline additionally needs the BM25 text channel.
-#    It is extracted from the source PDFs, so the corpus download is required
-#    even when the index itself came from the Hub:
-uv run belge-gozu corpus download    # ~56 PDFs -> data/pdf/ (polite, resumable)
-uv run belge-gozu index build-text   # -> <BG_INDEX_DIR>/page_texts.parquet
-                                     # no model, no GPU: ~9 s for 4,222 pages -> 5.5 MB
-
-# 3. serve
-BG_DEVICE=cpu uv run belge-gozu serve
-# -> http://localhost:7860
-```
-
-**Why the download is not optional any more.** The published Hub index was pushed before P1
-and therefore contains no `page_texts.parquet`; `serve --pull` alone leaves the hybrid
-pipeline without its text channel and the server **fails fast** at startup rather than
-silently degrading to visual-only retrieval (which would quietly give up the measured
-recipe). The same fail-fast fires if the artifact is present but not row-for-row aligned
-with the index's `page_ids.json`. If you re-push the index after `index build-text`, the
-artifact travels with it and `serve --pull` becomes self-sufficient again.
-For a visual-only run with no PDFs at all, set `BG_RETRIEVAL_PIPELINE=exhaustive` — and move
-`BG_MIN_SCORE_THRESHOLD` onto that scale too (see the threshold note above).
-
-To reproduce the corpus from scratch instead of pulling the published index:
+### Run it
 
 ```bash
-uv run belge-gozu corpus download   # ~50 statutes + historical RG scans -> data/pdf/
-uv run belge-gozu corpus render     # PDF -> WebP page images + data/meta.parquet
-uv run belge-gozu index build --precision f16 --out data/index-traincompat-f16
-                                   # ColSmol-500M embeddings -> f16 master (918 MB)
-uv run belge-gozu index derive --from data/index-traincompat-f16 \
-  --quant int8 --out data/index-traincompat-int8      # what serving loads (476 MB)
-uv run belge-gozu index build-text  # BM25 text channel -> <index>/page_texts.parquet
-uv run belge-gozu index push        # optional: publish index/ + images/ to your own HF dataset repo
-uv run belge-gozu serve
+uv sync --extra dev --extra ml          # locked dependencies
+uv run belge-gozu corpus download       # public PDFs
+uv run belge-gozu corpus render         # PDF -> page images
+uv run belge-gozu index build           # embeddings (GPU/MPS recommended)
+uv run belge-gozu index derive --quant int8
+uv run belge-gozu index build-text      # text-channel artefact
+uv run belge-gozu serve --port 7860     # http://localhost:7860
 ```
 
-`GOOGLE_API_KEY` (or `BG_GEMINI_API_KEY`) must be set for `/ask` to call the answerer;
-`/search` works without it.
+Requires `GOOGLE_API_KEY` (optionally `GOOGLE_API_KEY_2` for rotation) in `.env`.
+Tests: `make test` · lint and types: `make lint` · dashboards: `make obs-up`.
 
-### API contract and input limits
+### Repository map
 
-A live edge-case probe (2026-08-30) found the API happily doing nonsense: `k=100000`
-dumped all 4,222 pages in one response, `k=-1` returned 4,221, an empty query returned five
-arbitrary score-0 pages, and a 3,000-character query pushed the BM25 score to ~1053, which
-made the answer threshold meaningless. Those are now closed:
-
-| field | rule | over-limit |
-|---|---|---|
-| `query` / `question` | ≤ 500 characters | `422`, FastAPI validation shape (`detail` is a **list**) |
-| `k` (`/search`) | `1 ≤ k ≤ 50` | `422`, same shape |
-| any query with no content tokens after stop-word and length filtering (`""`, whitespace, `"bu ne için"`) | rejected on both endpoints | `422` with `detail` as a **plain Turkish string**: `sorgu boş ya da yalnız işlev kelimeleri içeriyor` |
-
-`POST /ask` returns a top-level **`status`**: `"answered"` (an honest "I could not find it"
-still counts — it *is* an answer), `"abstained"` (top-1 below the threshold, the answerer
-was never called), or `"degraded"` (the answerer failed; the retrieved pages are still
-valid). The UI branches on this field rather than string-matching the abstain text.
-Each hit additionally carries `visual_score` — the visual channel's normalized `[-1, 1]`
-score for that page on the hybrid path, `null` on the visual-only pipelines. It never
-mixes into `score`, which is on the BM25 ranking scale.
-
-Rate limiting is **off by default** (`BG_RATE_LIMIT_ASK_PER_MIN=0`,
-`BG_RATE_LIMIT_SEARCH_PER_MIN=0`) so local use and benchmark runs are untouched. The
-`Dockerfile` turns it on for public deployment (10/min for `/ask`, 60/min for `/search`,
-per client IP, `429` + `Retry-After`) and sets `BG_LOG_QUERY_TEXT=false` so a public demo
-stores only query hashes. The limiter is an in-process sliding window keyed on
-`request.client.host`; it deliberately does not trust `X-Forwarded-For`, which means that
-behind a reverse proxy it degrades into a global ceiling rather than a spoofable per-user
-one. Query encoding is additionally capped by a process-wide `Semaphore(4)` — a defensive
-bound, not a measured need: 40 requests at concurrency 8 completed 40/40 at p50 1.34 s.
-
-**Deployment note (measured, not fixed in code):** any public deployment must run with rate
-limiting *on* — the `Dockerfile` default already does — because BM25 scoring is a
-single-process pure-Python loop over all 4,222 pages that holds the GIL (9.4 ms for a normal
-query, 119.2 ms for a 500-character one), so it is a known scale ceiling rather than a bug,
-and the rate limit is the only thing standing between a public URL and a saturated worker
-pool.
-
-## Telemetri
-
-Every `/ask` and `/search` request is logged to `data/requests.sqlite` (stage-by-stage
-latency — query encode, exhaustive MaxSim, answerer — plus token counts, estimated USD
-cost, and whether the request abstained) and mirrored as Prometheus
-metrics on `GET /metrics` (`bg_*` series: request/stage duration histograms, abstain
-and token counters, in-flight gauge, `bg_app_info`). `make obs-up` starts a local
-Prometheus + Grafana (`http://localhost:3001`, anonymous access, dashboard `belge-gozu`
-pre-provisioned) reading that endpoint; `make obs-down` tears it down.
-The event table's `stage1_ms`/`stage2_ms` columns are a leftover of the removed
-two-stage pipeline and stay `NULL` under the default (`hybrid`) one — the hybrid stages'
-latencies are recorded in the event's `detail.stages` map (`exhaustive_maxsim`,
-`text_bm25`, `route_fuse`) and exported to Prometheus in `bg_stage_duration_seconds`.
-Because the hybrid pipeline scores on the BM25 scale, its top-score/margin samples go to
-separate `bg_retrieval_top_score_bm25` / `bg_retrieval_score_margin_bm25` histograms rather
-than mixing into the normalized `[-1, 1]` series (see `docs/research/metrics-catalog.md`).
-`uv run belge-gozu metrics summary` prints a quick p95/abstain/cost readout from the
-SQLite log; `uv run belge-gozu metrics export --out <path>.parquet` dumps the raw event
-table for offline analysis. See `docs/research/` for a real baseline measurement session
-(load test, live `/ask` calls, and an honest write-up including a concurrency crash
-found while running it).
-
-## v0 limitations
-
-This is a working end-to-end system, not a finished product — v0's known gaps, honestly:
-
-- **Retrieval precision on natural-language queries was the weak link — P1 fixed most of
-  it, and the remaining misses are known.** The hybrid text channel took canary Recall@5
-  from 0.233 to 0.8605 (binary, 37/43; 0.8488 under the fractional definition — see the
-  metric note above), but **6 of 43 questions still miss the top-5, and they are pure
-  semantic paraphrases that name no statute** (the `paraphrase` slice scores 0.286 on its
-  own) — the lexical ceiling of a BM25-plus-rules
-  recipe. Two rule-based attempts at them were measured and *discarded* for regressing
-  elsewhere (a distinctive-single-token routing rule, and letting the visual channel break
-  ties inside the window). Closing the rest needs a dense Turkish text channel; that is P1
-  backlog, not a tuning knob. No query rewriting and no reranking pass yet.
-- **The score threshold (`BG_MIN_SCORE_THRESHOLD=10.6`) is a mechanical scale transfer,
-  not a calibration** — and it still does not separate answerable from unanswerable
-  questions. It reproduces the previous operating point by count (42/43 answerable and
-  4/5 unanswerable questions clear it, exactly as under 0.58 and 60.0 before it) — a unit
-  change on a new score scale, not a recalibration. Measured on the canary set (2026-08-30,
-  production int8 index + hybrid pipeline; 3/48 rows human-verified, 45 model-cross-checked
-  — see the provenance caveat above), on the **served** top-1 the gate actually reads:
-  answerable scores run min 10.53 / median 24.02 / max 69.30, while the out-of-corpus ones land at 23.53 / 12.96 / 17.86 and
-  a nonsense-question control at 15.54 — three real out-of-corpus questions sit *above* the
-  threshold, i.e. the distributions overlap and no single cut-off splits them. (Only the
-  fully-gibberish control, 4.23, falls below.) Raising the threshold would just abstain on
-  real questions instead: the answerable band starts at 10.53. Proper calibration is P2
-  work; the current state is pinned by an `xfail(strict=True)` canary test so it can
-  neither rot further nor be quietly declared fixed.
-- **P0 root-cause investigation found the old two-stage Stage-1 filter was discarding
-  good candidates, not just approximating the ranking.** For the query *"Türk Medeni
-  Kanunu'na göre yerleşim yeri nasıl tanımlanır?"*, the correct page (`k4721:4`) ranked
-  3127/4222 under the old mean-sign Hamming Stage-1 filter but 1576/4222 under
-  exhaustive binary MaxSim; for *"Yerleşim yeri nedir?"* it ranked 1768 under Stage-1
-  but **2** under exhaustive. Stage-1's top-200 candidate set overlapped the exhaustive
-  top-200 by only 11.5-19% across the queries checked — it was picking a mostly
-  different set of pages, not a faster version of the same ranking. Separately, the
-  index was found to contain 3,960 all-zero padding-token rows across 15 pages — a
-  real correctness defect (padding embeddings collapsing to an all-zero bit vector and
-  scoring as if it were a genuine token). This is now fixed and locked:
-  `PackedIndex.build` rejects all-zero rows at build time, and the rebuilt index has
-  0 such rows: 3,776,882 tokens in the same (cpe-0.3.18) format as the old index —
-  exactly 3,960 fewer than its 3,780,842 — and 3,759,994 in the train-compat format
-  that ships today. It was **not**, however, one of the causes of today's poor retrieval
-  numbers: measured on the canary benchmark (3/48 rows human-verified, 45
-  model-cross-checked — see the provenance caveat above), an
-  index rebuilt in the same format without the padding rows produced byte-identical
-  Recall at every k and an identical top-20 list for 42 of the 43 questions versus the
-  old, padded index. Independently, the encoder's retrieval training data is
-  English-only, which is the likely reason Turkish paraphrase queries score weaker
-  than queries that name the statute explicitly. That diagnosis is what P1 acted on:
-  the text channel now ranks, and the same query's gold page moved from 664 to **2**.
-- **Single retrieval mode, single answerer.** No query rewriting, no agentic
-  multi-step retrieval, no local-VLM fallback — Gemini Flash is the only answerer
-  implemented, behind a pluggable `Answerer` protocol.
-- **50 statutes, not the full corpus of Turkish law.** Scoped deliberately for v0;
-  broader coverage is a later-phase concern once retrieval quality is solid enough
-  to be worth scaling.
-- **Space hosting is pending**, per [Live demo](#live-demo) above — a platform
-  billing gate discovered during this deployment, not a code or infra gap.
-
-## Data & license
-
-Corpus text and images are rendered from official Turkish statutes and Official
-Gazette (Resmî Gazete) publications. Turkish official texts (laws, regulations,
-court decisions, and other public documents issued by government bodies) are exempt
-from copyright protection under **FSEK (Fikir ve Sanat Eserleri Kanunu) art. 31**.
-Source URLs for every document are recorded in `data/manifest/v0_manifest.csv` and in
-`meta.parquet`'s `source_url` column.
-
-## Tech stack
-
-Python 3.12 · FastAPI + uvicorn · PyMuPDF (PDF -> image rendering + text-layer extraction
-for the BM25 channel; no OCR) ·
-colpali-engine / ColSmol-500M (visual late-interaction retrieval) · PyTorch (MPS/CUDA/CPU) ·
-NumPy (int8 index, memory-mapped) · Gemini API via `google-genai` (pluggable
-answerer) · Hugging Face Hub (dataset storage + Space hosting) · pandas/pyarrow ·
-pytest + ruff + pyright, enforced in CI.
+| Path | What is in it |
+|---|---|
+| `src/belge_gozu/retrieval/` | BM25 text channel, law-name routing, hybrid retriever |
+| `src/belge_gozu/index/` | encoding, quantisation, manifests, compatibility fail-fast |
+| `src/belge_gozu/answer/` | answerer, key rotation, calibration, claim verifier |
+| `src/belge_gozu/telemetry/` | event log, Prometheus metrics, stage timing |
+| `docs/research/findings/` | dated measurement notes — the reasoning behind every number here |
+| `research/` | the experiment loop: journal, harness, results |
+| `data/bench/` | benchmarks, splits, and their provenance READMEs |
