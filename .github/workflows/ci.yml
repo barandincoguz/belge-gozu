@@ -1,13 +1,49 @@
 name: ci
+
+# Kapsam kararı (2026-08-31 proje denetimi, bulgu C12): eski iş akışı
+# `uv sync --extra dev` diyordu — lock DİSİPLİNİ yoktu (kilit dosyası
+# sürüklenirse CI yeşil kalır, dağıtım anında `uv export --frozen` patlardı) ve
+# imaj hiç build edilmiyordu, yani dağıtım zinciri bir kez bile doğrulanmamıştı.
+# Artık iki iş var: hızlı `test` (lint + testler + veri bütünlüğü) ve `docker`
+# (imajın gerçekten kurulabildiğinin kanıtı).
+#
+# `ml` extra'sı (torch, colpali-engine) testlerde BİLİNÇLİ olarak kurulmaz:
+# `-m "not slow"` süiti modeli stub'lar, ağır tekerlekleri indirmek CI'ı
+# dakikalarca uzatır. Gerçek `ml` kurulumu `docker` işinde doğrulanır.
+
 on:
   push: {branches: [main]}
   pull_request:
+  workflow_dispatch:
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
-      - run: uv sync --extra dev
+      # --locked: pyproject ile uv.lock ayrışmışsa CI KIRMIZI olur (sessizce
+      # çözüp devam etmez) — Dockerfile'daki `uv export --frozen` ile simetri.
+      - run: uv sync --locked --extra dev
       - run: make lint
       - run: make test
+      # Cevaplanamaz set makine kapısı: çapaların "korpusta yok" iddiası,
+      # dilim sayıları, split türetimi ve yakın-tekrarlar (bkz.
+      # data/bench/unans_v1.README.md). Model/ağ gerektirmez.
+      - name: cevaplanamaz veri kümesi doğrulaması
+        run: uv run python scripts/validate_unans.py
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # İmaj SADECE build edilir, itilmez: amaç dağıtım zincirinin (frozen
+      # export + ml kurulumu + konsol betiği) gerçekten çalıştığını kanıtlamak.
+      - name: imaj build (dağıtım zinciri kanıtı)
+        run: docker build -t belge-gozu:ci .
+      # Sağlık kanıtı: indeks olmadan `serve` fail-fast eder (beklenen), o
+      # yüzden yalnız CLI'ın imaj içinde ayağa kalktığı doğrulanır — bu, ağır
+      # `ml` bağımlılıklarının (torch, colpali-engine) gerçekten import
+      # edilebildiğini de kanıtlar, çünkü konsol betiği onları çeker.
+      - name: imaj içinde CLI çalışıyor mu
+        run: docker run --rm belge-gozu:ci belge-gozu --help
