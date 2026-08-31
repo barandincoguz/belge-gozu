@@ -14,6 +14,12 @@ original pitch. The tokenizer folds Turkish diacritics on **both** sides, which 
 system **writing-invariant**: "yıllık ücretli izin" and "yillik ucretli izin" produce the
 same ranking, and Recall@5 is 0.8605 in both conditions.
 
+The gain does not mean every P1 gate passed. The formal
+[P1/G1 decision](docs/research/findings/2026-08-31-p1-gate.md) is **FAIL**: candidate
+Recall@50 and the paraphrase slice missed their thresholds, while reranker and live
+deployment budgets remain unmeasured. ASCII folding stays because it improves served
+top-5 behavior and makes spelling invariant; its measured R@50 cost is tracked openly.
+
 v0 corpus: 4,222 pages across 50 core Turkish statutes (Anayasa, TBK, TCK, İş Kanunu,
 KVKK, TTK, TMK, tax and finance law, and more) plus 6 historical Official Gazette scans
 spanning 1928–1975.
