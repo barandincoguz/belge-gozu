@@ -6,11 +6,13 @@ from pydantic import ValidationError
 
 from belge_gozu.bench.dataset import (
     BenchQuestion,
+    VerificationLevel,
     assign_split,
     bench_stats,
     load_bench,
     load_splits,
     question_split,
+    select_bench,
 )
 
 
@@ -49,6 +51,72 @@ def test_load_verified_only(tmp_path: Path):
     write_jsonl(p, [q_dict(), q_dict(question_id="q2", verification_status="draft")])
     assert [q.question_id for q in load_bench(p)] == ["q1"]
     assert len(load_bench(p, only_verified=False)) == 2
+
+
+def test_min_verification_human_filters_model_and_mechanical_rows(tmp_path: Path):
+    p = tmp_path / "b.jsonl"
+    write_jsonl(
+        p,
+        [
+            q_dict(question_id="human", verification_kind="human"),
+            q_dict(question_id="model", verification_kind="model-cross-check"),
+            q_dict(
+                question_id="mechanical",
+                verification_kind="mechanical:manifest-absence",
+            ),
+        ],
+    )
+
+    selected = select_bench(p, min_verification=VerificationLevel.human)
+
+    assert [q.verification_kind for q in selected.questions] == ["human"]
+    assert selected.total == 3
+    assert selected.selected == 1
+    assert selected.filtered_out == 2
+
+
+def test_min_verification_model_includes_human_and_model(tmp_path: Path):
+    p = tmp_path / "b.jsonl"
+    write_jsonl(
+        p,
+        [
+            q_dict(question_id="human", verification_kind="human"),
+            q_dict(question_id="model", verification_kind="model-cross-check"),
+            q_dict(
+                question_id="mechanical",
+                verification_kind="mechanical:manifest-absence",
+            ),
+        ],
+    )
+
+    selected = select_bench(p, min_verification=VerificationLevel.model_cross_check)
+
+    assert {q.verification_kind for q in selected.questions} == {
+        "human",
+        "model-cross-check",
+    }
+    assert selected.filtered_out == 1
+
+
+def test_min_verification_also_requires_verified_status(tmp_path: Path):
+    p = tmp_path / "b.jsonl"
+    write_jsonl(
+        p,
+        [
+            q_dict(question_id="verified", verification_kind="human"),
+            q_dict(
+                question_id="draft",
+                verification_kind="human",
+                verification_status="draft",
+            ),
+        ],
+    )
+
+    selected = select_bench(p, only_verified=False, min_verification=VerificationLevel.human)
+
+    assert [q.question_id for q in selected.questions] == ["verified"]
+    assert selected.only_verified is False
+    assert selected.filtered_out == 1
 
 
 def test_answerable_requires_gold_pages():

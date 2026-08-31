@@ -15,6 +15,7 @@ import typer
 from PIL import Image
 from pydantic import ValidationError
 
+from belge_gozu.bench.dataset import BenchSelection, VerificationLevel
 from belge_gozu.bench.oracle import FloatIndex, native_float_scores, rank_of
 from belge_gozu.config import Settings
 from belge_gozu.corpus.download import download_all
@@ -513,21 +514,32 @@ def metrics_summary() -> None:
     typer.echo(f"token in/out={tok[0]}/{tok[1]} maliyet≈${tok[2]:.4f}")
 
 
-def _load_bench_mode(bench: Path, only_verified: bool) -> tuple[list, bool]:
-    """Bench JSONL'i `only_verified` moduna göre yükler, aktif modu yazdırır.
+def _load_bench_mode(
+    bench: Path,
+    only_verified: bool,
+    min_verification: VerificationLevel | str | None,
+) -> BenchSelection:
+    """Bench JSONL'i doğrulama düzeyine göre yükler ve seçimi açıklar.
 
-    `load_bench` saf JSONL okur — model/indekse dokunmaz, bu yüzden birim
+    `select_bench` saf JSONL okur — model/indekse dokunmaz, bu yüzden birim
     testte gerçek encoder olmadan doğrudan test edilebilir. R15: canary_v1
     insan doğrulaması tamamlanana kadar taslak dahil TÜMÜ (--all) varsayılan
     olmalı, aksi halde `bench run`/`bench oracle` hiç koşamaz."""
-    from belge_gozu.bench.dataset import load_bench
+    from belge_gozu.bench.dataset import select_bench
 
-    questions = load_bench(bench, only_verified=only_verified)
-    if only_verified:
-        typer.echo(f"bench modu: yalnız doğrulanmış (n={len(questions)})")
-    else:
-        typer.echo(f"bench modu: TÜMÜ (taslak dahil, n={len(questions)})")
-    return questions, only_verified
+    selection = select_bench(
+        bench,
+        only_verified=only_verified,
+        min_verification=min_verification,
+    )
+    status = "verified" if only_verified or selection.min_verification else "all"
+    minimum = selection.min_verification.value if selection.min_verification else "none"
+    typer.echo(
+        "bench seçimi: "
+        f"toplam={selection.total} seçilen={selection.selected} "
+        f"elenen={selection.filtered_out}; verification_status={status}; min={minimum}"
+    )
+    return selection
 
 
 @bench_app.command("run")
@@ -535,6 +547,9 @@ def bench_run(
     bench: Path = typer.Option(Path("data/bench/canary_v1.jsonl")),  # noqa: B008
     pipeline: Pipeline = typer.Option(DEFAULT_PIPELINE, "--pipeline"),  # noqa: B008
     only_verified: bool = typer.Option(False, "--only-verified/--all"),  # noqa: B008
+    min_verification: VerificationLevel | None = typer.Option(  # noqa: B008
+        None, "--min-verification"
+    ),
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
 ) -> None:
     from belge_gozu.bench.harness import (
@@ -580,7 +595,8 @@ def bench_run(
     else:
         adapter = ExhaustiveDiagnosticAdapter(ExhaustiveRetriever(idx, meta, encoder))
 
-    questions, only_verified = _load_bench_mode(bench, only_verified)
+    selection = _load_bench_mode(bench, only_verified, min_verification)
+    questions = selection.questions
     run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-{pipeline.value}"
     out_path = out or Path("data/bench/results") / f"{run_id}.json"
 
@@ -590,7 +606,11 @@ def bench_run(
         known_page_ids=set(idx.page_ids),
         run_id=run_id,
         index_manifest=idx.manifest,
-        config={"pipeline": pipeline.value, "bench": str(bench), "only_verified": only_verified},
+        config={
+            "pipeline": pipeline.value,
+            "bench": str(bench),
+            "verification": selection.provenance(),
+        },
     )
     report.to_json(out_path)
     o = report.overall
@@ -610,6 +630,9 @@ def bench_oracle(
     float_index: Path = typer.Option(..., "--float-index"),  # noqa: B008
     int8_index: Path | None = typer.Option(None, "--int8-index"),  # noqa: B008
     only_verified: bool = typer.Option(False, "--only-verified/--all"),  # noqa: B008
+    min_verification: VerificationLevel | None = typer.Option(  # noqa: B008
+        None, "--min-verification"
+    ),
     out: Path = typer.Option(..., "--out"),  # noqa: B008
 ) -> None:
     from belge_gozu.bench.metrics import recall_at_k
@@ -695,7 +718,8 @@ def bench_oracle(
     known_float_ids = set(findex.page_ids)
     known_int8_ids = set(i8.page_ids) if i8 is not None else set()
 
-    questions, only_verified = _load_bench_mode(bench, only_verified)
+    selection = _load_bench_mode(bench, only_verified, min_verification)
+    questions = selection.questions
     ks = (1, 5, 20, 50, 200)
     per_question: list[dict] = []
     binary_recalls: dict[int, list[float]] = {k: [] for k in ks}
@@ -771,6 +795,7 @@ def bench_oracle(
         "git_commit": git_commit(),
         "bench": str(bench),
         "only_verified": only_verified,
+        "verification": selection.provenance(),
         "packed_index": str(packed_index),
         "float_index": str(float_index),
         "packed_manifest": idx.manifest.model_dump(),
@@ -1182,6 +1207,9 @@ def verify_run(
     limit: int = typer.Option(0, "--limit"),  # noqa: B008
     splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
     only_verified: bool = typer.Option(True, "--only-verified/--all"),  # noqa: B008
+    min_verification: VerificationLevel | None = typer.Option(  # noqa: B008
+        None, "--min-verification"
+    ),
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
     yes_final_gate: bool = typer.Option(False, "--yes-final-gate"),  # noqa: B008
 ) -> None:
@@ -1209,7 +1237,15 @@ def verify_run(
     s = base.model_copy(update={"gate_calibrated": True, "gate_verifier": True})
 
     splits = load_splits(splits_path)
-    raw = load_rows(bench, only_verified=only_verified)
+    selection = _load_bench_mode(bench, only_verified, min_verification)
+    selected_ids = {q.question_id for q in selection.questions}
+    # `assign_split` alt çizgili hukuk gruplama alanlarını kullandığı için ham
+    # sözlükleri koruyoruz; seçim kimlikleri şema-doğrulanmış modelden gelir.
+    raw = [
+        rec
+        for rec in load_rows(bench, only_verified=False)
+        if rec["question_id"] in selected_ids
+    ]
     subset = [r for r in raw if assign_split(r, splits) == split.value]
     if limit > 0:
         subset = subset[:limit]
@@ -1282,12 +1318,15 @@ def verify_run(
             "min_score_threshold": s.min_score_threshold,
             "top_k": s.top_k,
             "verifier_max_claims": s.verifier_max_claims,
-            "only_verified": only_verified,
+            "verification": selection.provenance(),
         },
         "bench": {
             "path": str(bench),
             "sha256": sha256_file(bench),
             "git_blob": git_blob_sha(bench),
+            "total": selection.total,
+            "selected_before_split": selection.selected,
+            "filtered_out": selection.filtered_out,
             "n_selected": len(subset),
             "n_run": len(rows),
         },

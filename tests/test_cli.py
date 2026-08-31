@@ -467,12 +467,12 @@ def test_load_bench_mode_only_verified(tmp_path: Path, capsys):
         ],
     )
 
-    questions, only_verified = _load_bench_mode(p, only_verified=True)
+    selection = _load_bench_mode(p, only_verified=True, min_verification=None)
 
-    assert only_verified is True
-    assert [q.question_id for q in questions] == ["verified1"]
+    assert selection.only_verified is True
+    assert [q.question_id for q in selection.questions] == ["verified1"]
     out = capsys.readouterr().out
-    assert "bench modu: yalnız doğrulanmış (n=1)" in out
+    assert "toplam=2 seçilen=1 elenen=1" in out
 
 
 def test_load_bench_mode_all(tmp_path: Path, capsys):
@@ -485,12 +485,39 @@ def test_load_bench_mode_all(tmp_path: Path, capsys):
         ],
     )
 
-    questions, only_verified = _load_bench_mode(p, only_verified=False)
+    selection = _load_bench_mode(p, only_verified=False, min_verification=None)
 
-    assert only_verified is False
-    assert {q.question_id for q in questions} == {"verified1", "draft1"}
+    assert selection.only_verified is False
+    assert {q.question_id for q in selection.questions} == {"verified1", "draft1"}
     out = capsys.readouterr().out
-    assert "bench modu: TÜMÜ (taslak dahil, n=2)" in out
+    assert "toplam=2 seçilen=2 elenen=0" in out
+
+
+def test_load_bench_mode_human_selects_three_of_48(tmp_path: Path, capsys):
+    p = tmp_path / "bench.jsonl"
+    rows = [
+        _bench_q(question_id=f"human-{i}", verification_kind="human") for i in range(3)
+    ]
+    rows.extend(
+        _bench_q(
+            question_id=f"mechanical-{i}",
+            verification_kind="mechanical:manifest-absence",
+        )
+        for i in range(45)
+    )
+    _write_bench_jsonl(p, rows)
+
+    selection = _load_bench_mode(
+        p,
+        only_verified=False,
+        min_verification="human",
+    )
+
+    assert selection.total == 48
+    assert selection.selected == 3
+    assert selection.filtered_out == 45
+    assert {q.verification_kind for q in selection.questions} == {"human"}
+    assert "min=human" in capsys.readouterr().out
 
 
 def test_bench_run_help_lists_only_verified_and_all():
@@ -498,6 +525,7 @@ def test_bench_run_help_lists_only_verified_and_all():
     assert result.exit_code == 0, result.output
     assert "--only-verified" in result.output
     assert "--all" in result.output
+    assert "--min-verification" in result.output
 
 
 def test_bench_oracle_help_lists_only_verified_and_all():
@@ -505,6 +533,7 @@ def test_bench_oracle_help_lists_only_verified_and_all():
     assert result.exit_code == 0, result.output
     assert "--only-verified" in result.output
     assert "--all" in result.output
+    assert "--min-verification" in result.output
 
 
 def test_broken_env_gives_readable_message_not_a_traceback(tmp_path: Path):

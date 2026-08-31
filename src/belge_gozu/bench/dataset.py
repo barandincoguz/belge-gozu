@@ -1,6 +1,7 @@
 import hashlib
 import json
 from collections.abc import Mapping
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, get_args
 
@@ -35,6 +36,26 @@ UnansReason = Literal["korpus-disi", "eksik-kanit", "anlamsiz", "belirsiz"]
 SourceType = Literal["insan", "insan-paraphrase", "ajan-taslak-insan-onayli", "ajan-taslak"]
 
 _SLICES: tuple[Slice, ...] = get_args(Slice)
+
+
+class VerificationLevel(StrEnum):
+    mechanical = "mechanical"
+    model_cross_check = "model-cross-check"
+    human = "human"
+
+
+VERIFICATION_RANK = {
+    VerificationLevel.mechanical: 0,
+    VerificationLevel.model_cross_check: 1,
+    VerificationLevel.human: 2,
+}
+
+
+def verification_level(kind: str) -> VerificationLevel:
+    """Collapse concrete verification kinds onto the public strength scale."""
+    if kind == "mechanical:manifest-absence":
+        return VerificationLevel.mechanical
+    return VerificationLevel(kind)
 
 
 class BenchQuestion(BaseModel):
@@ -111,10 +132,32 @@ class BenchQuestion(BaseModel):
         return self
 
 
-def load_bench(path: Path | str, only_verified: bool = True) -> list[BenchQuestion]:
-    """JSONL bench dosyasını satır satır okur (satır no. 1'den başlar)."""
+class BenchSelection(BaseModel):
+    questions: list[BenchQuestion]
+    total: int
+    selected: int
+    filtered_out: int
+    only_verified: bool
+    min_verification: VerificationLevel | None
+
+    def provenance(self) -> dict[str, bool | int | str | None]:
+        return {
+            "only_verified": self.only_verified,
+            "min_verification": self.min_verification.value if self.min_verification else None,
+            "total": self.total,
+            "selected": self.selected,
+            "filtered_out": self.filtered_out,
+        }
+
+
+def select_bench(
+    path: Path | str,
+    only_verified: bool = True,
+    min_verification: VerificationLevel | str | None = None,
+) -> BenchSelection:
+    """Load a JSONL benchmark and report exactly what selection removed."""
     path = Path(path)
-    questions: list[BenchQuestion] = []
+    all_questions: list[BenchQuestion] = []
     lines = path.read_text(encoding="utf-8").splitlines()
     for i, line in enumerate(lines, start=1):
         if not line.strip():
@@ -124,12 +167,33 @@ def load_bench(path: Path | str, only_verified: bool = True) -> list[BenchQuesti
             q = BenchQuestion(**rec)
         except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as e:
             raise ValueError(f"bench satır {i}: {e}") from e
-        if only_verified and q.verification_status != "verified":
+        all_questions.append(q)
+
+    minimum = VerificationLevel(min_verification) if min_verification is not None else None
+    questions: list[BenchQuestion] = []
+    for q in all_questions:
+        if (only_verified or minimum is not None) and q.verification_status != "verified":
             continue
+        if minimum is not None:
+            actual = verification_level(q.verification_kind)
+            if VERIFICATION_RANK[actual] < VERIFICATION_RANK[minimum]:
+                continue
         questions.append(q)
     if not questions:
         raise ValueError("bench boş: yüklenecek soru yok")
-    return questions
+    return BenchSelection(
+        questions=questions,
+        total=len(all_questions),
+        selected=len(questions),
+        filtered_out=len(all_questions) - len(questions),
+        only_verified=only_verified,
+        min_verification=minimum,
+    )
+
+
+def load_bench(path: Path | str, only_verified: bool = True) -> list[BenchQuestion]:
+    """Compatibility wrapper returning only selected benchmark questions."""
+    return select_bench(path, only_verified=only_verified).questions
 
 
 def bench_stats(questions: list[BenchQuestion]) -> dict[str, int]:
