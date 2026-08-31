@@ -16,8 +16,14 @@ from belge_gozu.answer.verify import VERDICTS
 from belge_gozu.config import BM25_SCALE, pipelines_on_scale
 from belge_gozu.telemetry.schema import RequestEvent
 
-REQUEST_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30)
-STAGE_BUCKETS = (0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20)
+# Üst uçlar LLM bütçesine göre seçilir (`answer/gemini.py`
+# `GEMINI_TOTAL_BUDGET_S`, 2026-08-31'de 35 -> 50 sn): tavan bucket bütçeden
+# KÜÇÜKSE bütçeye yakın her istek `+Inf`e düşer ve p95/p99 tam da yeni açtığımız
+# bantta körleşir. 60 sn tavanı bütçenin (50) hemen üstündedir.
+REQUEST_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 45, 60)
+# `answerer` aşaması tek başına bütçenin tamamını kullanabilir; getirim
+# aşamaları milisaniyeler mertebesinde kaldığı için alt uç aynen korunur.
+STAGE_BUCKETS = (0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 35, 60)
 # T14: skor/marj bucket'ları normalize [-1,1] ölçeğine taşındı (eşik 0.58
 # çevresinde sıklaştırılmış). GEÇİŞ ÖNCESİ seriler/satırlar eski binary
 # ölçeğindedir (0-128) ve aynı seride karışırlar — hangi ölçekte oldukları

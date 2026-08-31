@@ -20,29 +20,42 @@ logger = logging.getLogger(__name__)
 # nokta yanıt veremez hâle geliyordu — sistemin en büyük tek arıza noktası.
 #
 # `GEMINI_TIMEOUT_S` httpx'e SKALER olarak geçer ve httpx bunu
-# `Timeout(connect=15, read=15, write=15, pool=15)` diye yorumlar — yani DÖRT
+# `Timeout(connect=T, read=T, write=T, pool=T)` diye yorumlar — yani DÖRT
 # BAĞIMSIZ FAZ SAYACI, toplam bir duvar-saati son tarihi DEĞİL. `/ask` her
 # çağrıda beş WebP görüntüsü yüklüyor: `write` fazı birçok ayrı yazma işlemine
-# bölünür ve her biri kendi 15 sn'sini alır, `read` de baytlar ARASINDAKİ süreyi
+# bölünür ve her biri kendi `timeout_s`ini alır, `read` de baytlar ARASINDAKİ süreyi
 # ölçer. Ölçülmüş kanıt (olay 2899, `http_429` — retry EDİLMEYEN sınıf, yani
-# kesinlikle tek HTTP çağrısı): `answer_ms = 16 225 ms`, tek deneme kendi 15
-# sn'sini 1,2 sn AŞTI.
+# kesinlikle tek HTTP çağrısı): `answer_ms = 16 225 ms`, tek deneme o günkü
+# 15 sn'lik fazını 1,2 sn AŞTI.
 #
 # Bu yüzden toplam tavan bir YORUM DEĞİL, `generate()` içinde ÖLÇÜLEN bir
 # invariant: her denemeden önce geçen gerçek süre okunur ve kalan bütçe bir
-# deneme daha kaldıramıyorsa retry YAPILMAZ. Tavanın kendisi (35 sn) istemci
-# tarafındaki makul bekleme eşiğinin (~60 sn) yarısı: kullanıcı sekmesini
-# kapatmadan önce sunucu kendi kararını vermiş olmalı.
+# deneme daha kaldıramıyorsa retry YAPILMAZ. Tavan (50 sn) istemci tarafındaki
+# makul bekleme eşiğinin (~60 sn) hemen altında: kullanıcı sekmesini kapatmadan
+# önce sunucu kendi kararını vermiş olmalı. Tarayıcı tarafında `fetch` için
+# AbortController YOKTUR (index.html), yani bu tavanı kısaltan bir istemci
+# sınırı da yoktur — kesme kararını sunucu verir.
+#
+# İKİ SABİT BİRLİKTE SEÇİLİR (2026-08-31 ölçümü): tavanı tek başına yükseltmek
+# YAVAŞ ama BAŞARILI çağrıyı kurtarmaz — onu kesen faz-başına `timeout_s`tir
+# (canlı: olay 2915 `degraded/timeout`, tek yavaş yanıt 15 sn'lik faza takıldı).
+# Bu yüzden `timeout_s` de 15 -> 24 sn'ye çıkarıldı. Seçim aritmetiği:
+#   * ROTASYON HER ZAMAN KARŞILANABİLMELİ (kullanıcının ikinci anahtarı ancak
+#     ikinci deneme sığıyorsa işe yarar): 2*T + backoff <= 50 => T <= 24,75.
+#   * T = 24: 24 + 0,5 + 24 = 48,5 <= 50 -> ikinci anahtar HER KOŞULDA denenir.
+#   * Üçüncü deneme yalnız ilk ikisi HIZLI bittiyse sığar (ör. 2*10 + 0,5 + 24
+#     = 44,5 <= 50) — yani ladder artık bütçe tarafından kör kesilmiyor.
+#   * Ölçülen tek-çağrı süreleri 5,6 / 10,2 / 16,2 sn; 24 sn bunları paylı kapsar.
 #
 # DÜRÜST SINIR: invariant retry KARARINI kapsar, tek bir denemenin İÇİNİ
 # kapsamaz — faz sayaçları yüzünden tek bir deneme de tavanı aşabilir (yukarıda
-# 16,2 sn ölçüldü). Yani garanti "toplam <= 35 sn" değil, "bütçe aşılmışken
+# 16,2 sn ölçüldü). Yani garanti "toplam <= 50 sn" değil, "bütçe aşılmışken
 # ÜSTÜNE bir deneme daha BİNMEZ"dir. Sert bir duvar-saati kesmesi ayrı bir iş
 # parçacığı/iptal mekanizması gerektirir ve bu fazın kapsamında değildir.
-GEMINI_TIMEOUT_S = 15.0
+GEMINI_TIMEOUT_S = 24.0
 GEMINI_RETRY_BACKOFF_S = 0.5
 GEMINI_MAX_ATTEMPTS = 2
-GEMINI_TOTAL_BUDGET_S = 35.0
+GEMINI_TOTAL_BUDGET_S = 50.0
 
 # Yalnız BUNLAR yeniden denenir. 429 (kota/hız) bilinçle DIŞARIDA: kota
 # aşımında ikinci bir istek durumu yalnız kötüleştirir ve faturayı büyütür.
@@ -322,7 +335,7 @@ class GeminiClient:
 
         `started` isteğin duvar-saati başlangıcıdır ve İSTEK BOYUNCA
         paylaşılır — anahtar rotasyonunda ikinci anahtarın denemesi de aynı
-        tavanın altındadır, kendi 35 sn'sini açmaz.
+        tavanın altındadır, kendi 50 sn'sini açmaz.
         """
         elapsed = time.monotonic() - started
         return elapsed + extra_sleep + self.timeout_s <= self.total_budget_s
@@ -376,9 +389,9 @@ class GeminiClient:
                     raise last from exc
                 # BÜTÇE İNVARİANTI (ölçülen, varsayılan değil): httpx'in faz
                 # başına sayaçları yüzünden tek bir deneme ilan edilen
-                # `timeout_s`i aşabilir (canlı: 16,2 sn / 15 sn). Bir sonraki
+                # `timeout_s`i aşabilir (canlı: 16,2 sn / o günkü 15 sn). Bir sonraki
                 # denemenin EN KÖTÜ hâli kalan bütçeye sığmıyorsa retry
-                # YAPILMAZ — aksi halde "<= 35 sn" bir tahmin olarak kalırdı.
+                # YAPILMAZ — aksi halde "<= 50 sn" bir tahmin olarak kalırdı.
                 elapsed = time.monotonic() - started
                 if not self.budget_fits(started, self.backoff_s):
                     logger.warning(

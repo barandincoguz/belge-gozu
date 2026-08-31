@@ -337,6 +337,15 @@ class SlowFailingModels:
         raise TimeoutError(f"deneme {self.calls} zaman aşımı")
 
 
+# Senaryo maliyetleri SABİTLERDEN TÜRETİLİR: bütçe/timeout değiştiğinde bu
+# testlerin niyeti ("yer kalmadı" / "yer var") sessizce tersine dönmesin diye
+# (2026-08-31 bütçe yükseltmesi tam bu tuzağı ortaya çıkardı).
+NO_ROOM_COST_S = GEMINI_TOTAL_BUDGET_S - GEMINI_TIMEOUT_S + 1.0
+"""Bir deneme daha SIĞMAYAN maliyet: cost + backoff + timeout > bütçe."""
+ROOM_LEFT_COST_S = 16.2
+"""Canlı ölçüm (olay 2899); bir deneme daha sığdığı testte doğrulanır."""
+
+
 def test_retry_is_skipped_when_the_budget_cannot_cover_another_attempt(monkeypatch):
     """httpx faz-başına sayaç tuttuğu için TEK deneme ilan edilen süreyi aşabilir
     (canlı ölçüm: 16,2 sn / 15 sn). Bütçe dolmuşken ÜSTÜNE ikinci bir deneme
@@ -345,8 +354,8 @@ def test_retry_is_skipped_when_the_budget_cannot_cover_another_attempt(monkeypat
     monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
     slept = []
     monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", slept.append)
-    # 25 sn: 25 + 0.5 + 15 = 40.5 > 35 -> retry KALMIYOR (timeout retry'lenebilir bir sınıf).
-    models = SlowFailingModels(clock, cost_s=25.0)
+    # cost + backoff + timeout > bütçe -> retry KALMIYOR (timeout retry'lenebilir bir sınıf).
+    models = SlowFailingModels(clock, cost_s=NO_ROOM_COST_S)
     with collecting() as col, pytest.raises(AnswererError) as ei:
         _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
     assert ei.value.error_type == "timeout"
@@ -362,8 +371,8 @@ def test_retry_still_happens_when_the_budget_allows_it(monkeypatch):
     clock = {"t": 0.0}
     monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
     monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", lambda s: None)
-    # 16.2 sn (canlı ölçüm): 16.2 + 0.5 + 15 = 31.7 <= 35 -> retry YAPILIR.
-    models = SlowFailingModels(clock, cost_s=16.2)
+    # canlı ölçüm + backoff + timeout <= bütçe -> retry YAPILIR.
+    models = SlowFailingModels(clock, cost_s=ROOM_LEFT_COST_S)
     with collecting() as col, pytest.raises(AnswererError):
         _client_with(models).generate("p", [b"i"], ["[S1] X sayfa 1"])
     assert models.calls == GEMINI_MAX_ATTEMPTS
@@ -379,7 +388,7 @@ def test_slow_client_degrades_with_timeout_taxonomy_within_budget(monkeypatch):
     clock = {"t": 0.0}
     monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
     monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", lambda s: None)
-    models = SlowFailingModels(clock, cost_s=30.0)
+    models = SlowFailingModels(clock, cost_s=NO_ROOM_COST_S)
     answerer = GeminiAnswerer("m", "k", client=_client_with(models))
 
     class OneHit:
@@ -589,8 +598,8 @@ def test_rotation_is_skipped_when_the_budget_cannot_cover_another_attempt(monkey
     clock = {"t": 0.0}
     monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
     monkeypatch.setattr("belge_gozu.answer.gemini.time.sleep", lambda s: None)
-    # 25 sn: 25 + 15 = 40 > 35 -> rotasyon KALMIYOR.
-    k1, k2 = SlowFailingModels(clock, cost_s=25.0), KeyModels()
+    # cost + timeout > bütçe -> rotasyon KALMIYOR.
+    k1, k2 = SlowFailingModels(clock, cost_s=NO_ROOM_COST_S), KeyModels()
     with collecting() as col, pytest.raises(AnswererError) as ei:
         _generate(_rot(k1, k2))
     assert ei.value.error_type == "timeout"
@@ -601,11 +610,11 @@ def test_rotation_is_skipped_when_the_budget_cannot_cover_another_attempt(monkey
 
 
 def test_rotation_still_happens_when_the_budget_allows_it(monkeypatch):
-    """Invariant rotasyonu TAMAMEN kapatmıyor: 16,2 sn (canlı ölçüm) + 15 sn
-    tavanın altında kalır, öbür anahtar denenir."""
+    """Invariant rotasyonu TAMAMEN kapatmıyor: canlı ölçüm + bir timeout
+    penceresi tavanın altında kalır, öbür anahtar denenir."""
     clock = {"t": 0.0}
     monkeypatch.setattr("belge_gozu.answer.gemini.time.monotonic", lambda: clock["t"])
-    k1, k2 = SlowFailingModels(clock, cost_s=16.2), KeyModels()
+    k1, k2 = SlowFailingModels(clock, cost_s=ROOM_LEFT_COST_S), KeyModels()
     with collecting() as col:
         out = _generate(_rot(k1, k2))
     assert out.text == "cevap [S1]" and k1.calls == 1 and k2.calls == 1

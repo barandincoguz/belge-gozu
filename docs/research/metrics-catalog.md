@@ -91,13 +91,15 @@ Adlandırma: `bg_` öneki, taban birim saniye. Registry ve tanımlar
 
 | Histogram | Bucket sınırları |
 |---|---|
-| `bg_request_duration_seconds` | `0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30` (saniye) |
-| `bg_stage_duration_seconds` | `0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20` (saniye) |
+| `bg_request_duration_seconds` | `0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 45, 60` (saniye) |
+| `bg_stage_duration_seconds` | `0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 35, 60` (saniye) |
 | `bg_retrieval_top_score` | `0.30, 0.40, 0.45, 0.50, 0.55, 0.58, 0.60, 0.65, 0.70, 0.80` |
 | `bg_retrieval_score_margin` | `0.0, 0.005, 0.01, 0.02, 0.04, 0.08` |
 | `bg_retrieval_top_score_bm25` | `0, 5, 10, 10.6, 15, 20, 30, 45, 70, 100` |
 | `bg_retrieval_score_margin_bm25` | `0, 0.5, 1, 2, 5, 10, 20, 40` |
 | `bg_llm_tokens_per_second` | `5, 10, 20, 40, 80, 160` (token/sn) |
+
+Gecikme bucket'larının üst uçları LLM toplam bütçesine bağlıdır (`GEMINI_TOTAL_BUDGET_S`, 2026-08-31: 35 -> 50 sn); tavan bucket bütçenin üstünde tutulur, aksi halde bütçeye yakın istekler `+Inf`e düşüp p95/p99'u körleştirir.
 
 Kaynak: `src/belge_gozu/telemetry/prom.py` — `REQUEST_BUCKETS`, `STAGE_BUCKETS`,
 `SCORE_BUCKETS`, `MARGIN_BUCKETS`, `TPS_BUCKETS`.
