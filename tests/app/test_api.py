@@ -994,3 +994,18 @@ def test_ui_survives_a_response_without_hits(tiny_corpus):
     assert "const hits = Array.isArray(data.hits) ? data.hits : [];" in html
     assert "renderChart(hits);" in html and "renderHits(hits);" in html
     assert "renderChart(data.hits)" not in html
+
+
+def test_ui_never_claims_the_canary_is_human_verified(tiny_corpus):
+    """DÜRÜSTLÜK KİLİDİ: canary'nin 48 satırının yalnız 3'ü insan doğrulamalı,
+    45'i model-çapraz-kontrol. Arayüz bir dönem künyede "43 soruluk
+    insan-doğrulamalı canary" yazıyordu (2026-08-31 plan/spec denetimi) —
+    yayınlanan tek gerçek-dışı iddia buydu ve projenin bütün değer önerisi
+    ölçüm dürüstlüğü olduğu için en pahalı hata sınıfı. README zaten doğruydu;
+    kilit arayüz tarafında eksikti."""
+    c = make_client(tiny_corpus)
+    html = c.get("/").text
+    assert "insan-doğrulamalı canary" not in html
+    assert "insan doğrulamalı canary" not in html
+    # ve künye gerçeği AÇIKÇA söylüyor
+    assert "3'ü insan" in html and "45'i model-çapraz-kontrol" in html
