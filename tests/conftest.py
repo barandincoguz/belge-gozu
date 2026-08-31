@@ -10,6 +10,7 @@ from belge_gozu.index.manifest import corpus_checksum, write_manifest
 from belge_gozu.index.store import PackedIndex
 from tests.index.test_manifest import make_manifest
 
+
 @pytest.fixture(autouse=True)
 def _deterministic_cli_output(monkeypatch):
     """CLI çıktısını ORTAMDAN bağımsız kıl: renk yok, sabit genişlik.

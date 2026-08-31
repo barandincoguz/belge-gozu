@@ -1,5 +1,7 @@
 # Belge-Gözü
 
+[![ci](https://github.com/barandincoguz/belge-gozu/actions/workflows/ci.yml/badge.svg)](https://github.com/barandincoguz/belge-gozu/actions/workflows/ci.yml)
+
 **Hybrid document RAG for Turkish legal documents — no OCR.**
 Pages are indexed as *images* by a ColPali-class vision-language model, and a swappable
 VLM answerer looks at those page images and answers strictly from what it sees — citing
