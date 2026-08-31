@@ -72,6 +72,29 @@ REJECT_VALIDATION = "validation"
 REJECT_RATE_LIMITED = "rate_limited"
 _REJECT_REASONS = {422: REJECT_VALIDATION, 429: REJECT_RATE_LIMITED}
 
+# Public presentation labels live with the server pipeline contract. The UI
+# must not maintain a second mapping that can drift from the active retriever.
+RETRIEVAL_LABELS: dict[str, dict[str, str]] = {
+    "hybrid": {
+        "ranking_channel": "BM25",
+        "score_label": "BM25 skoru",
+        "stage_label": "BM25 metin araması + doküman yönlendirme",
+        "visual_role": "Görsel kanal ölçüm için koşar; sıralamaya girmez.",
+    },
+    "exhaustive": {
+        "ranking_channel": "Görsel MaxSim",
+        "score_label": "Görsel benzerlik skoru",
+        "stage_label": "exhaustive MaxSim görsel tarama",
+        "visual_role": "Görsel kanal sıralamayı tek başına kurar.",
+    },
+    "two-stage": {
+        "ranking_channel": "Hamming + görsel MaxSim",
+        "score_label": "Görsel benzerlik skoru",
+        "stage_label": "Hamming eleme + MaxSim görsel tarama",
+        "visual_role": "Görsel kanal adayları eler ve sıralamayı kurar.",
+    },
+}
+
 
 class SearchBody(BaseModel):
     query: str = Field(..., max_length=MAX_QUERY_CHARS)
@@ -668,10 +691,11 @@ def create_app(
             "top_k": s.top_k,
             "pipeline": s.retrieval_pipeline,
             "index": {"quantization": quantization, "revision": revision},
+            "retrieval": RETRIEVAL_LABELS[s.retrieval_pipeline],
         }
 
     @app.post("/search")
-    def search(body: SearchBody, request: Request) -> dict[str, list[PageHit]]:
+    def search(body: SearchBody, request: Request) -> dict:
         # Doğrulama + hız sınırı + RET OLAYI tek yerde (`guard`); sıra
         # gerekçesi orada. Pydantic'in kendi doğrulaması (gövde `max_length`,
         # `k` aralığı) buraya hiç ulaşmadan 422 verir ve olay yazılmaz.
@@ -710,7 +734,16 @@ def create_app(
                 k=k,
                 candidates=cand,
             )
-        return {"hits": hits}
+        no_match = not hits or hits[0].score < s.min_score_threshold
+        return {
+            "status": "no_match" if no_match else "ok",
+            "no_match": no_match,
+            "threshold": s.min_score_threshold,
+            "pipeline": s.retrieval_pipeline,
+            # Eşik-altı sonuçlar teşhis/API kullanımı için korunur; istemci
+            # bunları geçerli eşleşme gibi sunmamalıdır.
+            "hits": hits,
+        }
 
     @app.post("/ask")
     def ask(body: AskBody, request: Request) -> dict:
@@ -779,6 +812,7 @@ def create_app(
         payload: dict = {
             "status": status,
             "honest_miss": honest_miss,
+            "no_match": not hits or hits[0].score < s.min_score_threshold,
             "answer": answer.model_dump(),
             "hits": [h.model_dump() for h in hits],
         }

@@ -8,9 +8,10 @@ VLM answerer looks at those page images and answers strictly from what it sees �
 pages, or admitting it doesn't know — instead of hallucinating an article number.
 Retrieval was visual-only in v0/P0; **P1 measured that channel against a Turkish-tuned
 BM25 pass over the PDF text layer and the text channel won by 3.7x** (canary Recall@5
-0.233 → 0.8605), so ranking is now hybrid. The visual channel still runs on every query,
-kept for telemetry and P2 calibration — the honest result, not the one that fit the
-original pitch. The tokenizer folds Turkish diacritics on **both** sides, which makes the
+0.233 → 0.8605), so production runs both channels but **BM25 alone determines the
+ranking**. The visual channel still runs on every query, kept for telemetry and P2
+calibration — the honest result, not the one that fit the original pitch. The tokenizer
+folds Turkish diacritics on **both** sides, which makes the
 system **writing-invariant**: "yıllık ücretli izin" and "yillik ucretli izin" produce the
 same ranking, and Recall@5 is 0.8605 in both conditions.
 
@@ -301,6 +302,12 @@ made the answer threshold meaningless. Those are now closed:
 still counts — it *is* an answer), `"abstained"` (top-1 below the threshold, the answerer
 was never called), or `"degraded"` (the answerer failed; the retrieved pages are still
 valid). The UI branches on this field rather than string-matching the abstain text.
+Both `/ask` and `/search` also return `no_match`, computed from the same server-side
+top-1 threshold decision; `/search.status` is `"ok"` or `"no_match"` and includes the
+active `threshold` and `pipeline`. Threshold-below hits remain in the API for diagnostics,
+but the UI presents a dedicated “Eşleşme bulunamadı” state instead of valid-looking cards.
+`/healthz.retrieval` owns the ranking-channel, score, stage, and visual-role labels used by
+the UI, so changing the active pipeline cannot leave a stale client-side label table.
 Each hit additionally carries `visual_score` — the visual channel's normalized `[-1, 1]`
 score for that page on the hybrid path, `null` on the visual-only pipelines. It never
 mixes into `score`, which is on the BM25 ranking scale.
