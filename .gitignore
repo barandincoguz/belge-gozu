@@ -5,6 +5,11 @@ data/*
 !data/manifest/**
 !data/bench/
 !data/bench/**
+# Korpus künyesi (56 belge x sha256+durum, 6 KB): cevaplanamaz set doğrulayıcısı
+# ve testleri "çapa kanunu korpusta YOK" iddiasını BUNA karşı sınar. İzlenmezse
+# taze bir klonda ne `scripts/validate_unans.py` ne de testleri koşabilir
+# (2026-08-31'de CI tam bunu yakaladı).
+!data/state.json
 *.egg-info/
 .pytest_cache/
 requests.sqlite

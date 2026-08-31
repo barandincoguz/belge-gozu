@@ -10,6 +10,23 @@ from belge_gozu.index.manifest import corpus_checksum, write_manifest
 from belge_gozu.index.store import PackedIndex
 from tests.index.test_manifest import make_manifest
 
+@pytest.fixture(autouse=True)
+def _deterministic_cli_output(monkeypatch):
+    """CLI çıktısını ORTAMDAN bağımsız kıl: renk yok, sabit genişlik.
+
+    2026-08-31'de ilk CI koşumu 7 testi kırdı: GitHub Actions ortamında rich
+    RENKLİ basıyor ve `"--only-verified" in result.output` gibi kontroller ANSI
+    dizileri araya girdiği için başarısız oluyordu — yerelde (renksiz) geçen
+    testler CI'da kırmızıydı. Testler bayrak ADLARINI sınıyor, boyamayı değil;
+    bu yüzden renk kapatılır ve genişlik sabitlenir (dar terminalde uzun bayrak
+    adları sarılabilir).
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+
+
 # Metin kanalı (P1) fikstür metinleri — page_id -> sayfa metni.
 # 1. sayfa başlık satırları KASITLI olarak gerçek biçimde: `extract_doc_name_tokens`
 # bu satırlardan doküman adı türetir (d0 -> {"meden"}, d1 -> {"iş"}, d2 -> {"ceza"}),
