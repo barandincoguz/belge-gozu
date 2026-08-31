@@ -61,6 +61,27 @@ def test_record_never_raises(tmp_path: Path, caplog):
     rec.record(_ev())  # exception yok
 
 
+def test_unwritable_parent_falls_back_to_memory(tmp_path: Path, caplog, monkeypatch):
+    requested = tmp_path / "readonly" / "requests.sqlite"
+    real_mkdir = Path.mkdir
+
+    def deny_requested_parent(path: Path, *args, **kwargs):
+        if path == requested.parent:
+            raise PermissionError("read-only filesystem")
+        return real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", deny_requested_parent)
+
+    with caplog.at_level(logging.WARNING):
+        rec = EventRecorder(requested)
+    rec.record(_ev(1))
+
+    assert rec.db_path == requested
+    assert rec._db.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
+    assert caplog.text.count("kalıcı telemetri açılamadı; bellek içi kayda düşülüyor") == 1
+    rec.close()
+
+
 _OLD_EVENTS_DDL = """CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,

@@ -1,6 +1,8 @@
 import json
+import logging
 import sqlite3
 import time
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -90,6 +92,31 @@ def test_healthz(tiny_corpus):
             "visual_role": "Görsel kanal ölçüm için koşar; sıralamaya girmez.",
         },
     }
+
+
+def test_healthz_survives_unwritable_telemetry_directory(tiny_corpus, caplog, monkeypatch):
+    data_dir, enc, _ = tiny_corpus
+    real_mkdir = Path.mkdir
+
+    def deny_data_dir(path: Path, *args, **kwargs):
+        if path == data_dir:
+            raise PermissionError("read-only filesystem")
+        return real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", deny_data_dir)
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        min_score_threshold=-1e9,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        app = create_app(settings=settings, encoder=enc, answerer=StubAnswerer())
+        response = TestClient(app).get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert "kalıcı telemetri açılamadı; bellek içi kayda düşülüyor" in caplog.text
 
 
 def test_healthz_reports_active_pipeline(tiny_corpus):
