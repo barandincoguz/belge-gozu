@@ -15,6 +15,7 @@ data/*
 requests.sqlite
 .env
 .env.*
+!.env.example
 .ruff_cache/
 .DS_Store
 .claude/

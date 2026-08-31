@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import shutil
@@ -447,24 +448,59 @@ def index_write_manifest(
 
 
 @index_app.command("push")
-def index_push() -> None:
+def index_push(
+    revision: str = typer.Option("main", "--revision"),  # noqa: B008
+    images: bool = typer.Option(True, "--images/--no-images"),  # noqa: B008
+) -> None:
     from belge_gozu.index.hub import push_index
 
     s = _settings()
+    if not s.hf_dataset_repo:
+        raise typer.BadParameter("BG_HF_DATASET_REPO ayarlı değil")
     images_dir = s.data_dir / "images"
-    push_index(
-        s.index_dir, s.hf_dataset_repo, images_dir=images_dir if images_dir.exists() else None
+    sha = push_index(
+        s.index_dir,
+        s.hf_dataset_repo,
+        images_dir=images_dir if images and images_dir.exists() else None,
+        token=s.hf_token,
+        revision=revision,
     )
-    typer.echo(f"indeks {s.hf_dataset_repo} reposuna gönderildi")
+    typer.echo(f"indeks {s.hf_dataset_repo} reposuna gönderildi; commit={sha}")
+
+
+def _doc_prompt_sha256(s: Settings) -> str | None:
+    prompt = DOC_PROMPTS[DocPromptChoice(s.doc_prompt_id)]
+    return hashlib.sha256(prompt.encode()).hexdigest() if prompt is not None else None
+
+
+def _pull_from_hub(s: Settings, revision: str) -> str:
+    from belge_gozu.index.hub import pull_index
+
+    return pull_index(
+        s.hf_dataset_repo,
+        s.index_dir,
+        data_dir=s.data_dir,
+        token=s.hf_token,
+        revision=revision,
+        expected_model_name=s.retriever_model,
+        expected_query_format_id=s.query_format_id,
+        expected_doc_prompt_sha256=_doc_prompt_sha256(s),
+        require_page_texts=True,
+    )
 
 
 @index_app.command("pull")
-def index_pull() -> None:
-    from belge_gozu.index.hub import pull_index
-
+def index_pull(
+    revision: str | None = typer.Option(None, "--revision"),  # noqa: B008
+) -> None:
     s = _settings()
-    pull_index(s.hf_dataset_repo, s.index_dir, data_dir=s.data_dir)
-    typer.echo(f"indeks {s.hf_dataset_repo} reposundan indirildi")
+    resolved_revision = revision or s.hf_revision
+    if not s.hf_dataset_repo:
+        raise typer.BadParameter("BG_HF_DATASET_REPO ayarlı değil")
+    if not resolved_revision:
+        raise typer.BadParameter("--revision ya da BG_HF_REVISION ile commit SHA gerekli")
+    sha = _pull_from_hub(s, resolved_revision)
+    typer.echo(f"indeks {s.hf_dataset_repo} reposundan indirildi; commit={sha}")
 
 
 @metrics_app.command("export")
@@ -1513,10 +1549,13 @@ def serve(
     port: int = typer.Option(7860),  # noqa: B008
 ) -> None:
     s = _settings()
-    if pull and s.hf_dataset_repo:
-        from belge_gozu.index.hub import pull_index
-
-        pull_index(s.hf_dataset_repo, s.index_dir, data_dir=s.data_dir)
+    if pull:
+        if not s.hf_dataset_repo:
+            raise typer.BadParameter("--pull için BG_HF_DATASET_REPO gerekli")
+        if not s.hf_revision:
+            raise typer.BadParameter("--pull için BG_HF_REVISION commit SHA değeri gerekli")
+        sha = _pull_from_hub(s, s.hf_revision)
+        typer.echo(f"Hub indeksi hazır; commit={sha}")
     import uvicorn
 
     uvicorn.run("belge_gozu.app.main:create_app", factory=True, host="0.0.0.0", port=port)

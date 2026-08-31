@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     retriever_model: str = "vidore/colSmol-500M"
     device: str = "auto"
     hf_dataset_repo: str = ""
+    # Hugging Face standart adı `HF_TOKEN`dır. Alias verildiğinde BG_ öneki
+    # otomatik uygulanmadığı için proje-önekli karşılığı da açıkça listelenir.
+    hf_token: str = Field(default="", validation_alias=AliasChoices("HF_TOKEN", "BG_HF_TOKEN"))
+    # Pull yalnız değişmez 40 karakterli commit SHA kabul eder. Push tarafı
+    # adlandırılmış bir dala (varsayılan `main`) yazar ve oluşan SHA'yı basar.
+    hf_revision: str = ""
     # gemini-2.0-flash Task 13'te canlı çağrıda 404 döndü (API: "no longer
     # available... use models/gemini-3.6-flash"); Task 13 canlı doğrulamasında güncellendi.
     gemini_model: str = "gemini-3.6-flash"

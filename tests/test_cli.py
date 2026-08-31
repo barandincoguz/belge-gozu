@@ -22,6 +22,58 @@ def make_pdf(path: Path, pages: int) -> None:
     doc.save(path)
 
 
+def test_index_push_prints_sha_and_passes_credentials(tmp_path: Path, monkeypatch):
+    calls: dict[str, object] = {}
+
+    def fake_push(index_dir, repo_id, **kwargs):
+        calls.update(index_dir=index_dir, repo_id=repo_id, **kwargs)
+        return "a" * 40
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BG_HF_DATASET_REPO", "user/repo")
+    monkeypatch.setenv("HF_TOKEN", "secret-token")
+    monkeypatch.setattr("belge_gozu.index.hub.push_index", fake_push)
+
+    result = runner.invoke(app, ["index", "push", "--revision", "main", "--no-images"])
+
+    assert result.exit_code == 0, result.output
+    assert "a" * 40 in result.output
+    assert calls["repo_id"] == "user/repo"
+    assert calls["revision"] == "main"
+    assert calls["token"] == "secret-token"
+    assert calls["images_dir"] is None
+
+
+def test_index_pull_requires_repo_and_revision(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("BG_HF_DATASET_REPO", raising=False)
+    monkeypatch.delenv("BG_HF_REVISION", raising=False)
+
+    missing_repo = runner.invoke(app, ["index", "pull"])
+    assert missing_repo.exit_code != 0
+    assert "BG_HF_DATASET_REPO" in missing_repo.output
+
+    monkeypatch.setenv("BG_HF_DATASET_REPO", "user/repo")
+    missing_revision = runner.invoke(app, ["index", "pull"])
+    assert missing_revision.exit_code != 0
+    assert "BG_HF_REVISION" in missing_revision.output
+
+
+def test_serve_pull_requires_repo_and_revision_before_uvicorn(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("BG_HF_DATASET_REPO", raising=False)
+    monkeypatch.delenv("BG_HF_REVISION", raising=False)
+
+    missing_repo = runner.invoke(app, ["serve", "--pull"])
+    assert missing_repo.exit_code != 0
+    assert "BG_HF_DATASET_REPO" in missing_repo.output
+
+    monkeypatch.setenv("BG_HF_DATASET_REPO", "user/repo")
+    missing_revision = runner.invoke(app, ["serve", "--pull"])
+    assert missing_revision.exit_code != 0
+    assert "BG_HF_REVISION" in missing_revision.output
+
+
 def test_render_and_fake_build(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("BG_INDEX_DIR", str(tmp_path / "index"))
