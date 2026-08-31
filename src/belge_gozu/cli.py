@@ -1157,7 +1157,7 @@ def calibrate_eval(
 
 
 def _verify_service(s: Settings, budget):
-    """İKİ KAPISI DA AÇIK bir `AskService` + kapı künyesi + indeks sürümü.
+    """İki kapısı açık servis, kapı künyesi, manifest ve indeks sürümü.
 
     Serve ile AYNI parçalar (`load_text_channel` + `HybridRetriever` +
     `GeminiAnswerer` + `build_gates`): harness'ın ölçtüğü şey üretimin
@@ -1188,21 +1188,300 @@ def _verify_service(s: Settings, budget):
         gate1=gates.retrieval,
         gate2=gates.evidence,
     )
-    return service, gates, revision
+    return service, gates, idx.manifest, revision
+
+
+def _answer_eval_command(
+    *,
+    bench_paths: list[Path],
+    split: Split,
+    max_llm_attempts: int,
+    limit: int,
+    splits_path: Path,
+    only_verified: bool,
+    min_verification: VerificationLevel | None,
+    out: Path | None,
+    yes_final_gate: bool,
+    command_name: str,
+) -> None:
+    """Run the two-gate answer evaluator used by both public CLI paths."""
+    from belge_gozu.answer.base import is_honest_miss
+    from belge_gozu.answer.calibrate import git_blob_sha, load_rows, sha256_file
+    from belge_gozu.answer.verify import VerifierBudget
+    from belge_gozu.bench.answer_eval import AnswerRecord, ClaimRecord, run_answer_eval
+    from belge_gozu.bench.dataset import assign_split, load_splits
+    from belge_gozu.retrieval.text import recipe_fingerprint
+    from belge_gozu.telemetry.collect import collecting
+
+    _gate_test_split(split, yes_final_gate)
+    if max_llm_attempts < 0:
+        raise typer.BadParameter("--max-llm-attempts negatif olamaz")
+    if not bench_paths:
+        raise typer.BadParameter("en az bir --bench dosyası zorunludur")
+
+    base = _settings()
+    if base.retrieval_pipeline != "hybrid":
+        raise typer.BadParameter(
+            f"{command_name} yalnız hibrit boru hattında tanımlı (kalibre kapı BM25 metin "
+            f"kanalından okur); BG_RETRIEVAL_PIPELINE={base.retrieval_pipeline}"
+        )
+    s = base.model_copy(update={"gate_calibrated": True, "gate_verifier": True})
+    splits = load_splits(splits_path)
+
+    selections = [_load_bench_mode(path, only_verified, min_verification) for path in bench_paths]
+    raw: list[dict] = []
+    source_meta: list[dict] = []
+    seen_ids: set[str] = set()
+    for path, selection in zip(bench_paths, selections, strict=True):
+        selected_ids = {q.question_id for q in selection.questions}
+        source_rows = [
+            rec
+            for rec in load_rows(path, only_verified=False)
+            if rec["question_id"] in selected_ids
+        ]
+        duplicates = seen_ids.intersection(str(rec["question_id"]) for rec in source_rows)
+        if duplicates:
+            raise typer.BadParameter(
+                f"bench dosyalarında yinelenen question_id: {sorted(duplicates)[:5]}"
+            )
+        seen_ids.update(str(rec["question_id"]) for rec in source_rows)
+        raw.extend(source_rows)
+        source_meta.append(
+            {
+                "path": str(path),
+                "sha256": sha256_file(path),
+                "git_blob": git_blob_sha(path),
+                **selection.provenance(),
+            }
+        )
+
+    subset = [rec for rec in raw if assign_split(rec, splits) == split.value]
+    if limit > 0:
+        subset = subset[:limit]
+    if not subset:
+        paths = ", ".join(str(path) for path in bench_paths)
+        raise typer.BadParameter(f"{split.value} bölmesinde koşulacak soru yok: {paths}")
+
+    budget = VerifierBudget(max_llm_attempts)
+    service, gates, manifest, revision = _verify_service(s, budget)
+    if manifest is None:
+        manifest_payload = None
+    elif hasattr(manifest, "model_dump"):
+        manifest_payload = manifest.model_dump()
+    elif isinstance(manifest, dict):
+        manifest_payload = dict(manifest)
+    else:
+        raise TypeError(f"desteklenmeyen manifest türü: {type(manifest).__name__}")
+
+    records: list[AnswerRecord] = []
+    legacy_rows: list[dict] = []
+    stopped = None
+    for rec in subset:
+        if budget.remaining == 0 and records:
+            stopped = (
+                f"bütçe doldu ({budget.used}/{budget.max_attempts} API denemesi) "
+                f"— {len(records)} soru koşuldu"
+            )
+            break
+        with collecting() as col:
+            answer, hits = service.ask(str(rec["question"]), k=s.top_k)
+        status = (
+            "degraded"
+            if col.notes.get("degraded")
+            else ("abstained" if answer.abstained else "answered")
+        )
+        gate1 = col.notes.get("gate1")
+        if not isinstance(gate1, dict):
+            gate1 = None
+        gate2 = col.notes.get("gate2")
+        if not isinstance(gate2, dict):
+            gate2 = {}
+        claims = tuple(
+            ClaimRecord(
+                claim_id=str(row["claim_id"]),
+                verdict=row["verdict"],
+                gerekce=str(row.get("gerekce", "")),
+                cited_sources=tuple(row.get("cited_sources") or ()),
+                inherited_sources=bool(row.get("inherited_sources", False)),
+                cached=bool(row.get("cached", False)),
+                attempts=int(row.get("attempts", 0) or 0),
+            )
+            for row in gate2.get("claims") or ()
+        )
+        record = AnswerRecord(
+            question_id=str(rec["question_id"]),
+            question=str(rec["question"]),
+            answerable=bool(rec["answerable"]),
+            unanswerable_reason=rec.get("unanswerable_reason"),
+            slice=rec.get("slice"),
+            status=status,
+            honest_miss=is_honest_miss(answer),
+            answer_text=answer.text,
+            citations=tuple(answer.citations),
+            top_score=hits[0].score if hits else None,
+            gate1=gate1,
+            n_claims=int(gate2.get("n_claims", len(claims)) or 0),
+            claims=claims,
+        )
+        records.append(record)
+        legacy_rows.append(
+            {
+                "qid": record.question_id,
+                "answerable": record.answerable,
+                "unanswerable_reason": record.unanswerable_reason,
+                "slice": record.slice,
+                "status": record.status,
+                "citations": list(record.citations),
+                "top_score": record.top_score,
+                "gate1": gate1,
+                "gate2": gate2,
+            }
+        )
+
+    verdict_counts: Counter[str] = Counter()
+    llm_calls = cache_hits = demoted = api_attempts = 0
+    for row in legacy_rows:
+        gate2 = row["gate2"] or {}
+        llm_calls += int(gate2.get("llm_calls", 0) or 0)
+        api_attempts += int(gate2.get("api_attempts", 0) or 0)
+        cache_hits += int(gate2.get("cache_hits", 0) or 0)
+        demoted += 1 if gate2.get("demoted") else 0
+        for claim in gate2.get("claims") or ():
+            verdict_counts[claim["verdict"]] += 1
+    gate1_passed = sum(1 for row in legacy_rows if (row["gate1"] or {}).get("passed"))
+
+    verification = {
+        "only_verified": only_verified,
+        "min_verification": min_verification.value if min_verification else None,
+        "total": sum(selection.total for selection in selections),
+        "selected": sum(selection.selected for selection in selections),
+        "filtered_out": sum(selection.filtered_out for selection in selections),
+    }
+    split_meta = {"path": str(splits_path), "sha256": sha256_file(splits_path)}
+    dataset = {
+        "bench": source_meta[0],
+        "sources": source_meta,
+        "splits": split_meta,
+        "verification": verification,
+        "selected_after_split": len(subset),
+        "run": len(records),
+    }
+    budget_meta = {
+        "unit": "api_attempts",
+        "max_attempts": budget.max_attempts,
+        "used": budget.used,
+        "stopped": stopped,
+    }
+    recipe = recipe_fingerprint()
+    gate1_detail = gates.detail.get("gate1") or {}
+    now = datetime.now(UTC)
+    run_id = f"{now:%Y%m%d-%H%M}-{git_commit()}-answers-{split.value}"
+    report = run_answer_eval(
+        records,
+        run_id=run_id,
+        git_commit=git_commit(),
+        created_at=now,
+        split=split.value,
+        index_manifest=manifest_payload,
+        index_revision=revision,
+        calibrator_key=gate1_detail.get("key"),
+        config={
+            "pipeline": s.retrieval_pipeline,
+            "recipe_fingerprint": recipe,
+            "gates": gates.detail,
+            "gate_calibrated": s.gate_calibrated,
+            "gate_verifier": s.gate_verifier,
+            "gemini_model": s.gemini_model,
+            "min_score_threshold": s.min_score_threshold,
+            "top_k": s.top_k,
+            "verifier_max_claims": s.verifier_max_claims,
+            "verification": verification,
+        },
+        dataset=dataset,
+        budget=budget_meta,
+    )
+    summary = {
+        "n": len(records),
+        "by_status": dict(Counter(record.status for record in records)),
+        "gate1_passed": gate1_passed,
+        "gate2_demoted": demoted,
+        "verdicts": dict(verdict_counts),
+        "verifier_llm_calls": llm_calls,
+        "verifier_api_attempts": api_attempts,
+        "verifier_cache_hits": cache_hits,
+    }
+    payload = report.model_dump(mode="json")
+    # `verify run` was public before `AnswerEvalReport`; keep its diagnostic
+    # aliases while both command paths now share the canonical records/metrics.
+    payload.update(
+        {
+            "pipeline": s.retrieval_pipeline,
+            "recipe_fingerprint": recipe,
+            "gates": gates.detail,
+            "bench": {**source_meta[0], "n_selected": len(subset), "n_run": len(records)},
+            "splits": split_meta,
+            "summary": summary,
+            "per_question": legacy_rows,
+        }
+    )
+    out_path = out or (Path("data/bench/results") / f"{run_id}.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    typer.echo(f"bölme={split.value} koşulan={len(records)}/{len(subset)}")
+    typer.echo(f"durum: {summary['by_status']}")
+    typer.echo(f"kapı1 geçen={gate1_passed}  kapı2 düşürülen={demoted}")
+    typer.echo(f"kararlar: {dict(verdict_counts)}")
+    typer.echo(
+        f"LLM doğrulayıcı çağrısı={llm_calls} API denemesi={api_attempts} "
+        f"önbellek isabeti={cache_hits} bütçe={budget.used}/{budget.max_attempts} deneme"
+    )
+    if stopped:
+        typer.secho(f"  UYARI: {stopped}", fg=typer.colors.YELLOW, bold=True)
+    typer.echo(f"rapor -> {out_path}")
+
+
+@bench_app.command("answers")
+def bench_answers(
+    bench: list[Path] = typer.Option(  # noqa: B008
+        [DEFAULT_CANARY, DEFAULT_UNANS],
+        "--bench",
+        help="Birden çok kez verilebilir; varsayılan canary + unanswerable kümesidir.",
+    ),
+    split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
+    max_llm_attempts: int = typer.Option(..., "--max-llm-attempts", "--max-llm-calls"),  # noqa: B008
+    limit: int = typer.Option(0, "--limit"),  # noqa: B008
+    splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
+    only_verified: bool = typer.Option(True, "--only-verified/--all"),  # noqa: B008
+    min_verification: VerificationLevel | None = typer.Option(  # noqa: B008
+        None, "--min-verification"
+    ),
+    out: Path | None = typer.Option(None, "--out"),  # noqa: B008
+    yes_final_gate: bool = typer.Option(  # noqa: B008
+        False,
+        "--yes-final-gate",
+        help="Yalnız --split test için faz-sonu tek-koşum onayı.",
+    ),
+) -> None:
+    """G2 answer metrics; test split requires --yes-final-gate."""
+    _answer_eval_command(
+        bench_paths=bench,
+        split=split,
+        max_llm_attempts=max_llm_attempts,
+        limit=limit,
+        splits_path=splits_path,
+        only_verified=only_verified,
+        min_verification=min_verification,
+        out=out,
+        yes_final_gate=yes_final_gate,
+        command_name="bench answers",
+    )
 
 
 @verify_app.command("run")
 def verify_run(
     bench: Path = typer.Option(DEFAULT_CANARY, "--bench"),  # noqa: B008
     split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
-    # ZORUNLU ve varsayılansız (`...`). "Sınırsız varsayılan" bir bütçe bayrağı
-    # bütçe değildir: doğrulayıcı iddia başına çağrı yapar ve 300 soruluk bir
-    # koşum kotayı tek hamlede bitirebilir (2026-08-30: günde 2× http_429).
-    #
-    # BİRİM = API DENEMESİ (review M1). `--max-llm-attempts` asıl addır;
-    # `--max-llm-calls` geriye uyum için korunur ama "çağrı" yanıltıcıydı:
-    # anahtar rotasyon merdiveni tek bir doğrulayıcı çağrısını 3 denemeye kadar
-    # çarpar ve ücretsiz kota DENEME sayar (ölçülen: 20/gün/anahtar).
     max_llm_calls: int = typer.Option(..., "--max-llm-attempts", "--max-llm-calls"),  # noqa: B008
     limit: int = typer.Option(0, "--limit"),  # noqa: B008
     splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
@@ -1213,158 +1492,19 @@ def verify_run(
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
     yes_final_gate: bool = typer.Option(False, "--yes-final-gate"),  # noqa: B008
 ) -> None:
-    """İki kapı AÇIK ask hattını bench sorularında koşar; künyeli JSON yazar.
-
-    Bayraklar ENV'den OKUNMAZ, bu komutta ZORLA açılır: harness'ın amacı tam
-    olarak kapıları ölçmektir. Üretim davranışı bundan etkilenmez (`serve`
-    kendi `Settings`'ini okur ve varsayılanlar kapalıdır).
-    """
-    from belge_gozu.answer.calibrate import git_blob_sha, load_rows, sha256_file
-    from belge_gozu.answer.verify import VerifierBudget
-    from belge_gozu.bench.dataset import assign_split, load_splits
-    from belge_gozu.retrieval.text import recipe_fingerprint
-    from belge_gozu.telemetry.collect import collecting
-
-    _gate_test_split(split, yes_final_gate)
-    if max_llm_calls < 0:
-        raise typer.BadParameter("--max-llm-attempts negatif olamaz")
-    base = _settings()
-    if base.retrieval_pipeline != "hybrid":
-        raise typer.BadParameter(
-            "verify run yalnız hibrit boru hattında tanımlı (kalibre kapı BM25 metin "
-            f"kanalından okur); BG_RETRIEVAL_PIPELINE={base.retrieval_pipeline}"
-        )
-    s = base.model_copy(update={"gate_calibrated": True, "gate_verifier": True})
-
-    splits = load_splits(splits_path)
-    selection = _load_bench_mode(bench, only_verified, min_verification)
-    selected_ids = {q.question_id for q in selection.questions}
-    # `assign_split` alt çizgili hukuk gruplama alanlarını kullandığı için ham
-    # sözlükleri koruyoruz; seçim kimlikleri şema-doğrulanmış modelden gelir.
-    raw = [
-        rec
-        for rec in load_rows(bench, only_verified=False)
-        if rec["question_id"] in selected_ids
-    ]
-    subset = [r for r in raw if assign_split(r, splits) == split.value]
-    if limit > 0:
-        subset = subset[:limit]
-    if not subset:
-        raise typer.BadParameter(f"{split.value} bölmesinde koşulacak soru yok: {bench}")
-
-    budget = VerifierBudget(max_llm_calls)
-    service, gates, revision = _verify_service(s, budget)
-
-    rows: list[dict] = []
-    stopped = None
-    for rec in subset:
-        if budget.remaining == 0 and rows:
-            # Bütçe dolduğunda DEVAM ETMEK anlamsız: kalan her soru
-            # doğrulanamadığı için düşerdi ve rapor sahte bir "demote" yığını
-            # üretirdi. Koşum burada DÜRÜSTÇE kesilir.
-            stopped = (
-                f"bütçe doldu ({budget.used}/{budget.max_attempts} API denemesi) "
-                f"— {len(rows)} soru koşuldu"
-            )
-            break
-        with collecting() as col:
-            answer, hits = service.ask(str(rec["question"]), k=s.top_k)
-        status = (
-            "degraded"
-            if col.notes.get("degraded")
-            else ("abstained" if answer.abstained else "answered")
-        )
-        rows.append(
-            {
-                "qid": rec["question_id"],
-                "answerable": bool(rec["answerable"]),
-                "unanswerable_reason": rec.get("unanswerable_reason"),
-                "slice": rec.get("slice"),
-                "status": status,
-                "citations": list(answer.citations),
-                "top_score": hits[0].score if hits else None,
-                "gate1": col.notes.get("gate1"),
-                "gate2": col.notes.get("gate2"),
-            }
-        )
-
-    verdict_counts: Counter[str] = Counter()
-    llm_calls = cache_hits = demoted = api_attempts = 0
-    for row in rows:
-        g2 = row["gate2"] or {}
-        llm_calls += int(g2.get("llm_calls", 0) or 0)
-        api_attempts += int(g2.get("api_attempts", 0) or 0)
-        cache_hits += int(g2.get("cache_hits", 0) or 0)
-        demoted += 1 if g2.get("demoted") else 0
-        for claim in g2.get("claims") or []:
-            verdict_counts[claim["verdict"]] += 1
-    gate1_passed = sum(1 for r in rows if (r["gate1"] or {}).get("passed"))
-
-    run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-verify-{split.value}"
-    out_path = out or (Path("data/bench/results") / f"{run_id}.json")
-    report = {
-        "run_id": run_id,
-        "git_commit": git_commit(),
-        "created_at": datetime.now(UTC).isoformat(),
-        "split": split.value,
-        "index_revision": revision,
-        "pipeline": s.retrieval_pipeline,
-        "recipe_fingerprint": recipe_fingerprint(),
-        "gates": gates.detail,
-        "config": {
-            "gate_calibrated": s.gate_calibrated,
-            "gate_verifier": s.gate_verifier,
-            "gemini_model": s.gemini_model,
-            "min_score_threshold": s.min_score_threshold,
-            "top_k": s.top_k,
-            "verifier_max_claims": s.verifier_max_claims,
-            "verification": selection.provenance(),
-        },
-        "bench": {
-            "path": str(bench),
-            "sha256": sha256_file(bench),
-            "git_blob": git_blob_sha(bench),
-            "total": selection.total,
-            "selected_before_split": selection.selected,
-            "filtered_out": selection.filtered_out,
-            "n_selected": len(subset),
-            "n_run": len(rows),
-        },
-        "splits": {"path": str(splits_path), "sha256": sha256_file(splits_path)},
-        "budget": {
-            # BİRİM = API DENEMESİ. `used` ile `summary.verifier_api_attempts`
-            # AYNI sayıyı iki yerden verir; birbirini yalanlayamazlar (L3).
-            "unit": "api_attempts",
-            "max_attempts": budget.max_attempts,
-            "used": budget.used,
-            "stopped": stopped,
-        },
-        "summary": {
-            "n": len(rows),
-            "by_status": dict(Counter(r["status"] for r in rows)),
-            "gate1_passed": gate1_passed,
-            "gate2_demoted": demoted,
-            "verdicts": dict(verdict_counts),
-            "verifier_llm_calls": llm_calls,
-            "verifier_api_attempts": api_attempts,
-            "verifier_cache_hits": cache_hits,
-        },
-        "per_question": rows,
-    }
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
-
-    typer.echo(f"bölme={split.value} koşulan={len(rows)}/{len(subset)}")
-    typer.echo(f"durum: {report['summary']['by_status']}")
-    typer.echo(f"kapı1 geçen={gate1_passed}  kapı2 düşürülen={demoted}")
-    typer.echo(f"kararlar: {dict(verdict_counts)}")
-    typer.echo(
-        f"LLM doğrulayıcı çağrısı={llm_calls} API denemesi={api_attempts} "
-        f"önbellek isabeti={cache_hits} bütçe={budget.used}/{budget.max_attempts} deneme"
+    """Compatibility alias for the shared two-gate answer evaluator."""
+    _answer_eval_command(
+        bench_paths=[bench],
+        split=split,
+        max_llm_attempts=max_llm_calls,
+        limit=limit,
+        splits_path=splits_path,
+        only_verified=only_verified,
+        min_verification=min_verification,
+        out=out,
+        yes_final_gate=yes_final_gate,
+        command_name="verify run",
     )
-    if stopped:
-        typer.secho(f"  UYARI: {stopped}", fg=typer.colors.YELLOW, bold=True)
-    typer.echo(f"rapor -> {out_path}")
 
 
 @app.command("serve")

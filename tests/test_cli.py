@@ -495,9 +495,7 @@ def test_load_bench_mode_all(tmp_path: Path, capsys):
 
 def test_load_bench_mode_human_selects_three_of_48(tmp_path: Path, capsys):
     p = tmp_path / "bench.jsonl"
-    rows = [
-        _bench_q(question_id=f"human-{i}", verification_kind="human") for i in range(3)
-    ]
+    rows = [_bench_q(question_id=f"human-{i}", verification_kind="human") for i in range(3)]
     rows.extend(
         _bench_q(
             question_id=f"mechanical-{i}",
@@ -630,6 +628,8 @@ def _verify_fixture(tmp_path: Path, verdict: str, max_claims: int = 8):
 
     class StubAnswerer:
         def answer(self, question, pages, image_loader):
+            if "Fransa" in question:
+                return Answer(text="Verilen sayfalarda bulamadım.", citations=[])
             # Soruyu metne KATAR: iki soru iki AYRI iddia üretsin, yoksa
             # ikincisi önbellekten gelir ve bütçe testi ölçtüğünü ölçmez.
             return Answer(
@@ -653,9 +653,113 @@ def _verify_fixture(tmp_path: Path, verdict: str, max_claims: int = 8):
         svc = AskService(
             StubRetriever(), StubAnswerer(), -1e9, lambda p: b"img", gate1=None, gate2=gate2
         )
-        return svc, Gates(evidence=gate2, detail={"gate2": {"stub": True}}), "rev/x/int8"
+        return (
+            svc,
+            Gates(evidence=gate2, detail={"gate2": {"stub": True}}),
+            {"quantization": "int8", "corpus_checksum": "stub"},
+            "rev/x/int8",
+        )
 
     return bench, splits, factory, client
+
+
+def test_bench_answers_writes_answer_metrics_and_provenance(tmp_path: Path, monkeypatch):
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, client = _verify_fixture(tmp_path, "supported")
+    with bench.open("a", encoding="utf-8") as f:
+        f.write(
+            "\n"
+            + json.dumps(
+                _bench_row(
+                    question_id="q-unans",
+                    question="Fransa'da asgari ücret nedir?",
+                    answerable=False,
+                    gold_doc_ids=[],
+                    gold_page_ids=[],
+                    minimal_evidence_spans=[],
+                    reference_answer="",
+                    slice="korpus-disi",
+                    unanswerable_reason="korpus-disi",
+                ),
+                ensure_ascii=False,
+            )
+        )
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+    out = tmp_path / "answer-report.json"
+
+    result = runner.invoke(
+        cli_mod.app,
+        [
+            "bench",
+            "answers",
+            "--bench",
+            str(bench),
+            "--splits",
+            str(splits),
+            "--max-llm-attempts",
+            "4",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["metrics"]["citation_precision"]["rate"] == 1.0
+    assert report["metrics"]["false_supported_answer_rate"]["rate"] == 0.0
+    assert report["metrics"]["false_supported_answer_rate"]["upper_bound_95"] is not None
+    assert report["index_manifest"]["quantization"] == "int8"
+    assert report["index_revision"] == "rev/x/int8"
+    assert report["calibrator_key"] is None or isinstance(report["calibrator_key"], str)
+    assert report["dataset"]["bench"]["sha256"]
+    assert report["dataset"]["splits"]["sha256"]
+    assert [row["question_id"] for row in report["records"]] == ["q1", "q2", "q-unans"]
+    assert len(client.prompts) == 2
+
+
+def test_bench_answers_requires_an_explicit_llm_attempt_budget(tmp_path: Path, monkeypatch):
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, _ = _verify_fixture(tmp_path, "supported")
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+
+    result = runner.invoke(
+        cli_mod.app,
+        ["bench", "answers", "--bench", str(bench), "--splits", str(splits)],
+    )
+
+    assert result.exit_code != 0
+    assert "max-llm-attempts" in result.output
+
+
+def test_bench_answers_test_split_needs_the_final_gate_flag(tmp_path: Path, monkeypatch):
+    import belge_gozu.cli as cli_mod
+
+    monkeypatch.setenv("BG_DATA_DIR", str(tmp_path))
+    bench, splits, factory, _ = _verify_fixture(tmp_path, "supported")
+    monkeypatch.setattr(cli_mod, "_verify_service", factory)
+
+    result = runner.invoke(
+        cli_mod.app,
+        [
+            "bench",
+            "answers",
+            "--bench",
+            str(bench),
+            "--splits",
+            str(splits),
+            "--split",
+            "test",
+            "--max-llm-attempts",
+            "1",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--yes-final-gate" in result.output
 
 
 def test_verify_run_writes_a_kunyeli_report(tmp_path: Path, monkeypatch):

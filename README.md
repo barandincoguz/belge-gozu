@@ -344,6 +344,24 @@ table for offline analysis. See `docs/research/` for a real baseline measurement
 (load test, live `/ask` calls, and an honest write-up including a concurrency crash
 found while running it).
 
+## Answer-gate evaluation
+
+`bench answers` runs the calibrated retrieval gate and claim verifier together, then
+writes an `AnswerEvalReport` containing claim-level citation precision/completeness,
+false-supported answers on unanswerable questions, and one-sided 95% Clopper–Pearson
+bounds. The LLM budget is mandatory and counts real API attempts (including retries):
+
+```bash
+uv run belge-gozu bench answers --split dev --max-llm-attempts 40
+```
+
+With no `--bench` override the command evaluates both `canary_v1.jsonl` and
+`unans_v1.jsonl`. Repeat `--bench PATH` to use one or more custom files. Verifier
+decisions use the existing SHA-256 disk cache, so an identical second run does not pay
+again. `--split test` is deliberately locked behind `--yes-final-gate`; it is the
+phase-end, single-use measurement, not a tuning loop. The older `verify run` path remains
+as a compatibility alias over the same implementation.
+
 ## v0 limitations
 
 This is a working end-to-end system, not a finished product — v0's known gaps, honestly:
