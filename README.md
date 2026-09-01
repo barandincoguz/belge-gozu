@@ -45,12 +45,11 @@ sayfa ekran görüntüleri üzerinde geç etkileşimli MaxSim, OCR yok, düzen a
 Doğru görünüyordu; ölçümde yanlış çıktı.
 
 ```mermaid
-flowchart LR
-    Q["Query:<br/>'annual paid leave<br/>under the Labour Act?'"] --> V["Visual late-interaction<br/>over 4,222 pages"]
-    V --> D["Correct <b>document</b><br/>Labour Act cover page<br/>rank 1"]
-    V --> P["Correct <b>page</b><br/>art. 53, the leave table<br/><b>rank 137</b>"]
-    P --> A["Answer: 'I could not find it<br/>in the given pages'"]
-
+flowchart TB
+    Q["Query: annual paid leave<br/>under the Labour Act?"] --> V["Visual retrieval<br/>4,222 pages"]
+    V --> D["Right document<br/>cover page, rank 1"]
+    V --> P["Right page<br/>art. 53 table, rank 137"]
+    P --> A["'I could not find it<br/>in the given pages'"]
     classDef ok fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
     classDef bad fill:#fceceb,stroke:#a61c2c,color:#3d1015
     classDef neutral fill:#eef2f7,stroke:#2c5b8a,color:#12283d
@@ -75,24 +74,40 @@ kümesinde Recall@5), donmuş bir ölçüm düzeneği ve tut-ya-da-geri-al karar
 dallar ölçüldü ve reddedildi** — portfolyoların çoğunun sildiği kısım.
 
 ```mermaid
-flowchart LR
-    B["visual only<br/><b>0.233</b>"] --> T["+ BM25 over PDF text<br/><b>0.674</b>"]
-    B -.->|rejected| R1["equal-weight RRF fusion<br/>0.395"]
-    T --> F["+ Turkish 5-char prefix<br/><b>0.767</b>"]
-    T -.->|rejected| BG["+ bigram shingles<br/>0.628"]
-    F --> S["+ function-word list<br/>0.767, deep ranks fixed"]
-    S --> W["+ law-name routing, window 20<br/><b>0.814</b>"]
-    S -.->|rejected| AP["absolute document partition<br/>0.791, guardrail veto"]
-    W --> W5["window 50<br/><b>0.837</b>"]
-    W5 -.->|rejected| WR["within-window RRF<br/>0.535"]
-    W5 --> FD["+ diacritic folding<br/><b>0.8605</b> · writing-invariant"]
-    FD -.->|rejected| DF["dual-form tokens<br/>0.837, two guardrails down"]
-
+flowchart TB
+    B["visual only<br/>0.233"] --> T["+ BM25 text<br/>0.674"]
+    B -.->|rejected| R1["equal RRF<br/>0.395"]
+    T --> F["+ prefix<br/>0.767"]
+    T -.->|rejected| BG["bigrams<br/>0.628"]
+    F --> S["+ stopwords<br/>0.767"]
+    S --> W["+ routing w20<br/>0.814"]
+    S -.->|rejected| AP["hard partition<br/>0.791"]
+    W --> W5["window 50<br/>0.837"]
+    W5 -.->|rejected| WR["window RRF<br/>0.535"]
+    W5 --> FD["+ folding<br/>0.8605"]
+    FD -.->|rejected| DF["dual-form<br/>0.837"]
     classDef kept fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
     classDef gone fill:#faf3e4,stroke:#a8741a,color:#3a2a08
     class B,T,F,S,W,W5,FD kept
     class R1,BG,AP,WR,DF gone
 ```
+
+Diyagram render edilmiyorsa (ör. GitHub mobil uygulaması Mermaid çizmez) aynı zincir tablo hâlinde:
+
+| Adım | R@5 | Karar |
+|---|---|---|
+| yalnız görsel kanal | 0.233 | taban |
+| + BM25 metin kanalı | **0.674** | tutuldu |
+| eşit ağırlıklı RRF füzyonu | 0.395 | reddedildi |
+| + 5 karakterlik ön ek | **0.767** | tutuldu |
+| + bigram parçacıkları | 0.628 | reddedildi |
+| + işlev kelimesi listesi | 0.767 | tutuldu (derin sıralar düzeldi) |
+| + kanun-adı yönlendirmesi (pencere 20) | **0.814** | tutuldu |
+| mutlak doküman bölümleme | 0.791 | reddedildi (korkuluk vetosu) |
+| pencere 50 | **0.837** | tutuldu |
+| pencere içi RRF | 0.535 | reddedildi |
+| + aksan katlama | **0.8605** | tutuldu — yayında |
+| çift-biçim token | 0.837 | reddedildi (iki korkuluk düştü) |
 
 Üç sonuç açıkça yazılmayı hak ediyor, çünkü üçü de bariz yaklaşımı çürütüyor:
 
@@ -117,35 +132,30 @@ dışı bırakılır; kullanıcı *"yillik ucretli izin"* yazar. Ölçüldüğü
 
 ```mermaid
 flowchart TB
-    subgraph OFF["Offline — run once, versioned by manifest"]
-        PDF["56 PDFs<br/>public legislation"] --> IMG["page images<br/>150 dpi WebP"]
-        PDF --> TXT["text layer<br/>PyMuPDF"]
-        IMG --> EMB["ColSmol-500M<br/>late-interaction embeddings"]
-        EMB --> Q8["int8 index · 476 MB<br/>1-bit 58 MB / f16 918 MB<br/>kept as ablations"]
-        TXT --> BM["BM25 index<br/>fold + prefix + stopwords"]
-    end
-
-    subgraph ON["Online — every request"]
-        QRY["Turkish question"] --> TOK["tokenise<br/>lowercase · fold · prefix"]
-        TOK --> BM25["BM25 scoring<br/>2-5 ms"]
-        BM25 --> ROUTE["law-name routing<br/>reorder inside top 50"]
-        QRY --> VIS["visual MaxSim<br/>telemetry + calibration"]
-        ROUTE --> GATE{"score above<br/>threshold?"}
-        GATE -->|no| ABS["abstain<br/>no grounds found"]
-        GATE -->|yes| LLM["VLM answerer<br/>page images + S1..Sn markers"]
-        LLM --> CITE["answer + page citations<br/>+ clickable page image"]
-    end
-
-    Q8 -.-> VIS
-    BM -.-> BM25
-
+    PDF["56 PDFs"] --> IMG["page images"]
+    PDF --> TXT["text layer"]
+    IMG --> EMB["ColSmol-500M<br/>embeddings"]
+    EMB --> Q8["int8 index<br/>476 MB"]
+    TXT --> BM["BM25 index<br/>fold + prefix"]
+    QRY["Turkish question"] --> TOK["tokenise"]
+    TOK --> SC["BM25 scoring<br/>2-5 ms"]
+    SC --> ROUTE["law-name routing<br/>top 50 reorder"]
+    ROUTE --> GATE{"above<br/>threshold?"}
+    GATE -->|no| ABS["abstain"]
+    GATE -->|yes| LLM["VLM answerer<br/>pages + markers"]
+    LLM --> CITE["answer<br/>+ citations"]
+    BM -.-> SC
+    Q8 -.-> VIS["visual MaxSim<br/>telemetry only"]
+    TOK -.-> VIS
     classDef store fill:#eef2f7,stroke:#2c5b8a,color:#12283d
     classDef act fill:#f7f4ec,stroke:#8a6d2c,color:#2f2510
     classDef out fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
     class Q8,BM store
-    class TOK,BM25,ROUTE,VIS,LLM act
+    class TOK,SC,ROUTE,VIS,LLM,EMB,IMG,TXT act
     class CITE,ABS out
 ```
+
+Üstteki üç kutu çevrimdışı kurulum (bir kez), alttaki zincir her istekte koşar.
 
 Sistemi ayakta tutan iki kural var:
 
@@ -317,12 +327,11 @@ model — late-interaction MaxSim over page screenshots, no OCR, no layout parsi
 looked right and measured wrong.
 
 ```mermaid
-flowchart LR
-    Q["Query:<br/>'annual paid leave<br/>under the Labour Act?'"] --> V["Visual late-interaction<br/>over 4,222 pages"]
-    V --> D["Correct <b>document</b><br/>Labour Act cover page<br/>rank 1"]
-    V --> P["Correct <b>page</b><br/>art. 53, the leave table<br/><b>rank 137</b>"]
-    P --> A["Answer: 'I could not find it<br/>in the given pages'"]
-
+flowchart TB
+    Q["Query: annual paid leave<br/>under the Labour Act?"] --> V["Visual retrieval<br/>4,222 pages"]
+    V --> D["Right document<br/>cover page, rank 1"]
+    V --> P["Right page<br/>art. 53 table, rank 137"]
+    P --> A["'I could not find it<br/>in the given pages'"]
     classDef ok fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
     classDef bad fill:#fceceb,stroke:#a61c2c,color:#3d1015
     classDef neutral fill:#eef2f7,stroke:#2c5b8a,color:#12283d
@@ -347,24 +356,40 @@ Each step is one controlled experiment: one variable changed, one primary metric
 **Dashed branches were measured and rejected** — the part most portfolios delete.
 
 ```mermaid
-flowchart LR
-    B["visual only<br/><b>0.233</b>"] --> T["+ BM25 over PDF text<br/><b>0.674</b>"]
-    B -.->|rejected| R1["equal-weight RRF fusion<br/>0.395"]
-    T --> F["+ Turkish 5-char prefix<br/><b>0.767</b>"]
-    T -.->|rejected| BG["+ bigram shingles<br/>0.628"]
-    F --> S["+ function-word list<br/>0.767, deep ranks fixed"]
-    S --> W["+ law-name routing, window 20<br/><b>0.814</b>"]
-    S -.->|rejected| AP["absolute document partition<br/>0.791, guardrail veto"]
-    W --> W5["window 50<br/><b>0.837</b>"]
-    W5 -.->|rejected| WR["within-window RRF<br/>0.535"]
-    W5 --> FD["+ diacritic folding<br/><b>0.8605</b> · writing-invariant"]
-    FD -.->|rejected| DF["dual-form tokens<br/>0.837, two guardrails down"]
-
+flowchart TB
+    B["visual only<br/>0.233"] --> T["+ BM25 text<br/>0.674"]
+    B -.->|rejected| R1["equal RRF<br/>0.395"]
+    T --> F["+ prefix<br/>0.767"]
+    T -.->|rejected| BG["bigrams<br/>0.628"]
+    F --> S["+ stopwords<br/>0.767"]
+    S --> W["+ routing w20<br/>0.814"]
+    S -.->|rejected| AP["hard partition<br/>0.791"]
+    W --> W5["window 50<br/>0.837"]
+    W5 -.->|rejected| WR["window RRF<br/>0.535"]
+    W5 --> FD["+ folding<br/>0.8605"]
+    FD -.->|rejected| DF["dual-form<br/>0.837"]
     classDef kept fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
     classDef gone fill:#faf3e4,stroke:#a8741a,color:#3a2a08
     class B,T,F,S,W,W5,FD kept
     class R1,BG,AP,WR,DF gone
 ```
+
+If the diagram does not render (the GitHub mobile app draws no Mermaid), the same chain as a table:
+
+| Step | R@5 | Decision |
+|---|---|---|
+| visual channel only | 0.233 | baseline |
+| + BM25 text channel | **0.674** | kept |
+| equal-weight RRF fusion | 0.395 | rejected |
+| + 5-character prefix | **0.767** | kept |
+| + bigram shingles | 0.628 | rejected |
+| + function-word list | 0.767 | kept (deep ranks fixed) |
+| + law-name routing (window 20) | **0.814** | kept |
+| absolute document partition | 0.791 | rejected (guardrail veto) |
+| window 50 | **0.837** | kept |
+| within-window RRF | 0.535 | rejected |
+| + diacritic folding | **0.8605** | kept — shipped |
+| dual-form tokens | 0.837 | rejected (two guardrails down) |
 
 Three results worth stating plainly, because each contradicts the obvious approach:
 
@@ -388,35 +413,30 @@ to 0.581. Folding diacritics on both the index and the query side makes the syst
 
 ```mermaid
 flowchart TB
-    subgraph OFF["Offline — run once, versioned by manifest"]
-        PDF["56 PDFs<br/>public legislation"] --> IMG["page images<br/>150 dpi WebP"]
-        PDF --> TXT["text layer<br/>PyMuPDF"]
-        IMG --> EMB["ColSmol-500M<br/>late-interaction embeddings"]
-        EMB --> Q8["int8 index · 476 MB<br/>1-bit 58 MB / f16 918 MB<br/>kept as ablations"]
-        TXT --> BM["BM25 index<br/>fold + prefix + stopwords"]
-    end
-
-    subgraph ON["Online — every request"]
-        QRY["Turkish question"] --> TOK["tokenise<br/>lowercase · fold · prefix"]
-        TOK --> BM25["BM25 scoring<br/>2-5 ms"]
-        BM25 --> ROUTE["law-name routing<br/>reorder inside top 50"]
-        QRY --> VIS["visual MaxSim<br/>telemetry + calibration"]
-        ROUTE --> GATE{"score above<br/>threshold?"}
-        GATE -->|no| ABS["abstain<br/>no grounds found"]
-        GATE -->|yes| LLM["VLM answerer<br/>page images + S1..Sn markers"]
-        LLM --> CITE["answer + page citations<br/>+ clickable page image"]
-    end
-
-    Q8 -.-> VIS
-    BM -.-> BM25
-
+    PDF["56 PDFs"] --> IMG["page images"]
+    PDF --> TXT["text layer"]
+    IMG --> EMB["ColSmol-500M<br/>embeddings"]
+    EMB --> Q8["int8 index<br/>476 MB"]
+    TXT --> BM["BM25 index<br/>fold + prefix"]
+    QRY["Turkish question"] --> TOK["tokenise"]
+    TOK --> SC["BM25 scoring<br/>2-5 ms"]
+    SC --> ROUTE["law-name routing<br/>top 50 reorder"]
+    ROUTE --> GATE{"above<br/>threshold?"}
+    GATE -->|no| ABS["abstain"]
+    GATE -->|yes| LLM["VLM answerer<br/>pages + markers"]
+    LLM --> CITE["answer<br/>+ citations"]
+    BM -.-> SC
+    Q8 -.-> VIS["visual MaxSim<br/>telemetry only"]
+    TOK -.-> VIS
     classDef store fill:#eef2f7,stroke:#2c5b8a,color:#12283d
     classDef act fill:#f7f4ec,stroke:#8a6d2c,color:#2f2510
     classDef out fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
     class Q8,BM store
-    class TOK,BM25,ROUTE,VIS,LLM act
+    class TOK,SC,ROUTE,VIS,LLM,EMB,IMG,TXT act
     class CITE,ABS out
 ```
+
+The top three boxes are the offline build (run once); the chain below runs per request.
 
 Two rules hold the system together:
 
