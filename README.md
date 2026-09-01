@@ -2,26 +2,298 @@
 
 [![ci](https://github.com/barandincoguz/belge-gozu/actions/workflows/ci.yml/badge.svg)](https://github.com/barandincoguz/belge-gozu/actions/workflows/ci.yml)
 
-**Grounded question answering over 4,222 pages of Turkish legislation — built measurement-first.**
+**4.222 sayfalık Türk mevzuatı üzerinde, dayanağı gösterilen soru-cevap — ölçümle inşa edildi.**
+*Grounded question answering over 4,222 pages of Turkish legislation — built measurement-first.*
 
-Ask a question in plain Turkish. The system finds the page that actually contains the
-answer, reads it, answers from it, and cites the page — or says it could not find one.
-Every design decision below is a measured number, **including the ones that failed and
-were thrown away.**
+**[Türkçe](#türkçe) · [English](#english)**
 
 | | |
 |---|---|
-| **Corpus** | 4,222 pages · 56 documents (50 statutes + 6 scanned *Resmî Gazete* issues, 1928–1975) |
-| **Retrieval quality** | Recall@5 **0.8605** (37/43) · Recall@20 0.930 — identical with and without Turkish diacritics |
-| **Starting point** | Recall@5 **0.116** on the same benchmark |
-| **Latency** | text retrieval 2–5 ms · end-to-end answer 6–24 s (LLM-bound) |
-| **Engineering** | 667 tests · CI runs the suite **and** builds the deployment image · every number traceable to a dated run artefact |
-| **Stack** | Python 3.12 · FastAPI · PyTorch · Transformers · ColPali-class vision encoder · BM25 (hand-written) · SQLite · Prometheus · Grafana · Docker · GitHub Actions · pytest · ruff · pyright · uv |
+| **Korpus / Corpus** | 4.222 sayfa · 56 belge (50 kanun + 6 taranmış *Resmî Gazete*, 1928–1975) |
+| **Getirim kalitesi / Retrieval** | Recall@5 **0.8605** (37/43) · Recall@20 0.930 — aksanlı ve aksansız yazımda aynı |
+| **Başlangıç / Starting point** | Aynı kıyas kümesinde Recall@5 **0.116** |
+| **Gecikme / Latency** | metin getirimi 2–5 ms · uçtan uca cevap 6–24 sn (LLM'e bağlı) |
+| **Mühendislik / Engineering** | 667 test · CI hem süiti koşar hem dağıtım imajını derler · her sayı tarihli bir koşum artefaktına bağlı |
+| **Yığın / Stack** | Python 3.12 · FastAPI · PyTorch · Transformers · ColPali-class vision encoder · BM25 (hand-written) · SQLite · Prometheus · Grafana · Docker · GitHub Actions · pytest · ruff · pyright · uv |
 
-Index and all page images are public on Hugging Face Datasets:
-**[barandincoguz/belge-gozu-index](https://huggingface.co/datasets/barandincoguz/belge-gozu-index)**.
+İndeks ve tüm sayfa görüntüleri Hugging Face Datasets üzerinde herkese açık:
+**[barandincoguz/belge-gozu-index](https://huggingface.co/datasets/barandincoguz/belge-gozu-index)**
 
 ---
+
+# Türkçe
+
+## 1. Amaç
+
+Türk mevzuatı kamuya açıktır ama pratikte aranabilir değildir. Metin, düzeni anlam taşıyan
+PDF'lerin içinde durur: madde numaraları, tarife tabloları, kenar notları, 1928'den
+taranmış gazeteler. Anahtar kelime araması kanunu bulur ama *sayfayı* bulmaz; genel amaçlı
+bir sohbet modeli ise var olmayan bir madde numarasını akıcı bir dille söyler.
+
+Belge-Gözü tam ters arıza moduna göre kuruldu: **madde uydurmaktansa "bulamadım" demeyi
+tercih eder.** Cevaplar yalnızca getirilen sayfalardan üretilir, her iddia sayfa atıfı
+taşır ve sayfa görüntüsü ekranda gösterilir — insan kendi gözüyle doğrulayabilsin diye.
+
+Proje aynı zamanda yöntem üzerine bir iddiadır. Hiçbir şey sayı olmadan öne sürülmez, her
+sayı künyesini taşır (hangi indeks, hangi korpus özeti, hangi commit) ve reddedilen
+deneyler ölçümleriyle birlikte depoda kalır.
+
+## 2. Problem
+
+İlk çalışan sürüm sayfa *görüntülerini* ColPali sınıfı bir görsel-dil modeliyle getiriyordu:
+sayfa ekran görüntüleri üzerinde geç etkileşimli MaxSim, OCR yok, düzen ayrıştırma yok.
+Doğru görünüyordu; ölçümde yanlış çıktı.
+
+```mermaid
+flowchart LR
+    Q["Query:<br/>'annual paid leave<br/>under the Labour Act?'"] --> V["Visual late-interaction<br/>over 4,222 pages"]
+    V --> D["Correct <b>document</b><br/>Labour Act cover page<br/>rank 1"]
+    V --> P["Correct <b>page</b><br/>art. 53, the leave table<br/><b>rank 137</b>"]
+    P --> A["Answer: 'I could not find it<br/>in the given pages'"]
+
+    classDef ok fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
+    classDef bad fill:#fceceb,stroke:#a61c2c,color:#3d1015
+    classDef neutral fill:#eef2f7,stroke:#2c5b8a,color:#12283d
+    class D ok
+    class P,A bad
+    class Q,V neutral
+```
+
+Model kanunun *kimliğini* — başlık sayfasını — yakalıyor, maddeyi kaybediyordu. Dürüst
+"bulamadım" cevabı, yanlış kanıt üzerinde doğru davranıştı. Ölçüldüğünde arıza netti:
+**Recall@5 = 0.116** ve kullanıcının ilk sırada beklediği yerleşim yeri tanımı sayfası
+4.222 sayfa içinde 3.127. sıradaydı.
+
+Kök neden, tahminle değil ölçümle: kodlayıcı ağırlıklı olarak İngilizce eğitilmiştir ve
+uzun bir Türkçe hukuk sorgusu, maddenin gövde metnine değil dokümanın *adına* çok daha
+güçlü hizalanır.
+
+## 3. Mühendislik haritası
+
+Her adım tek bir kontrollü deneydir: tek değişken, tek birincil metrik (43 soruluk kıyas
+kümesinde Recall@5), donmuş bir ölçüm düzeneği ve tut-ya-da-geri-al kararı. **Kesikli
+dallar ölçüldü ve reddedildi** — portfolyoların çoğunun sildiği kısım.
+
+```mermaid
+flowchart LR
+    B["visual only<br/><b>0.233</b>"] --> T["+ BM25 over PDF text<br/><b>0.674</b>"]
+    B -.->|rejected| R1["equal-weight RRF fusion<br/>0.395"]
+    T --> F["+ Turkish 5-char prefix<br/><b>0.767</b>"]
+    T -.->|rejected| BG["+ bigram shingles<br/>0.628"]
+    F --> S["+ function-word list<br/>0.767, deep ranks fixed"]
+    S --> W["+ law-name routing, window 20<br/><b>0.814</b>"]
+    S -.->|rejected| AP["absolute document partition<br/>0.791, guardrail veto"]
+    W --> W5["window 50<br/><b>0.837</b>"]
+    W5 -.->|rejected| WR["within-window RRF<br/>0.535"]
+    W5 --> FD["+ diacritic folding<br/><b>0.8605</b> · writing-invariant"]
+    FD -.->|rejected| DF["dual-form tokens<br/>0.837, two guardrails down"]
+
+    classDef kept fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
+    classDef gone fill:#faf3e4,stroke:#a8741a,color:#3a2a08
+    class B,T,F,S,W,W5,FD kept
+    class R1,BG,AP,WR,DF gone
+```
+
+Üç sonuç açıkça yazılmayı hak ediyor, çünkü üçü de bariz yaklaşımı çürütüyor:
+
+**Reciprocal Rank Fusion işi kötüleştirdi — üç kez.** Ders kitabı hamlesi görsel ve metin
+sıralamalarını birleştirmektir. Eşit ağırlıklı RRF, Recall@5'i 0.674'ten 0.395'e düşürdü;
+mutlak doküman bölümleme bir korkuluğu deldi; pencere içi RRF 0.535 verdi. Zayıf kanalın
+başlık sayfasına olan çekimi, denenen her granülarite düzeyinde güçlü kanalın gerçek
+isabetlerini eziyor. Ayakta kalan çözüm sözcüksel-birincil sıralama artı kural tabanlı
+yeniden düzenlemedir.
+
+**Görsel kanalın ilk 5'e benzersiz katkısı sıfırdır** — metin kanalı ayarlandıktan sonra.
+Kanal yine de her sorguda çalışır: telemetriyi ve kalibrasyon veri kümesini besler, ayrıca
+metin katmanı zayıf olan 16 sayfa için yedektir. Ama artık sıralamıyor. Bu, ilk sunuma
+uyan sonuç değil; ölçümün söylediği sonuçtur.
+
+**Aksan işaretleri bir üretim hatasıydı, incelik değil.** Türkçe klavye rutin olarak devre
+dışı bırakılır; kullanıcı *"yillik ucretli izin"* yazar. Ölçüldüğünde bu, Recall@5'i
+0.837'den 0.581'e düşürüyordu. Aksanları hem indeks hem sorgu tarafında katlamak sistemi
+**yazım-değişmez** yapıyor: iki koşulda da 0.8605.
+
+## 4. Mimari
+
+```mermaid
+flowchart TB
+    subgraph OFF["Offline — run once, versioned by manifest"]
+        PDF["56 PDFs<br/>public legislation"] --> IMG["page images<br/>150 dpi WebP"]
+        PDF --> TXT["text layer<br/>PyMuPDF"]
+        IMG --> EMB["ColSmol-500M<br/>late-interaction embeddings"]
+        EMB --> Q8["int8 index · 476 MB<br/>1-bit 58 MB / f16 918 MB<br/>kept as ablations"]
+        TXT --> BM["BM25 index<br/>fold + prefix + stopwords"]
+    end
+
+    subgraph ON["Online — every request"]
+        QRY["Turkish question"] --> TOK["tokenise<br/>lowercase · fold · prefix"]
+        TOK --> BM25["BM25 scoring<br/>2-5 ms"]
+        BM25 --> ROUTE["law-name routing<br/>reorder inside top 50"]
+        QRY --> VIS["visual MaxSim<br/>telemetry + calibration"]
+        ROUTE --> GATE{"score above<br/>threshold?"}
+        GATE -->|no| ABS["abstain<br/>no grounds found"]
+        GATE -->|yes| LLM["VLM answerer<br/>page images + S1..Sn markers"]
+        LLM --> CITE["answer + page citations<br/>+ clickable page image"]
+    end
+
+    Q8 -.-> VIS
+    BM -.-> BM25
+
+    classDef store fill:#eef2f7,stroke:#2c5b8a,color:#12283d
+    classDef act fill:#f7f4ec,stroke:#8a6d2c,color:#2f2510
+    classDef out fill:#e8f3ec,stroke:#2e7d4f,color:#14321f
+    class Q8,BM store
+    class TOK,BM25,ROUTE,VIS,LLM act
+    class CITE,ABS out
+```
+
+Sistemi ayakta tutan iki kural var:
+
+**Kimlik veriyle birlikte yolculuk eder.** Her indeks bir künye taşır: model revizyonu,
+sorgu biçimi, doküman istemi özeti, nicemleme ve korpus özeti. Sunucu, kimliği kendi
+yapılandırmasıyla uyuşmayan bir indekse karşı açılmayı reddeder; kalibrasyon artefaktı da
+`index_revision × pipeline × recipe_fingerprint` anahtarına bağlıdır. Bu disiplin, bir
+değerin kendisine anlam veren bağlamdan koptuğu 139 yeri saptayan bir denetimden doğdu — en
+kötüsü, sessizce tek bir nicemleme şemasına bağlanmış bir skor eşiğiydi.
+
+**Bayraklar ve geri alma.** Yeni karar katmanları (kalibre edilmiş kapı, kanıt
+doğrulayıcı) varsayılanı kapalı bayraklarla gelir; bayrak kapalıyken sunulan davranışın
+bayt düzeyinde aynı kaldığını doğrulayan bir test vardır.
+
+## 5. Teknik detaylar
+
+### Getirim
+
+| Yapılandırma | Recall@5 | Recall@20 | MRR | Gold sayfa sırası, sorgu A / B |
+|---|---|---|---|---|
+| yalnız görsel, 1-bit (ilk sürüm) | 0.116 | — | — | 3127 / — |
+| yalnız görsel, int8 | 0.233 | 0.302 | 0.149 | 664 / 137 |
+| hibrit, katlama öncesi | 0.837 | 0.930 | 0.655 | 2 / 2 |
+| **hibrit + katlama (yayında)** | **0.8605** | **0.930** | 0.632 | **2 / 2** |
+
+Sağlamlık taraması: BM25 `k1` ∈ [0.9, 1.8] × `b` ∈ [0.5, 0.9] kombinasyonlarının tamamı
+0.814–0.837 aralığında kalıyor; ön ek uzunluğu 4–7 bir plato. Reçete bıçak sırtında değil.
+Bir soru daha kazandıracak bir ayar bilinçli olarak **alınmadı**; çünkü bu, problemi değil
+kıyas kümesini optimize etmek olurdu.
+
+### Nicemleme
+
+int8, her k değerinde float16 ile aynı sıralama kalitesini verir, 1-bit'ten 4.3 kat daha hızlıdır
+(CPU'da sorgu başına 0.24 sn'ye karşı 1.08 sn) ve 58 MB yerine 476 MB yer kaplar. 1-bit
+hem Recall@20'de 7 puan kaybettirir hem de daha yavaştır — bit paketleme numaraları burada
+BLAS'a yeniliyor. Yayında olan int8'dir; diğerleri yeniden üretilebilir ablasyon olarak durur.
+
+### Cevap yolu
+
+Sayfa etiketleri görüntülerin arasına serpiştirilir (`[S1]`, görüntü, `[S2]`, görüntü, …),
+böylece bir atıf konuma dayalı tahmine değil belirli bir sayfaya bağlanır. Otomatik atıf
+yedeği yoktur: model etiket üretmezse cevap atıfsız kalır. Hatalar sınıflandırılır
+(`timeout`, `http_5xx`, `http_429`, `auth`, `safety_block`, `parse`) ve toplam süre bütçesi
+bir değişmez olarak uygulanır — kalan bütçe karşılamıyorsa yeniden deneme başlatılamaz.
+İki API anahtarı dönüşümlüdür: taşıma düzeyindeki herhangi bir hata isteği diğer anahtara
+taşır ve çalışan anahtar yapışkan hale gelir.
+
+### Seçici cevaplama (devam ediyor)
+
+Çekimserlik eşiği, önceki bir çalışma noktasının BM25 ölçeğine **mekanik taşınmasıdır**,
+kalibrasyon değildir — ve cevaplanabilir ile cevaplanamaz soruları ayırmaz. Ölçüldüğünde,
+sayıyı oynatmak bunu düzeltmiyor:
+
+- Getirim tarafındaki beş özellik üzerine kurulu bir güven modeli, geliştirme bölmesinde AUROC
+  0.782'ye ulaşıyor; ama %5 risk bütçesinde soruların yalnız %2.2'sine cevap veriyor.
+- 5 cevaplanamaz soruya karşı güçlü görünen sinyaller (AUC 0.94), 151 gerçekçi
+  cevaplanamaz soruya karşı 0.68'e düştü — yeni olumsuz örnekler sözcüksel olarak akla yatkın.
+
+Plan değil, bulgu olarak: **getirim tarafı güven tek başına seçici cevaplamayı taşıyamaz.**
+İddia düzeyinde bir kanıt doğrulayıcı — cevabı iddialara böl, her iddiayı atıf verdiği
+sayfanın metnine karşı sına, desteklenmeyen iddia varsa cevabı düşür — yazıldı ve bayrak
+arkasında test edildi. Varsayılan yola bağlanması bir sonraki kilometre taşı.
+
+### Kıyas kümeleri ve künyeleri
+
+- **Canary**: 48 soru (43'ü cevaplanabilir). Yukarıdaki her getirim kararının arkasında bu var.
+- **Cevaplanamaz küme**: üç sınıfta 330 soru — korpus dışı, anlamsız ve zor olanı: korpustaki
+  bir kanun *hakkında* ama sorulan ayrıntı gerçekten metinde yok.
+- Etiketler taslakçı ≠ denetçi rejiminde üretildi. Mekanik etiketler ("çapa kanun 56 belgelik
+  künyede yok") CI'da koşan bir betikle yeniden doğrulanır. Örneklemli çapraz kontrol kalıntı
+  etiket gürültüsünü %12.5 ölçtü; ardından test yakasının tamamı satır satır, her ret için
+  birebir alıntıyla doğrulandı.
+- Bölme hukuk-gruplu: 56 belgenin 22'si yalnız test tarafında. Test yakasında 155 cevaplanamaz
+  soru var — sıfır hatanın %95 güvenle ≤%2 iddiasını taşıyabildiği büyüklük.
+
+**Bu sayıların geçtiği her yerde tekrarlanan dürüstlük notu:** canary'nin 48 satırından 3'ü
+insan tarafından doğrulandı; diğer 45'i ve cevaplanamaz kümenin tamamı model çapraz
+kontrolüyle doğrulandı. **Bunlar insan onaylı kıyas kümeleri değildir.**
+
+### İşletim
+
+İstek başına 29 alanlı bir SQLite olay kaydı (hangi işlem hattı, hangi skor ölçeği, hangi API
+anahtarı servis etti, model dürüst ıska bildirdi mi), bir Prometheus uç noktası ve hazır
+sağlanmış bir Grafana panosu. Girdi doğrulaması boş, aşırı uzun ve bozuk sorguları reddeder;
+IP başına tahliyeli hız sınırı ve ham sorgu metnini diske yazmayan gizlilik varsayılanı
+konteyner imajında etkindir.
+
+CI; lint, tip denetimi, 667 test ve kıyas bütünlüğü doğrulayıcısını koşar, ayrıca dağıtım
+imajını derler. İlk iki koşumu kırmızıydı ve 147 yerel commit'in yakalayamadığı iki
+taşınabilirlik hatasını yakaladı: terminal rengine bağımlı CLI kontrolleri ve doğrulayıcının
+ihtiyaç duyduğu, hiç izlenmemiş korpus künyesi.
+
+## 6. Kapanış
+
+**Bugün çalışan.** Getirim, kalan hataların sözcüksel değil anlamsal olduğu noktaya kadar
+çözüldü: çözülmemiş altı kıyas sorusu, hedef sayfalarıyla hiçbir kelime paylaşmayan saf
+paraphrase (başka sözcüklerle sorulmuş) sorulardır. Sistem atıflı cevap veriyor, anlamsız sorularda çekimser kalıyor,
+aksan eksikliğine dayanıklı ve tükenen API kotasını anahtar değiştirerek atlatıyor.
+
+**Dürüstçe bitmemiş olan.**
+
+| Alan | Durum |
+|---|---|
+| Seçici cevaplama | Güven modeli kuruldu ve ölçüldü; açılamayacak kadar temkinli. Doğrulayıcı yazıldı, bayrak arkasında. |
+| Resmî kapı raporları | Faz 0 geçti ve belgelendi. Faz 1'in iki ölçülmüş başarısızlığı (Recall@50 0.930, hedef 0.95; paraphrase dilimi 0.571) **henüz bir raporda hükme bağlanmadı**. |
+| İnsan doğrulaması | 48 satırın 3'ü. İnsan kapılı bir kıyas kümesi, dürüst olan bir sonraki adımdır. |
+| Herkese açık dağıtım | Yerelde çalışıyor; barındırma ücretli katman istiyor. İmaj CI'da derleniyor ama hiç dağıtılmadı. |
+| Madde yapısı ve OCR | Madde düzeyinde hiyerarşi tasarlandı ama hiç kurulmadı; 16 sayfanın metin katmanı zayıf ve OCR yedeği yok. |
+
+Hepsi bu depoda issue olarak izleniyor — yukarıdaki başarısızlıklar dahil, dipnot değil
+kayıt olarak.
+
+**Bu projenin iddiası.** İlginç olan kısım model değildi. Kendi tasarımını çürütecek kadar
+dürüst bir ölçüm düzeneği kurmaktı: görsel getirim projesi olarak başlayıp ölçümleri
+"görsel kanal artık sıralamamalı" diyen bir sistem, kanıtla üç kez reddedilen bir füzyon
+stratejisi ve kendi sayıları "yayına hazır değilim" diyen bir güven modeli. Bu kararların
+arkasındaki koşumlar `docs/research/findings/` altında, tarihli, ham artefaktlarıyla birlikte.
+
+### Çalıştırma
+
+```bash
+uv sync --extra dev --extra ml          # kilitli bağımlılıklar
+uv run belge-gozu corpus download       # kamuya açık PDF'ler
+uv run belge-gozu corpus render         # PDF -> sayfa görüntüleri
+uv run belge-gozu index build           # gömmeler (GPU/MPS önerilir)
+uv run belge-gozu index derive --quant int8
+uv run belge-gozu index build-text      # metin kanalı artefaktı
+uv run belge-gozu serve --port 7860     # http://localhost:7860
+```
+
+`.env` içinde `GOOGLE_API_KEY` (rotasyon için isteğe bağlı `GOOGLE_API_KEY_2`) gerekir.
+Testler: `make test` · lint ve tipler: `make lint` · panolar: `make obs-up`
+
+### Depo haritası
+
+| Yol | İçeriği |
+|---|---|
+| `src/belge_gozu/retrieval/` | BM25 metin kanalı, kanun-adı yönlendirmesi, hibrit getirici |
+| `src/belge_gozu/index/` | kodlama, nicemleme, künyeler, uyumluluk fail-fast'i |
+| `src/belge_gozu/answer/` | cevaplayıcı, anahtar rotasyonu, kalibrasyon, iddia doğrulayıcı |
+| `src/belge_gozu/telemetry/` | olay kaydı, Prometheus metrikleri, aşama zamanlaması |
+| `docs/research/findings/` | tarihli ölçüm notları — buradaki her sayının gerekçesi |
+| `research/` | deney döngüsü: günlük, düzenek, sonuçlar |
+| `data/bench/` | kıyas kümeleri, bölmeler ve künye dosyaları |
+
+---
+
+# English
 
 ## 1. Purpose
 
@@ -62,7 +334,7 @@ flowchart LR
 The model matched the law's *identity* — its title page — and lost the article. The honest
 "could not find it" was correct behaviour on wrong evidence. Measured, the failure was
 unambiguous: **Recall@5 = 0.116**, and the domicile-definition page a user would expect
-first sat at rank 3127 of 4222.
+first sat at rank 3,127 of 4,222.
 
 Root cause, once measured rather than guessed: the encoder is trained predominantly on
 English, and a long Turkish legal query aligns with a document's *name* far more strongly
@@ -266,8 +538,6 @@ three times on evidence, and a confidence model whose own numbers said it was no
 ship. The runs behind those calls are in `docs/research/findings/`, dated, with the raw
 artefacts beside them.
 
----
-
 ### Run it
 
 ```bash
@@ -281,7 +551,7 @@ uv run belge-gozu serve --port 7860     # http://localhost:7860
 ```
 
 Requires `GOOGLE_API_KEY` (optionally `GOOGLE_API_KEY_2` for rotation) in `.env`.
-Tests: `make test` · lint and types: `make lint` · dashboards: `make obs-up`.
+Tests: `make test` · lint and types: `make lint` · dashboards: `make obs-up`
 
 ### Repository map
 
