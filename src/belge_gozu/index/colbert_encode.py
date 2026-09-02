@@ -136,6 +136,23 @@ def document_keep_mask(
     return [not (t == pad_id or t in skiplist_ids) for t in ids]
 
 
+def content_token_mask(attention: list[int]) -> np.ndarray:
+    """Gerçek sorgu token'ları (genişletme `[MASK]` pozisyonları hariç).
+
+    exp3 (KEPT, insan-doğrulanmış n=47): MaxSim toplamını yalnız bu maskeden
+    geçen vektörler üzerinden almak R@5'i 0,7021 -> 0,7447 ve R@20'yi
+    0,8723 -> 0,9149 yükseltti; birincil metrik (paraphrase R@50) ve tüm
+    guardrail dilimleri değişmedi.
+
+    NOT — bu bir SAPMADIR ve bilerek yapılıyor. Modül başlığı ColBERT §3.2'nin
+    genişletmeyi "essential" saydığını yazıyor ve bu doğru: genişletme
+    KODLAMADA korunuyor (eğitim rejimi, dikkat maskesi dahil). Değişen yalnız
+    SKORLAMA — 13 `[MASK]` vektörünün katkısı belge uzunluğuyla korelasyonlu
+    olduğu için sıralamaya uzunluk yanlılığı ekliyordu.
+    """
+    return np.asarray(attention, dtype=bool)
+
+
 def maxsim(query: np.ndarray, doc: np.ndarray) -> float:
     """ColBERT MaxSim: sorgu token'ları üzerinde TOPLAM, belge üzerinde maksimum.
 
@@ -257,6 +274,15 @@ class ColBERTEncoder:
         out = self._forward(ids, attn)
         # Sorgu tarafında maske UYGULANMAZ: genişletme vektörleri de MaxSim'e girer.
         return [out[i] for i in range(len(texts))]
+
+    def encode_query_vectors(self, text: str) -> np.ndarray:
+        """`retrieval.late.QueryEncoder` protokolü — içerik token'ları (exp3)."""
+        vecs = self.encode_queries([text])[0]
+        _, attn = build_query_ids(
+            self.tokenizer(text, add_special_tokens=True)["input_ids"],
+            self.q_id, self.mask_id, self.cfg,
+        )
+        return vecs[content_token_mask(attn)]
 
     def encode_documents(self, texts: list[str], batch_size: int = 16) -> list[np.ndarray]:
         """Değişken uzunlukta; dolgu ve noktalama ÇIKTIDA elenir."""

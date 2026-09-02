@@ -173,3 +173,32 @@ def test_maxsim_is_sum_not_mean():
 def test_maxsim_empty_document_scores_zero():
     q = np.array([[1.0, 0.0]], dtype=np.float32)
     assert maxsim(q, np.zeros((0, 2), dtype=np.float32)) == 0.0
+
+
+# --------------------------------------------------------------------------
+# içerik-yalnız sorgu vektörleri (exp3, KEPT)
+#
+# Ölçüldü (insan-doğrulanmış n=47): MaxSim toplamını yalnız GERÇEK sorgu
+# token'ları üzerinden almak R@5'i 0,7021 -> 0,7447, R@20'yi 0,8723 -> 0,9149
+# yükseltti; birincil metrik ve guardrail'ler değişmedi.
+#
+# Bu, ColBERT §3.2'nin "genişletme esastır" ifadesinden bir SAPMADIR ve modül
+# başlığında öyle işaretlenmiştir. Genişletme KODLAMADA korunur (eğitim rejimi);
+# yalnız SKORLAMA toplamından çıkarılır.
+# --------------------------------------------------------------------------
+
+
+def test_content_token_mask_marks_only_real_tokens():
+    from belge_gozu.index.colbert_encode import content_token_mask
+
+    _, attn = build_query_ids([CLS, 10, SEP], QMARK, MASK, CFG)
+    mask = content_token_mask(attn)
+    assert mask.tolist() == [True, True, True, True, False, False, False, False]
+
+
+def test_content_token_mask_is_all_true_without_expansion():
+    from belge_gozu.index.colbert_encode import content_token_mask
+
+    cfg = ColbertConfig(**{**CFG.__dict__, "do_query_expansion": False})
+    _, attn = build_query_ids([CLS, 10, SEP], QMARK, MASK, cfg)
+    assert content_token_mask(attn).all()
