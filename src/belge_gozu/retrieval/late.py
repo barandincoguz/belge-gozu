@@ -43,6 +43,7 @@ class LateChannelNotCalibrated(RuntimeError):
 class QueryEncoder(Protocol):
     def encode_query_vectors(self, text: str) -> np.ndarray:
         """(n_query_token, dim) — L2 normalize edilmiş sorgu vektörleri."""
+        ...
 
 
 def validate_index_shapes(
@@ -134,7 +135,7 @@ class LateInteractionChannel:
 
     def rank_chunks(self, query: str) -> list[str]:
         order = np.argsort(self.scores(query), kind="stable")[::-1]
-        return [self.chunk_ids[i] for i in order]
+        return [self.chunk_ids[int(i)] for i in order]
 
     def candidate_pages(self, query: str, limit: int = 200) -> list[str]:
         """İlk `limit` chunk'ın sayfaları, sırayı koruyarak, tekrarsız."""
