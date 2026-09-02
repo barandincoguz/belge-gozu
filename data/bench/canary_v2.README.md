@@ -1,8 +1,11 @@
 # `canary_v2.jsonl` — köken ve doğrulama künyesi
 
-**Bu set insan-doğrulanmış bir benchmark DEĞİLDİR.** 62 satırın 3'ü insan
-doğrulamasından geçmiştir. Bu dosya, v1'den farkını ve sayıların neyi ifade
-edip etmediğini kayda geçirir.
+**66 satırın 47'si insan doğrulamasından geçmiştir.** G1.2'nin üzerinde hüküm
+verdiği dört karar diliminin (`paraphrase`, `dogrudan-madde`, `madde-numarali`,
+`ayni-kanun-hard-negative`) tamamı insan onaylıdır — v1'de bu oran 3/48'di.
+Kalan 19 satır (dört yeni taslak + karar dışı dilimler) model çapraz-kontrolüyle
+sınırlıdır. Bu dosya, v1'den farkını ve sayıların neyi ifade edip etmediğini
+kayda geçirir.
 
 ## 1. v2, v1'in ÜST KÜMESİDİR
 
@@ -28,16 +31,16 @@ Kanıt: `data/bench/results/d1-v2-control.json`.
 
 | Dilim | v1 | v2 | Not |
 |---|---|---|---|
-| `paraphrase` | 7 | **21** | 14 yeni taslak (`c401`–`c414`) |
+| `paraphrase` | 7 | **25** | 18 yeni satır (`c401`–`c418`) |
 | diğer sekiz dilim | 41 | 41 | değişmedi |
-| **toplam** | **48** | **62** | |
+| **toplam** | **48** | **66** | |
 
-Yeni 14 satır, korpusta o güne dek **hiç altın sayfası olmayan** yedi kanundan
-üretildi (`k6502`, `k6331`, `k634`, `k5941`, `k6284`, `k4054`, `k5490`) — set
-11 belgeye yığılmışken belge çeşitliliğini artırmak için.
+Yeni 18 satır, korpusta o güne dek **hiç altın sayfası olmayan** on kanundan
+üretildi (`k6502`, `k6331`, `k634`, `k5941`, `k6284`, `k4054`, `k5490`,
+`k5846`, `k5651`, `k5188`) — set 11 belgeye yığılmışken belge çeşitliliğini
+artırmak için.
 
-Hepsi `verification_status: "draft"`, `source_type: "ajan-taslak"`. **Hiçbiri
-insan onayından geçmemiştir.**
+`c401`–`c414` insan onayından geçti; `c415`–`c418` hâlâ taslaktır.
 
 ## 3. Yeni makine kapısı: paraphrase sözlüksel örtüşme
 
@@ -62,15 +65,25 @@ yalnız insan incelemesine taşır.
 | `c208` | %64 | baska, calis, is, isver, isyer, neden, sirke, sona, sozle |
 | `c209` | %57 | alina, bildi, derha, zorun |
 
-`c209` maddenin operatif sözcüklerini ("derhal", "bildirilmek", "zorunda")
-taşıyor; `c208` İş K. m.6'nın terimlerini. Bunlar insan incelemesini bekliyor;
-`paraphrase` dışına çıkarılırlarsa dilim 21'den 17'ye iner.
+**İnsan incelemesi dördünü de `paraphrase` olarak DOĞRULADI.** Gerekçeler
+satırların `verification_note` alanında: `c110` yaş eşiğini "onbir yaşındaki
+çocuk" diyerek kendi ifadesiyle kuruyor; `c111` madde terimi "hak" yerine
+"kanunun tanıdığı yetki" diyor. Yani örtüşme, Türkçe'nin eklemeli yapısı ve
+hukuk sözlüğünün darlığından geliyor, kopyalamadan değil.
 
-Kapı yeni taslakları da denetledi: `c404` ilk yazımda %57 ile takıldı ve
-yeniden yazıldı (%18). Yani kural yalnız eski veriye değil, üretim sürecine de
-uygulanıyor.
+**Kapının bu turdaki bilançosu dürüstçe: 4 yanlış pozitif, 0 gerçek bulgu.**
+Eşik yine de 0,5'te BIRAKILDI ve veriye uydurulmadı — ölçüm aracını deneyin
+nesnesi yapmak bu projede yasak. Kapı bir *reddedici* değil bir *yüzeye
+çıkarıcıdır*: maliyeti 4 ek inceleme oldu, karşılığında o dört satırın neden
+paraphrase sayıldığı artık yazılı kayıtta duruyor. v1'i düzelten üç kusur
+(`c001`, `c002`, `c108`) %100 örtüşmedeydi, yani kapının yakalamak için var
+olduğu sınıf eşiğin çok üstünde.
 
-## 4. 14 satır eklemek ölçümü NASIL değiştirdi
+Kapı yeni taslakları da denetledi: `c404` ilk yazımda %57, `c417` %64 ile
+takıldı ve ikisi de yeniden yazıldı (%18 ve %25). Yani kural yalnız eski veriye
+değil, üretim sürecine de uygulanıyor.
+
+## 4. Ara adım: 14 satır eklemek ölçümü NASIL değiştirdi
 
 | | 48 satır (v1≡v2) | 62 satır | |
 |---|---|---|---|
@@ -91,18 +104,53 @@ kabaca doğruymuş, ama artık n=21 ile çok daha dar hata payıyla biliniyor.
 
 Kanıt: `data/bench/results/d1-v2-62row.json`.
 
+## 4b. İnsan doğrulamasından sonra — D1'in asıl çıktısı
+
+44 satırlık kuyruk incelendi: **0 ret, 0 içerik düzeltmesi**, 44 satırda yalnız
+künye alanları değişti. Karar dilimleri artık %100 insan onaylı ve ilk kez
+insan-doğrulanmış bir getirim ölçümü mümkün oldu.
+
+| Ölçüm | R@5 | n | Not |
+|---|---|---|---|
+| Yayımlanan (v1) | 0,8488 | 43 | 3 satır insan onaylı |
+| v2, tüm satırlar | 0,6930 | 57 | taslaklar dahil |
+| **v2, yalnız insan** | **0,6277** | **47** | `--min-verification human` |
+
+Üç sayı arasındaki fark büyük ölçüde **dilim karışımıdır**, sistem kalitesi
+değil: insan altkümesi `tablo-layout` ve `capraz-kanun-terim` gibi R@5=1,0000
+alan kolay dilimleri dışarıda bırakır ve `paraphrase` payını daha da artırır.
+Genel sayılar bu yüzden setler arası karşılaştırmaya UYGUN DEĞİLDİR.
+
+Karşılaştırılabilir olan dilim-içi sayılardır ve asıl sonuç budur:
+
+| Karar dilimi (G1.2) | R@50, insan-doğrulanmış | n | Hüküm |
+|---|---|---|---|
+| `dogrudan-madde` | 1,0000 | 13 | 1,0000 iddiası insan denetiminden SAĞ ÇIKTI |
+| `madde-numarali` | 1,0000 | 6 | ayakta |
+| `ayni-kanun-hard-negative` | 1,0000 | 5 | ayakta |
+| `paraphrase` | **0,5714** | **21** | n=7'deki değerin BİREBİR aynısı |
+
+`paraphrase` R@50'nin üç kat örneklemde rakama kadar aynı çıkması, o dilimdeki
+başarısızlığın örneklem gürültüsü olmadığının en güçlü kanıtıdır. **G1.2 hükmü
+değişmedi ama artık savunulabilir.** G1.1 tarafında R@50 (tüm satırlar) 0,9302
+yerine 0,8421 — 0,95 eşiğinden daha da uzak.
+
+Kanıt: `data/bench/results/d1-final-all.json`, `d1-final-human.json`.
+
 ## 5. Bilinen kısıtlar
 
-1. **Alıntılanamaz.** Bu set üzerinde ölçülen hiçbir sayı "insan-doğrulanmış
-   benchmark üzerinde ölçüldü" diye sunulamaz. `--status` hedefi iki ayrı
-   sayıyla basar; yalnız-insan sayısı **3**'tür.
-2. **Korelasyonlu kör nokta sürüyor.** Yeni 14 satırı yazan model, v1'i çapraz
-   kontrol eden modelle aynı ailedendir (`claude-opus-5`). Sözlüksel örtüşme
-   kapısı bu riski `paraphrase` diliminde ölçülebilir biçimde azaltır ama
-   ortadan kaldırmaz; asıl çare karar dilimlerinin %100 insan onayıdır.
-3. **Taslaklar ölçüme dahil.** Yukarıdaki 62 satırlık sayı `--all` ile
-   alınmıştır, yani 14 taslağı da içerir. İnsan incelemesi bittiğinde
-   `--min-verification human` ile ayrıca ölçülecektir.
+1. **Hangi sayının insan-doğrulanmış olduğuna dikkat.** `--all` ile alınan
+   genel sayı 19 model-onaylı satırı da içerir ve "insan-doğrulanmış benchmark
+   üzerinde ölçüldü" diye sunulamaz. İnsan iddiası yalnız
+   `--min-verification human` çıktısı ve dört karar dilimi için geçerlidir
+   (47/66). `--status` iki sayıyı ayrı ayrı basar.
+2. **Korelasyonlu kör nokta karar dilimlerinde KAPANDI, dışında sürüyor.** Yeni
+   18 satırı yazan model, v1'i çapraz kontrol eden modelle aynı ailedendir
+   (`claude-opus-5`). Dört karar diliminin %100 insan onayı bu riski oralarda
+   ortadan kaldırır; `tablo-layout`, `capraz-kanun-terim`, `tarihi-tarama` ve
+   cevaplanamaz dilimlerde risk aynen durur.
+3. **Dört satır hâlâ taslak.** `c415`–`c418` insan onayı bekliyor; genel
+   sayılar `--all` ile alındığında bu dördünü de içerir.
 4. **`tarihi-tarama` hâlâ n=4.** D1 planındaki genişletme yapılmadı; o dilim
    D4 (RG yeniden OCR) deneyinin guardrail'idir ve ayrıca ele alınacaktır.
 
