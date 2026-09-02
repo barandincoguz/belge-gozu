@@ -95,3 +95,73 @@ Hedef 0,90'a **bir soru** kaldı.
 
 **Kalan üç ıska:** c206 (KVKK saklama süresi), c404 (ayıplı hizmet),
 c411 (rekabet muafiyeti). c412 exp2 ile çözüldü.
+
+---
+
+## exp3 — genişletme token'larını MaxSim toplamından çıkar · **KEPT**
+
+**Hipotez.** Sorgu genişletmesi 32 vektörün ~13'ünü `[MASK]` yapıyor. Bu
+vektörler her belgeyle bir şeye eşleşiyor ve katkıları belge uzunluğuyla
+korelasyonlu — yani sıralamaya uzunluk yanlılığı ekliyorlar.
+
+**Değişiklik.** MaxSim toplamı yalnız GERÇEK sorgu token'ları üzerinden
+(`attention_mask == 1`). İndeks değişmiyor, yeniden kodlama yok.
+
+| kol | R@5 | R@20 | R@50 | paraphrase R@50 |
+|---|---|---|---|---|
+| taban | 0,7021 | 0,8723 | 0,9362 | 0,8571 |
+| **genişletmesiz** | **0,7447** | **0,9149** | 0,9362 | 0,8571 |
+
+**Karar: KEPT.** R@5 +0,0426, R@20 +0,0426, birincil metrik ve guardrail'ler
+değişmedi. Not: eğitim rejiminden sapma (pylate 32 vektörün hepsini tutar), ama
+ölçüm iki metrikte iyileşme, hiçbirinde gerileme gösteriyor.
+
+---
+
+## exp4 — başlık kanalı (dördüncü birleşim üyesi) · **DISCARDED**
+
+**Hipotez.** Madde başlıkları ("Avukatlığa kabul şartları:") insan yazımı, kanun
+dilinde, kısa etiketler — kayıt boşluğuna köprü olabilirler.
+
+**Değişiklik.** 10.531 başlık+kanun-adı metni ayrı ColBERT indeksi (22 sn,
+123.521 vektör, 32 MB), dördüncü birleşim üyesi.
+
+| kol | R@5 | R@20 | R@50 | paraphrase R@50 |
+|---|---|---|---|---|
+| BM25+A+B | 0,7447 | 0,9149 | 0,9362 | 0,8571 |
+| +BAŞLIK | 0,7234 | 0,8511 | 0,9149 | **0,8095** |
+
+**Karar: DISCARDED.** Her metrikte gerileme; üstelik exp2'de kazanılan `c412`
+tekrar kayboldu.
+
+**BU DENEY BENİM İKİ KEZ SÖYLEDİĞİM BİR ŞEYİ ÇÜRÜTTÜ.** "R@50 bir küme
+kapsama metriğidir, kanal eklemek onu düşüremez" dedim — **yanlış**. Doğrusu:
+birleşim k'da KIRPILIYOR, yani örgüde her yeni kanal diğerlerinin slot'unu
+yiyor. Zayıf bir kanal eklemek güçlü kanalların adaylarını top-k'nın dışına
+iter. Kanal eklemek ancak TAM birleşim kümesi alınırsa zararsızdır; kırpılmış
+bir listede değil.
+
+---
+
+## Kalan tıkanma ve teşhisi
+
+`paraphrase` R@50 = 0,8571 (18/21). Kalan üç ıska: `c206`, `c404`, `c411`.
+
+Workflow teşhisi (4 ajan, her biri gerçek korpusta kod koşarak) üçü için de aynı
+kök nedeni buldu: **kayıt uyuşmazlığı (vocabulary gap)**. Gold'ların üçü de
+doğru, chunk'lar bütün, kesme yok, ilgili madde tek bir chunk'ın içinde.
+
+Korpus kanun dilinde yazılmış ("veri sorumlusu", "işlenmesini gerektiren
+sebepler", "muafiyet şartları"), `paraphrase` soruları günlük dilde ("şirket",
+"müşteri verisi", "cezadan kurtulma").
+
+**SONDA (üst sınır ölçümü, dağıtılabilir sonuç DEĞİL).** Üç soruyu elle kanun
+diline çevirip aynı kanallara sordum:
+
+| soru | özgün sıra | çeviri sıra |
+|---|---|---|
+| c206 | 300 | **1** |
+| c404 | bulunamadı | **1** |
+| c411 | 88 | **1** |
+
+Yani boşluk tamamen sözlükseldir. Model, chunking, kesme ve gold masum.
