@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Belge-Gözü — Şema Galerisi</title>
+<meta name="description" content="Belge-Gözü sisteminin beş etkileşimli mimari figürü: gözlem katmanı, getirim yolculuğu, indeksleme hattı, kapı döngüsü ve hibrit geçiş karşılaştırması.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfaf8;
+    --panel: #ffffff;
+    --ink: #16202a;
+    --muted: #5c6b7a;
+    --line: #dfe4ea;
+    --accent: #2e7d4f;
+    --kicker: #8a6d2c;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1418;
+      --panel: #151d23;
+      --ink: #e6edf3;
+      --muted: #93a3b1;
+      --line: #26323b;
+      --accent: #5cc98d;
+      --kicker: #d0a94f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 56px 24px 72px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 36px; }
+  h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.2; margin: 0 0 10px; letter-spacing: -0.015em; }
+  .lede { color: var(--muted); margin: 0 0 4px; max-width: 62ch; }
+  .lede-en { color: var(--muted); font-style: italic; margin: 0; max-width: 62ch; }
+  .backlink { display: inline-block; margin-top: 18px; font-size: 14px; color: var(--accent); text-decoration: none; }
+  .backlink:hover { text-decoration: underline; }
+
+  .grid { display: grid; gap: 18px; }
+  .card {
+    display: block;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 22px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .kicker {
+    font: 600 11px/1 var(--mono);
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--kicker);
+    display: block;
+    margin-bottom: 9px;
+  }
+  .card h2 { font-size: 19px; margin: 0 0 3px; letter-spacing: -0.01em; }
+  .card .en { font-size: 14px; color: var(--muted); font-style: italic; margin: 0 0 10px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .src { margin-top: 12px; font: 12px/1 var(--mono); color: var(--muted); }
+  .src a { color: var(--accent); text-decoration: none; }
+  .src a:hover { text-decoration: underline; }
+
+  footer {
+    margin-top: 44px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 14px;
+  }
+  footer p { margin: 0 0 10px; max-width: 70ch; }
+  code { font: 13px var(--mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Belge-Gözü — Şema Galerisi</h1>
+  <p class="lede">Beş etkileşimli figür. Her biri tipli bir JSON kaynaktan deterministik olarak derlendi; arama, odak, ilişki izleme ve PNG/SVG dışa aktarma açıktır.</p>
+  <p class="lede-en">Five interactive figures, each compiled deterministically from a typed JSON source, with search, focus, relationship tracing and PNG/SVG export built in.</p>
+  <a class="backlink" href="https://github.com/barandincoguz/belge-gozu">← depoya dön / back to the repository</a>
+</header>
+
+<div class="grid">
+
+  <a class="card" href="observability.architecture.html">
+    <span class="kicker">architecture</span>
+    <h2>Gözlem Katmanı Mimarisi</h2>
+    <p class="en">Observability architecture</p>
+    <p>Uygulama hiçbir yere metrik göndermez: iki pasif çıkışı vardır ve Prometheus ile Grafana tamamen dışarıdan bakar. Düğümler gerçek kaynak dosyalara bağlıdır.</p>
+    <p class="src">kaynak: <a href="https://github.com/barandincoguz/belge-gozu/blob/main/docs/diagrams/observability.architecture.json">observability.architecture.json</a></p>
+  </a>
+
+  <a class="card" href="retrieval.sequence.html">
+    <span class="kicker">sequence</span>
+    <h2>Bir Sorunun Getirim Yolculuğu</h2>
+    <p class="en">The retrieval journey of one question</p>
+    <p>Cevabı üreten hat metindir: BM25 skorlaması ve kanun-adı yönlendirmesi 2–5 ms sürer, uçtan uca cevap 6–24 sn. Görsel MaxSim hesaplanır ama sıralamayı değiştirmez.</p>
+    <p class="src">kaynak: <a href="https://github.com/barandincoguz/belge-gozu/blob/main/docs/diagrams/retrieval.sequence.json">retrieval.sequence.json</a></p>
+  </a>
+
+  <a class="card" href="indexing.dataflow.html">
+    <span class="kicker">dataflow</span>
+    <h2>İndeksleme Hattı</h2>
+    <p class="en">The indexing pipeline</p>
+    <p>56 PDF, iki kanal olarak işlenir: sayfa görüntüleri ColSmol-500M ile kodlanıp int8'e nicemlenir, metin katmanı BM25 indeksine döner. İkisi de değişmez bir revizyonda yayımlanır.</p>
+    <p class="src">kaynak: <a href="https://github.com/barandincoguz/belge-gozu/blob/main/docs/diagrams/indexing.dataflow.json">indexing.dataflow.json</a></p>
+  </a>
+
+  <a class="card" href="p1-gate.lifecycle.html">
+    <span class="kicker">lifecycle</span>
+    <h2>P1/G1 Kapı Döngüsü</h2>
+    <p class="en">The P1/G1 gate loop</p>
+    <p>Hipotez → deney → ölçüm → kapı. 2026-08-31 hükmü FAIL: yedi ölçütten ikisi kaldı, ikisi hiç ölçülmedi. Ölçülmemiş kapı, geçmiş kapı değildir.</p>
+    <p class="src">kaynak: <a href="https://github.com/barandincoguz/belge-gozu/blob/main/docs/diagrams/p1-gate.lifecycle.json">p1-gate.lifecycle.json</a></p>
+  </a>
+
+  <a class="card" href="retrieval-delta.html">
+    <span class="kicker">compare · before / delta / after</span>
+    <h2>Görsel-only → Hibrit Geçişi</h2>
+    <p class="en">Visual-only to hybrid, as a verified delta</p>
+    <p>İki doğrulanmış mimari anlık görüntüsünün karşılaştırması: 4 bileşen eklendi, 1 değişti, 5 bağlantı eklendi, 1 kaldırıldı. Fractional R@5 0,1163 → 0,8488.</p>
+    <p class="src">kaynak: <a href="https://github.com/barandincoguz/belge-gozu/blob/main/docs/diagrams/retrieval-base.architecture.json">retrieval-base…json</a> · <a href="https://github.com/barandincoguz/belge-gozu/blob/main/docs/diagrams/retrieval-head.architecture.json">retrieval-head…json</a></p>
+  </a>
+
+</div>
+
+<footer>
+  <p><strong>Nasıl üretildi.</strong> Figürler <a href="https://github.com/tt-a1i/archify">Archify</a> ile derlendi; beşi de <code>showcase</code> profilinde 9/9 artefakt kontrolünden 0 hata ve 0 uyarı ile geçti. Mimari figürün altı kaynak referansı <code>c3cd666</code> revizyonuna karşı doğrulanmıştır. Görüntüleyici arayüzü İngilizcedir; şema içeriği Türkçedir.</p>
+  <p><em>Built with Archify. All five pass 9/9 artifact checks at the <code>showcase</code> profile with zero errors and zero warnings; the architecture figure's six source references are verified against revision <code>c3cd666</code>. The viewer UI is English; the diagram content is Turkish.</em></p>
+</footer>
+
+</div>
+</body>
+</html>

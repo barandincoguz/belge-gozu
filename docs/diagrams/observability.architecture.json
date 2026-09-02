@@ -1,0 +1,297 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Belge-Gözü — Gözlem Katmanı Mimarisi",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/barandincoguz/belge-gozu",
+      "revision": "c3cd6668a0f6e386226f0943ffa7523e9f4a8b0a"
+    },
+    "views": [
+      {
+        "id": "istek-yolu",
+        "label": "İstek yolundaki maliyet",
+        "focus": [
+          "api",
+          "counters",
+          "metrics"
+        ],
+        "note": "Sayaçlar RAM'de artar; istek yolunda ne ağ çağrısı ne disk senkronu vardır."
+      },
+      {
+        "id": "pull-koprusu",
+        "label": "Pull köprüsü",
+        "focus": [
+          "metrics",
+          "prometheus",
+          "grafana"
+        ],
+        "note": "Gözlemciler dışarıdan çeker; uygulama kendisini kimin izlediğini bilmez."
+      },
+      {
+        "id": "ham-gercek",
+        "label": "Ham gerçek ve teşhis",
+        "focus": [
+          "api",
+          "events",
+          "parquet",
+          "analysis"
+        ],
+        "note": "Dashboard semptomu verir, olay tablosu teşhisi."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Belge-Gözü API",
+      "sublabel": "uvicorn :7860 · /ask · /search",
+      "pos": [
+        50,
+        268
+      ],
+      "size": [
+        190,
+        86
+      ],
+      "sources": [
+        {
+          "path": "src/belge_gozu/app/main.py",
+          "label": "istek yolu"
+        }
+      ]
+    },
+    {
+      "id": "counters",
+      "type": "backend",
+      "label": "Uygulama içi sayaçlar",
+      "sublabel": "StageCollector + prometheus-client",
+      "pos": [
+        370,
+        140
+      ],
+      "size": [
+        200,
+        72
+      ],
+      "sources": [
+        {
+          "path": "src/belge_gozu/telemetry/collect.py",
+          "label": "kronometreler"
+        },
+        {
+          "path": "src/belge_gozu/telemetry/prom.py",
+          "label": "registry"
+        }
+      ]
+    },
+    {
+      "id": "metrics",
+      "type": "backend",
+      "label": "GET /metrics",
+      "sublabel": "exposition formatı",
+      "pos": [
+        700,
+        140
+      ],
+      "size": [
+        175,
+        72
+      ],
+      "sources": [
+        {
+          "path": "src/belge_gozu/app/main.py",
+          "label": "endpoint"
+        }
+      ]
+    },
+    {
+      "id": "events",
+      "type": "database",
+      "label": "SQLite events",
+      "sublabel": "data/requests.sqlite",
+      "brand": "sqlite",
+      "pos": [
+        370,
+        400
+      ],
+      "size": [
+        200,
+        72
+      ],
+      "sources": [
+        {
+          "path": "src/belge_gozu/telemetry/recorder.py",
+          "label": "olay yazımı"
+        }
+      ]
+    },
+    {
+      "id": "parquet",
+      "type": "database",
+      "label": "Parquet export",
+      "sublabel": "kalıcı olay arşivi",
+      "pos": [
+        700,
+        400
+      ],
+      "size": [
+        175,
+        72
+      ],
+      "sources": [
+        {
+          "path": "src/belge_gozu/telemetry/export.py",
+          "label": "export"
+        }
+      ]
+    },
+    {
+      "id": "analysis",
+      "type": "external",
+      "label": "Makale analizi",
+      "sublabel": "pandas",
+      "pos": [
+        700,
+        528
+      ],
+      "size": [
+        175,
+        72
+      ]
+    },
+    {
+      "id": "prometheus",
+      "type": "cloud",
+      "label": "Prometheus",
+      "sublabel": ":9090 · TSDB, ~15 gün",
+      "brand": "prometheus",
+      "pos": [
+        1110,
+        140
+      ],
+      "size": [
+        175,
+        72
+      ]
+    },
+    {
+      "id": "grafana",
+      "type": "frontend",
+      "label": "Grafana",
+      "sublabel": ":3001 · veri saklamaz",
+      "brand": "grafana",
+      "pos": [
+        1110,
+        272
+      ],
+      "size": [
+        175,
+        72
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Mac (host)",
+      "wraps": [
+        "api",
+        "counters",
+        "metrics",
+        "events",
+        "parquet",
+        "analysis"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "security-group",
+      "label": "uygulama süreci",
+      "wraps": [
+        "api",
+        "counters",
+        "metrics"
+      ],
+      "pad": 14
+    },
+    {
+      "kind": "region",
+      "label": "OrbStack (Docker)",
+      "wraps": [
+        "prometheus",
+        "grafana"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "api",
+      "to": "counters",
+      "label": "sayaçları artırır"
+    },
+    {
+      "from": "counters",
+      "to": "metrics",
+      "label": "anlık döküm"
+    },
+    {
+      "from": "prometheus",
+      "to": "metrics",
+      "label": "5 sn'de bir pull · host.docker.internal:7860",
+      "variant": "emphasis"
+    },
+    {
+      "from": "grafana",
+      "to": "prometheus",
+      "label": "PromQL"
+    },
+    {
+      "from": "api",
+      "to": "events",
+      "label": "istek başına 1 satır",
+      "variant": "dashed"
+    },
+    {
+      "from": "events",
+      "to": "parquet",
+      "label": "export"
+    },
+    {
+      "from": "parquet",
+      "to": "analysis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Tasarım kararı",
+      "items": [
+        "Uygulama hiçbir yere metrik göndermez",
+        "İki pasif çıkış: /metrics sayfası ve diske ham olay satırı",
+        "Prometheus ve Grafana kapalıyken uygulama eksiksiz çalışır"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Neden pull?",
+      "items": [
+        "Sayaç artışı istek yolunda µs mertebesindedir — telemetri isteği düşürmez",
+        "Hedef cevap vermezse Prometheus up=0 yazar: bedava ölüm sinyali",
+        "Bağımlılık oku tek yönlü; gözlem arızası gözlem katmanında kalır"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "İş bölümü",
+      "items": [
+        "Grafana semptomu verir: p95, rps, abstain oranı",
+        "events tablosu teşhisi verir: hangi soru, hangi skor",
+        "Soru metni Prometheus'a asla girmez — kardinalite ve gizlilik"
+      ]
+    }
+  ]
+}

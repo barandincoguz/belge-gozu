@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "compare",
+  "type": "architecture",
+  "comparatorVersion": 1,
+  "canonicalVersion": 1,
+  "completeness": "complete",
+  "proofLevel": "authored",
+  "base": {
+    "title": "Getirim Mimarisi — görsel-only (kıyas hattı)",
+    "rawSha256": "bf32290d4706b517fc479288f2dd7663720138eb54de172b22986c94fde4e2a3",
+    "semanticSha256": "ff04229e0e7db1ad35dc2f1c7bc0a7a9798adc8f1782d48f6ddd26dea7f29280",
+    "bytes": 2252
+  },
+  "head": {
+    "title": "Getirim Mimarisi — hibrit (üretim varsayılanı)",
+    "rawSha256": "0325e5063e5edd9bf05092d6442bbdacfb1766cb19086146ea0fea08695e8e86",
+    "semanticSha256": "bd6085ab5289f21e793668accf15d17d732dbcd056aa5d39352aab9e7b4e8edb",
+    "bytes": 4030
+  },
+  "summary": {
+    "components": {
+      "added": 4,
+      "changed": 1,
+      "evidenceChanged": 0,
+      "removed": 0,
+      "moved": 0
+    },
+    "connections": {
+      "added": 5,
+      "changed": 3,
+      "removed": 1,
+      "rerouted": 0
+    },
+    "boundaries": {
+      "added": 0,
+      "changed": 0,
+      "removed": 0,
+      "geometryChanged": 0
+    },
+    "presentationChanged": true,
+    "provenanceChanged": false
+  },
+  "changes": {
+    "components": [
+      {
+        "id": "bm25",
+        "headLabel": "BM25 indeksi",
+        "status": "added",
+        "classifications": [
+          "semantic"
+        ],
+        "changedFields": []
+      },
+      {
+        "id": "gate",
+        "headLabel": "Eşik kapısı",
+        "status": "added",
+        "classifications": [
+          "semantic"
+        ],
+        "changedFields": []
+      },
+      {
+        "id": "maxsim",
+        "baseLabel": "MaxSim skorlama",
+        "headLabel": "MaxSim skorlama",
+        "status": "changed",
+        "classifications": [
+          "semantic"
+        ],
+        "changedFields": [
+          "/sublabel"
+        ]
+      },
+      {
+        "id": "route",
+        "headLabel": "Kanun adı yönlendirme",
+        "status": "added",
+        "classifications": [
+          "semantic"
+        ],
+        "changedFields": []
+      },
+      {
+        "id": "text",
+        "headLabel": "BM25 skorlama",
+        "status": "added",
+        "classifications": [
+          "semantic"
+        ],
+        "changedFields": []
+      }
+    ],
+    "connections": [
+      {
+        "id": "api-qenc",
+        "base": {
+          "from": "api",
+          "to": "qenc",
+          "label": "soru"
+        },
+        "head": {
+          "from": "api",
+          "to": "qenc",
+          "label": "soru"
+        },
+        "status": "changed",
+        "classifications": [
+          "semantic"
+        ],
+        "changedFields": [
+          "/variant"
+        ]
+      },
+      {
+        "id": "api-text",
+        "head": {
+          "from": "api",
+          "to": "text",
+          "label": "belirteçler"
+        },
+        "status": "added",
+        "classifications": [
+          "topology"
+        ],
+        "changedFields": []
+      },
+      {
+        "id": "bm25-text",
+        "head": {
+          "from": "bm25",
+          "to": "text",
+          "label": "ters indeks"
+        },
+        "status": "added",
+        "classifications": [
+          "topology"
+        ],
+        "changedFields": []
+      },
+      {
+        "id": "gate-vlm",
+        "head": {
+          "from": "gate",
+          "to": "vlm",
+          "label": "eşiğin üstünde"
+        },
+        "status": "added",
+        "classifications": [
+          "topology"
+        ],
+        "changedFields": []
+      },
+      {
+        "id": "int8-maxsim",
+        "base": {
+          "from": "int8",
+          "to": "maxsim",
+          "label": "sayfa vektörleri"
+        },
+        "head": {
+          "from": "int8",
+          "to": "maxsim",
+          "label": "sayfa vektörleri"
+        },
+        "status": "changed",
+        "classifications": [
+          "semantic"
+        ],
+        "changedFields": [
+          "/variant"
+        ]
+      },
+      {
+        "id": "maxsim-vlm",
+        "base": {
+          "from": "maxsim",
+          "to": "vlm",
+          "label": "top-k sayfa"
+        },
+        "status": "removed",
+        "classifications": [
+          "topology"
+        ],
+        "changedFields": []
+      },
+      {
+        "id": "qenc-maxsim",
+        "base": {
+          "from": "qenc",
+          "to": "maxsim",
+          "label": "sorgu vektörü"
+        },
+        "head": {
+          "from": "qenc",
+          "to": "maxsim",
+          "label": "sorgu vektörü"
+        },
+        "status": "changed",
+        "classifications": [
+          "semantic"
+        ],
+        "changedFields": [
+          "/variant"
+        ]
+      },
+      {
+        "id": "route-gate",
+        "head": {
+          "from": "route",
+          "to": "gate",
+          "label": "top 50 sıralı"
+        },
+        "status": "added",
+        "classifications": [
+          "topology"
+        ],
+        "changedFields": []
+      },
+      {
+        "id": "text-route",
+        "head": {
+          "from": "text",
+          "to": "route",
+          "label": "BM25 skorları · 2–5 ms"
+        },
+        "status": "added",
+        "classifications": [
+          "topology"
+        ],
+        "changedFields": []
+      }
+    ],
+    "boundaries": []
+  },
+  "identity": {
+    "components": "components[].id",
+    "connections": "connections[].id (required)",
+    "boundaries": "boundaries[].kind + boundaries[].label (derived)"
+  },
+  "view": {
+    "visualPreset": "classic"
+  },
+  "limitations": [
+    "Authored Architecture IR only; no runtime impact, causality, risk, or mergeability is inferred.",
+    "Boundary identity is conservatively derived from kind + label."
+  ],
+  "artifact": {
+    "sha256": "912de6ab10af7021b7a272e4122c4b9ad04e778b635bda19df2c2ef9ba5e263b",
+    "bytes": 2011784
+  },
+  "validation": {
+    "checksPassed": 28,
+    "checkCount": 28,
+    "baseComposition": "pass",
+    "headComposition": "pass"
+  }
+}

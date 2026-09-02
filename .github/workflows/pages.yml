@@ -1,0 +1,60 @@
+name: pages
+
+# Kapsam kararı: Pages, `docs/` klasörünün tamamından DEĞİL, yalnız
+# `docs/diagrams/*.html` dosyalarından yayımlanır. İki gerekçe:
+#
+#   1. `docs/research/` altındaki ölçüm notları GitHub'da markdown olarak
+#      okunmak için yazıldı; Jekyll'in onları siteye çevirmesi ne istendi ne de
+#      test edildi. Yayımlanan yüzey ne kadar darsa, sessizce bozulacak şey o
+#      kadar az.
+#   2. `docs/diagrams/evidence/` (visual-check ekran görüntüleri, ~3 MB)
+#      bilerek dışarıda kalır — glob özyinelemeli değildir. O klasör zaten
+#      .gitignore'dadır; buradaki dar kopyalama ikinci bir emniyet kilididir.
+#
+# Figürler kendi kendine yeten tek dosyalık HTML'dir: derleme adımı yoktur,
+# bağımlılık indirilmez, kopyalamak yeterlidir.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/diagrams/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Eşzamanlı iki dağıtım birbirini ezmesin; sıradaki koşum iptal EDİLMEZ, çünkü
+# atlanan bir koşum siteyi eski figürlerle bırakır.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the diagram site
+        run: |
+          mkdir -p site
+          cp docs/diagrams/*.html site/
+          test -f site/index.html
+          echo "yayımlanan dosyalar:"
+          ls -1 site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -19,3 +19,7 @@ requests.sqlite
 .ruff_cache/
 .DS_Store
 .claude/
+
+# Archify visual-check kanıtı: ~3 MB ekran görüntüsü, tek komutla yeniden
+# üretilebilir (`archify visual-check <figür>.html`). Depoya girmesi gereksiz.
+docs/diagrams/evidence/

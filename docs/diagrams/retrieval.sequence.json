@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Belge-Gözü — Bir Sorunun Getirim Yolculuğu",
+    "viewBox": [
+      1020,
+      750
+    ],
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "getirim",
+        "label": "Metin getirimi",
+        "focus": [
+          "api",
+          "text",
+          "route"
+        ],
+        "note": "BM25 skorlaması ve kanun adı yönlendirmesi 2–5 ms sürer."
+      },
+      {
+        "id": "kapi",
+        "label": "Eşik kapısı",
+        "focus": [
+          "api",
+          "gate"
+        ],
+        "note": "Eşiğin altında sistem cevap uydurmaz, çekimser kalır."
+      },
+      {
+        "id": "telemetri",
+        "label": "Yol dışı telemetri",
+        "focus": [
+          "api",
+          "visual"
+        ],
+        "note": "int8 MaxSim cevabı etkilemez; yalnız ölçüm için hesaplanır."
+      }
+    ],
+    "column_fit": "spread"
+  },
+  "participants": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Kullanıcı",
+      "sublabel": "Türkçe soru"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Belge-Gözü",
+      "sublabel": "POST /ask"
+    },
+    {
+      "id": "text",
+      "type": "backend",
+      "label": "BM25",
+      "sublabel": "fold + prefix"
+    },
+    {
+      "id": "route",
+      "type": "backend",
+      "label": "Yönlendirme",
+      "sublabel": "kanun adı"
+    },
+    {
+      "id": "visual",
+      "type": "database",
+      "label": "int8 MaxSim",
+      "sublabel": "yalnız telemetri"
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "Eşik kapısı",
+      "sublabel": "abstain kararı"
+    },
+    {
+      "id": "vlm",
+      "type": "external",
+      "label": "Cevaplayıcı",
+      "sublabel": "VLM · sayfa görüntüsü"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 292,
+      "label": "Soru"
+    },
+    {
+      "from": 304,
+      "to": 512,
+      "label": "Getirim ve kapı"
+    },
+    {
+      "from": 524,
+      "to": 690,
+      "label": "Cevap"
+    }
+  ],
+  "messages": [
+    {
+      "id": "soru",
+      "from": "user",
+      "to": "api",
+      "y": 185,
+      "label": "Türkçe soru",
+      "variant": "emphasis"
+    },
+    {
+      "id": "belirtec",
+      "from": "api",
+      "to": "text",
+      "y": 232,
+      "label": "belirteçler",
+      "variant": "default"
+    },
+    {
+      "id": "skor",
+      "from": "text",
+      "to": "api",
+      "y": 272,
+      "label": "BM25 skorları · 2–5 ms",
+      "variant": "return"
+    },
+    {
+      "id": "yonlendir",
+      "from": "api",
+      "to": "route",
+      "y": 320,
+      "label": "kanun adı eşleşmesi",
+      "variant": "default"
+    },
+    {
+      "id": "sirala",
+      "from": "route",
+      "to": "api",
+      "y": 360,
+      "label": "top 50 yeniden sıralandı",
+      "variant": "return"
+    },
+    {
+      "id": "maxsim",
+      "from": "api",
+      "to": "visual",
+      "y": 408,
+      "label": "int8 MaxSim (yol dışı)",
+      "variant": "dashed",
+      "note": "Recall@5 0.8605 metin hattından gelir; görsel skor yalnız ölçülür."
+    },
+    {
+      "id": "kapi",
+      "from": "api",
+      "to": "gate",
+      "y": 456,
+      "label": "skor eşiğin üstünde mi?",
+      "variant": "security"
+    },
+    {
+      "id": "karar",
+      "from": "gate",
+      "to": "api",
+      "y": 496,
+      "label": "evet → cevapla",
+      "variant": "return",
+      "note": "Hayır ise cevap üretilmez: \"verilen sayfalarda bulamadım\"."
+    },
+    {
+      "id": "sayfa",
+      "from": "api",
+      "to": "vlm",
+      "y": 548,
+      "label": "seçilen sayfalar + işaretler",
+      "variant": "emphasis"
+    },
+    {
+      "id": "taslak",
+      "from": "vlm",
+      "to": "api",
+      "y": 604,
+      "label": "cevap + alıntılar",
+      "variant": "return"
+    },
+    {
+      "id": "cevap",
+      "from": "api",
+      "to": "user",
+      "y": 656,
+      "label": "cevap + dayanak sayfaları · 6–24 sn",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "api",
+      "from": 180,
+      "to": 662,
+      "type": "backend"
+    },
+    {
+      "participant": "text",
+      "from": 227,
+      "to": 278,
+      "type": "backend"
+    },
+    {
+      "participant": "route",
+      "from": 315,
+      "to": 366,
+      "type": "backend"
+    },
+    {
+      "participant": "visual",
+      "from": 403,
+      "to": 430,
+      "type": "database"
+    },
+    {
+      "participant": "gate",
+      "from": 451,
+      "to": 502,
+      "type": "security"
+    },
+    {
+      "participant": "vlm",
+      "from": 543,
+      "to": 610,
+      "type": "external"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Ana yol",
+      "items": [
+        "Cevabı üreten hat metindir: BM25 + kanun adı yönlendirmesi",
+        "Metin getirimi 2–5 ms; uçtan uca cevap 6–24 sn (LLM'e bağlı)",
+        "Gecikmenin neredeyse tamamı VLM cevaplayıcıdadır"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Yol dışı ölçüm",
+      "items": [
+        "int8 MaxSim hesaplanır ama seçimi değiştirmez",
+        "Görsel-tek getirim kıyas kümesinde 0.233'te kalmıştı",
+        "Yayımlanan Recall@5 0.8605 metin hattının sonucudur"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Çekimser kalma",
+      "items": [
+        "Eşik kapısı cevap uydurmayı engeller",
+        "Eşiğin altında sistem bulamadığını söyler",
+        "Kapı kararı da olay satırına yazılır"
+      ]
+    }
+  ]
+}

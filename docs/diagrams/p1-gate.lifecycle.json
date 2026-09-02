@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Belge-Gözü — P1/G1 Kapı Döngüsü",
+    "viewBox": [
+      1020,
+      566
+    ],
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "dongu",
+        "label": "Araştırma döngüsü",
+        "focus": [
+          "hipotez",
+          "deney",
+          "olcum",
+          "kapi",
+          "p2"
+        ],
+        "note": "Tek metrik, dar kapsam, sabitlenmiş ölçüm, sonra kapı."
+      },
+      {
+        "id": "hukum",
+        "label": "Kapı hükmü",
+        "focus": [
+          "kapi",
+          "fail",
+          "unmeasured"
+        ],
+        "note": "Yedi ölçütten ikisi kaldı, ikisi hiç ölçülmedi."
+      },
+      {
+        "id": "kanit",
+        "label": "Kanıt zinciri",
+        "focus": [
+          "olcum",
+          "artifact"
+        ],
+        "note": "Her sayı commit'li ve SHA-256 ile sabitlenmiş bir artefakta bağlıdır."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Araştırma döngüsü"
+    },
+    {
+      "id": "verdict",
+      "label": "Kapı hükmü"
+    },
+    {
+      "id": "evidence",
+      "label": "Kanıt"
+    }
+  ],
+  "states": [
+    {
+      "id": "hipotez",
+      "type": "start",
+      "label": "Hipotez",
+      "sublabel": "tek metrik, dar kapsam",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "giriş"
+    },
+    {
+      "id": "deney",
+      "type": "active",
+      "label": "Deney",
+      "sublabel": "tek değişken",
+      "lane": "main",
+      "col": 1,
+      "step": "02",
+      "tag": "kod"
+    },
+    {
+      "id": "olcum",
+      "type": "active",
+      "label": "Ölçüm",
+      "sublabel": "bench koşumu",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "tag": "sayı"
+    },
+    {
+      "id": "kapi",
+      "type": "decision",
+      "label": "G1 kapısı",
+      "sublabel": "yedi ölçüt",
+      "lane": "main",
+      "col": 3,
+      "step": "04",
+      "tag": "hüküm"
+    },
+    {
+      "id": "p2",
+      "type": "success",
+      "label": "P2'ye geçiş",
+      "sublabel": "yedi ölçüt de PASS",
+      "lane": "main",
+      "col": 4,
+      "step": "05",
+      "tag": "kapanış"
+    },
+    {
+      "id": "fail",
+      "type": "failure",
+      "label": "FAIL",
+      "sublabel": "G1.1 ve G1.2 kaldı",
+      "lane": "verdict",
+      "col": 1,
+      "tag": "geri besle"
+    },
+    {
+      "id": "unmeasured",
+      "type": "waiting",
+      "label": "ÖLÇÜLMEDİ",
+      "sublabel": "G1.3 ve G1.7",
+      "lane": "verdict",
+      "col": 2,
+      "tag": "açık"
+    },
+    {
+      "id": "artifact",
+      "type": "neutral",
+      "label": "Sabitlenmiş artefakt",
+      "sublabel": "SHA-256 · commit'li",
+      "lane": "evidence",
+      "col": 0,
+      "tag": "kanıt"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "kapi-fail",
+      "from": "kapi",
+      "to": "fail",
+      "label": "eşik kaçtı",
+      "variant": "security",
+      "route": "drop"
+    },
+    {
+      "id": "kapi-unmeasured",
+      "from": "kapi",
+      "to": "unmeasured",
+      "label": "ölçüm yok",
+      "variant": "dashed"
+    },
+    {
+      "id": "fail-deney",
+      "from": "fail",
+      "to": "deney",
+      "label": "yeni deney",
+      "variant": "emphasis",
+      "route": "top-channel"
+    },
+    {
+      "id": "olcum-artifact",
+      "from": "olcum",
+      "to": "artifact",
+      "label": "SHA-256 sabitle",
+      "variant": "default",
+      "labelDy": 24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "2026-08-31 hükmü: FAIL",
+      "items": [
+        "G1.1 candidate-union R@50 0,9302 < 0,95 eşiği",
+        "G1.2 paraphrase dilimi 0,5714 < 0,90 (n=7)",
+        "Kapı çiğnendi: hibrit hat yine de üretim varsayılanı yapıldı"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Ölçülmemiş kapılar",
+      "items": [
+        "G1.3 reranker kazancı ve G1.7 canlı Space bütçeleri hiç ölçülmedi",
+        "Ölçülmemiş kapı, geçmiş kapı değildir"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Döngüyü tutan disiplin",
+      "items": [
+        "Her sayı commit'li, SHA-256 ile sabitlenmiş artefakta bağlı",
+        "G1.6 PASS: kazanç göstermeyen üç füzyon biçimi reddedildi",
+        "ASCII katlama bedeliyle raporlandı: R@5 +0,0232, R@50 −0,0233"
+      ]
+    }
+  ]
+}

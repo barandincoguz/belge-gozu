@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Getirim Mimarisi — hibrit (üretim varsayılanı)",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Belge-Gözü API",
+      "sublabel": "uvicorn :7860",
+      "pos": [
+        60,
+        292
+      ],
+      "size": [
+        170,
+        80
+      ]
+    },
+    {
+      "id": "qenc",
+      "type": "backend",
+      "label": "ColSmol-500M",
+      "sublabel": "sorgu kodlayıcı",
+      "pos": [
+        400,
+        140
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "maxsim",
+      "type": "backend",
+      "label": "MaxSim skorlama",
+      "sublabel": "yalnız telemetri",
+      "pos": [
+        730,
+        140
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "int8",
+      "type": "database",
+      "label": "int8 vektör indeksi",
+      "sublabel": "476 MB · 4.222 sayfa",
+      "pos": [
+        1060,
+        140
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "text",
+      "type": "backend",
+      "label": "BM25 skorlama",
+      "sublabel": "elle yazıldı",
+      "pos": [
+        400,
+        300
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "route",
+      "type": "backend",
+      "label": "Kanun adı yönlendirme",
+      "sublabel": "top 50 yeniden sıralama",
+      "pos": [
+        730,
+        300
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "Eşik kapısı",
+      "sublabel": "abstain kararı",
+      "pos": [
+        1060,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "bm25",
+      "type": "database",
+      "label": "BM25 indeksi",
+      "sublabel": "fold + prefix",
+      "pos": [
+        400,
+        460
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "vlm",
+      "type": "external",
+      "label": "Cevaplayıcı",
+      "sublabel": "VLM · sayfa görüntüsü",
+      "pos": [
+        1060,
+        460
+      ],
+      "size": [
+        170,
+        64
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "api-text",
+      "from": "api",
+      "to": "text",
+      "label": "belirteçler",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bm25-text",
+      "from": "bm25",
+      "to": "text",
+      "label": "ters indeks"
+    },
+    {
+      "id": "text-route",
+      "from": "text",
+      "to": "route",
+      "label": "BM25 skorları · 2–5 ms",
+      "variant": "emphasis"
+    },
+    {
+      "id": "route-gate",
+      "from": "route",
+      "to": "gate",
+      "label": "top 50 sıralı",
+      "variant": "emphasis"
+    },
+    {
+      "id": "gate-vlm",
+      "from": "gate",
+      "to": "vlm",
+      "label": "eşiğin üstünde",
+      "variant": "emphasis",
+      "labelDy": 24
+    },
+    {
+      "id": "api-qenc",
+      "from": "api",
+      "to": "qenc",
+      "label": "soru",
+      "variant": "dashed",
+      "fromSide": "top"
+    },
+    {
+      "id": "qenc-maxsim",
+      "from": "qenc",
+      "to": "maxsim",
+      "label": "sorgu vektörü",
+      "variant": "dashed"
+    },
+    {
+      "id": "int8-maxsim",
+      "from": "int8",
+      "to": "maxsim",
+      "label": "sayfa vektörleri",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Hibrit hattın sonucu",
+      "items": [
+        "Hibrit fractional R@5: 0,8488 (görsel-only 0,1163 idi)",
+        "Yayımlanan Recall@5 0,8605 · Recall@20 0,930",
+        "Metin getirimi 2–5 ms"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Görsel kanalın yeni rolü",
+      "items": [
+        "MaxSim hâlâ hesaplanır ama sıralamayı belirlemez",
+        "Yol dışı ölçüm olarak telemetriye yazılır",
+        "int8 indeksi korunur: karşılaştırma ve gelecek reranker için"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Belge-Gözü — İndeksleme Hattı",
+    "viewBox": [
+      1068,
+      596
+    ],
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "iki-kanal",
+        "label": "İki kanal",
+        "focus": [
+          "pdfs",
+          "render",
+          "textlayer"
+        ],
+        "note": "Aynı PDF hem sayfa görüntüsü hem metin katmanı olarak işlenir."
+      },
+      {
+        "id": "nicemleme",
+        "label": "Nicemleme",
+        "focus": [
+          "encode",
+          "int8"
+        ],
+        "note": "ColSmol-500M çıktısı int8'e indirilir; indeks 476 MB'a iner."
+      },
+      {
+        "id": "yayim",
+        "label": "Sabitlenmiş yayım",
+        "focus": [
+          "int8",
+          "bm25idx",
+          "hub"
+        ],
+        "note": "İki indeks aynı değişmez revizyonda birlikte yayımlanır."
+      }
+    ]
+  },
+  "stages": [
+    {
+      "label": "Kaynak"
+    },
+    {
+      "label": "Çıkarım"
+    },
+    {
+      "label": "Kodlama"
+    },
+    {
+      "label": "Depolama"
+    },
+    {
+      "label": "Yayım"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "pdfs",
+      "type": "external",
+      "label": "56 PDF",
+      "sublabel": "50 kanun + 6 Resmî Gazete",
+      "stage": 0,
+      "row": 1,
+      "tag": "4.222 sayfa"
+    },
+    {
+      "id": "render",
+      "type": "backend",
+      "label": "Sayfa görüntüleme",
+      "sublabel": "sayfa başına raster",
+      "stage": 1,
+      "row": 0,
+      "tag": "görsel kanal"
+    },
+    {
+      "id": "textlayer",
+      "type": "backend",
+      "label": "Metin katmanı",
+      "sublabel": "çıkarım + normalize",
+      "stage": 1,
+      "row": 2,
+      "tag": "metin kanalı"
+    },
+    {
+      "id": "encode",
+      "type": "backend",
+      "label": "ColSmol-500M",
+      "sublabel": "görüntü kodlayıcı",
+      "stage": 2,
+      "row": 0,
+      "tag": "PyTorch"
+    },
+    {
+      "id": "bm25build",
+      "type": "backend",
+      "label": "BM25 kurulumu",
+      "sublabel": "fold + prefix",
+      "stage": 2,
+      "row": 2,
+      "tag": "elle yazıldı"
+    },
+    {
+      "id": "int8",
+      "type": "database",
+      "label": "int8 vektör indeksi",
+      "sublabel": "476 MB",
+      "stage": 3,
+      "row": 0,
+      "tag": "nicemlenmiş"
+    },
+    {
+      "id": "bm25idx",
+      "type": "database",
+      "label": "BM25 indeksi",
+      "sublabel": "hizalı metin kanalı",
+      "stage": 3,
+      "row": 2,
+      "tag": "ters indeks"
+    },
+    {
+      "id": "hub",
+      "type": "cloud",
+      "label": "Hugging Face",
+      "sublabel": "belge-gozu-index",
+      "brand": "hugging-face",
+      "stage": 4,
+      "row": 1,
+      "tag": "Datasets",
+      "width": 140
+    }
+  ],
+  "flows": [
+    {
+      "id": "pdf-render",
+      "from": "pdfs",
+      "to": "render",
+      "label": "sayfa görüntüleme",
+      "classification": "4.222 sayfa"
+    },
+    {
+      "id": "pdf-text",
+      "from": "pdfs",
+      "to": "textlayer",
+      "label": "gömülü metin",
+      "classification": "metin katmanı"
+    },
+    {
+      "id": "render-encode",
+      "from": "render",
+      "to": "encode",
+      "label": "sayfa görüntüleri",
+      "classification": "raster"
+    },
+    {
+      "id": "text-bm25",
+      "from": "textlayer",
+      "to": "bm25build",
+      "label": "normalize metin",
+      "classification": "aksan katlama"
+    },
+    {
+      "id": "encode-int8",
+      "from": "encode",
+      "to": "int8",
+      "label": "int8 nicemleme",
+      "classification": "vektör",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bm25-store",
+      "from": "bm25build",
+      "to": "bm25idx",
+      "label": "ters indeks yazımı",
+      "classification": "belirteç"
+    },
+    {
+      "id": "int8-hub",
+      "from": "int8",
+      "to": "hub",
+      "label": "yayım",
+      "classification": "700ac324 revizyonu",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bm25-hub",
+      "from": "bm25idx",
+      "to": "hub",
+      "label": "yayım",
+      "classification": "aynı revizyon"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "İki kanal, tek hizalama",
+      "items": [
+        "Aynı PDF hem görüntü hem metin olarak işlenir",
+        "Cevabı üreten hat metin kanalıdır",
+        "İki kanal aynı sayfa kimliği üzerinde hizalanır"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Boyut takası",
+      "items": [
+        "ColSmol-500M çıktısı int8'e nicemlenir",
+        "İndeks 476 MB'a iner ve tek konteynere sığar",
+        "Nicemlemenin getirim etkisi ölçülerek kabul edildi"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Tekrarlanabilirlik",
+      "items": [
+        "İndeks Hugging Face Datasets üzerinde herkese açık",
+        "Üretim pull'u 700ac324 revizyonuna sabitlenmiştir",
+        "Aynı revizyon aynı sayıları üretir"
+      ]
+    }
+  ]
+}

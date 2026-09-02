@@ -166,6 +166,16 @@ flowchart TB
 
 Üstteki üç kutu çevrimdışı kurulum (bir kez), alttaki zincir her istekte koşar.
 
+**Etkileşimli şemalar.** Yukarıdaki şema özettir. Gezilebilir hâlleri
+[şema galerisindedir](https://barandincoguz.github.io/belge-gozu/): [gözlem
+katmanı](https://barandincoguz.github.io/belge-gozu/observability.architecture.html) ·
+[getirim yolculuğu](https://barandincoguz.github.io/belge-gozu/retrieval.sequence.html) ·
+[indeksleme hattı](https://barandincoguz.github.io/belge-gozu/indexing.dataflow.html) ·
+[P1/G1 kapı döngüsü](https://barandincoguz.github.io/belge-gozu/p1-gate.lifecycle.html) ·
+[görsel-only → hibrit geçişi](https://barandincoguz.github.io/belge-gozu/retrieval-delta.html).
+Her figürün tipli JSON kaynağı `docs/diagrams/` altında izlenir; şemalar o kaynaktan
+deterministik olarak derlenir, elle çizilmez.
+
 Sistemi ayakta tutan iki kural var:
 
 **Kimlik veriyle birlikte yolculuk eder.** Her indeks bir künye taşır: model revizyonu,
@@ -326,6 +336,7 @@ docker run --rm -p 7860:7860 -v belge-gozu-data:/data \
 | `src/belge_gozu/answer/` | cevaplayıcı, anahtar rotasyonu, kalibrasyon, iddia doğrulayıcı |
 | `src/belge_gozu/telemetry/` | olay kaydı, Prometheus metrikleri, aşama zamanlaması |
 | `docs/research/findings/` | tarihli ölçüm notları — buradaki her sayının gerekçesi |
+| `docs/diagrams/` | etkileşimli şemaların tipli JSON kaynağı ve derlenmiş HTML'i |
 | `research/` | deney döngüsü: günlük, düzenek, sonuçlar |
 | `data/bench/` | kıyas kümeleri, bölmeler ve künye dosyaları |
 
@@ -466,6 +477,16 @@ flowchart TB
 ```
 
 The top three boxes are the offline build (run once); the chain below runs per request.
+
+**Interactive figures.** The diagram above is a summary. The explorable versions live in the
+[diagram gallery](https://barandincoguz.github.io/belge-gozu/):
+[observability architecture](https://barandincoguz.github.io/belge-gozu/observability.architecture.html) ·
+[retrieval journey](https://barandincoguz.github.io/belge-gozu/retrieval.sequence.html) ·
+[indexing pipeline](https://barandincoguz.github.io/belge-gozu/indexing.dataflow.html) ·
+[P1/G1 gate loop](https://barandincoguz.github.io/belge-gozu/p1-gate.lifecycle.html) ·
+[visual-only → hybrid delta](https://barandincoguz.github.io/belge-gozu/retrieval-delta.html).
+Each figure's typed JSON source is tracked under `docs/diagrams/`; the diagrams are compiled
+from that source deterministically rather than drawn by hand.
 
 Two rules hold the system together:
 
@@ -630,5 +651,6 @@ docker run --rm -p 7860:7860 -v belge-gozu-data:/data \
 | `src/belge_gozu/answer/` | answerer, key rotation, calibration, claim verifier |
 | `src/belge_gozu/telemetry/` | event log, Prometheus metrics, stage timing |
 | `docs/research/findings/` | dated measurement notes — the reasoning behind every number here |
+| `docs/diagrams/` | typed JSON sources and compiled HTML for the interactive figures |
 | `research/` | the experiment loop: journal, harness, results |
 | `data/bench/` | benchmarks, splits, and their provenance READMEs |

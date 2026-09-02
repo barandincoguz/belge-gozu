@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Getirim Mimarisi — görsel-only (kıyas hattı)",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Belge-Gözü API",
+      "sublabel": "uvicorn :7860",
+      "pos": [
+        60,
+        292
+      ],
+      "size": [
+        170,
+        80
+      ]
+    },
+    {
+      "id": "qenc",
+      "type": "backend",
+      "label": "ColSmol-500M",
+      "sublabel": "sorgu kodlayıcı",
+      "pos": [
+        400,
+        140
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "maxsim",
+      "type": "backend",
+      "label": "MaxSim skorlama",
+      "sublabel": "exhaustive · 0,2435 sn",
+      "pos": [
+        730,
+        140
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "int8",
+      "type": "database",
+      "label": "int8 vektör indeksi",
+      "sublabel": "476 MB · 4.222 sayfa",
+      "pos": [
+        1060,
+        140
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "vlm",
+      "type": "external",
+      "label": "Cevaplayıcı",
+      "sublabel": "VLM · sayfa görüntüsü",
+      "pos": [
+        1060,
+        460
+      ],
+      "size": [
+        170,
+        64
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "api-qenc",
+      "from": "api",
+      "to": "qenc",
+      "label": "soru",
+      "variant": "emphasis",
+      "fromSide": "top"
+    },
+    {
+      "id": "qenc-maxsim",
+      "from": "qenc",
+      "to": "maxsim",
+      "label": "sorgu vektörü",
+      "variant": "emphasis"
+    },
+    {
+      "id": "int8-maxsim",
+      "from": "int8",
+      "to": "maxsim",
+      "label": "sayfa vektörleri",
+      "variant": "emphasis"
+    },
+    {
+      "id": "maxsim-vlm",
+      "from": "maxsim",
+      "to": "vlm",
+      "label": "top-k sayfa",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Kıyas hattının sonucu",
+      "items": [
+        "Görsel-only fractional R@5: 0,1163",
+        "Sıralamayı tek başına MaxSim belirler",
+        "CPU int8 skorlaması sentetik sorguda 0,2435 sn/sorgu"
+      ]
+    }
+  ]
+}
