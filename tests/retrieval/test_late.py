@@ -29,8 +29,10 @@ class FakeEncoder:
 
     def __init__(self, vec):
         self.vec = np.asarray(vec, dtype=np.float32)
+        self.calls = 0
 
     def encode_query_vectors(self, text):
+        self.calls += 1
         return self.vec
 
 
@@ -77,6 +79,53 @@ def test_candidate_pages_deduplicates():
 
 def test_candidate_pages_respects_limit():
     assert len(channel([[0.0, 1.0]]).candidate_pages("s", limit=1)) == 2  # tek chunk, iki sayfa
+
+
+def test_search_with_scores_encodes_once_and_normalizes_by_query_tokens():
+    encoder = FakeEncoder([[1.0, 0.0], [0.0, 1.0]])
+    ch = LateInteractionChannel(
+        embeddings=np.array(
+            [[1.0, 0.0], [0.0, 1.0], [0.5, 0.0], [0.0, 0.5]],
+            dtype=np.float32,
+        ),
+        offsets=np.array([0, 2, 4], dtype=np.int64),
+        chunk_ids=["c1", "c2"],
+        chunk_pages={"c1": ("p1",), "c2": ("p2",)},
+        encoder=encoder,
+    )
+
+    result = ch.search_with_scores("soru", limit=2)
+
+    assert result.pages == ("p1", "p2")
+    assert result.query_tokens == 2
+    assert result.raw_top1 == pytest.approx(2.0)
+    assert result.raw_margin == pytest.approx(1.0)
+    assert result.mean_top1 == pytest.approx(1.0)
+    assert result.mean_margin == pytest.approx(0.5)
+    assert encoder.calls == 1
+
+
+def test_search_with_scores_uses_distinct_pages_for_the_margin():
+    ch = LateInteractionChannel(
+        embeddings=np.array([[1.0, 0.0], [0.8, 0.0], [0.5, 0.0]], dtype=np.float32),
+        offsets=np.array([0, 1, 2, 3], dtype=np.int64),
+        chunk_ids=["c1", "c2", "c3"],
+        chunk_pages={"c1": ("p1",), "c2": ("p1",), "c3": ("p2",)},
+        encoder=FakeEncoder([[1.0, 0.0]]),
+    )
+
+    result = ch.search_with_scores("soru")
+
+    assert result.pages == ("p1", "p2")
+    assert result.raw_top1 == pytest.approx(1.0)
+    assert result.raw_margin == pytest.approx(0.5)
+
+
+def test_search_with_scores_rejects_an_empty_query_vector_matrix():
+    ch = channel(np.zeros((0, 2), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="sorgu vektörü"):
+        ch.search_with_scores("soru")
 
 
 # --------------------------------------------------------------------------

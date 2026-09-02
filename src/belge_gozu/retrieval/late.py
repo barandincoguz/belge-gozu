@@ -86,6 +86,18 @@ def chunk_ranking_to_pages(
     return out
 
 
+@dataclass(frozen=True)
+class LateSearchResult:
+    """Tek kodlamadan türeyen adaylar ve kalibrasyon istatistikleri."""
+
+    pages: tuple[str, ...]
+    query_tokens: int
+    raw_top1: float
+    raw_margin: float
+    mean_top1: float
+    mean_margin: float
+
+
 @dataclass
 class LateInteractionChannel:
     """MaxSim ile chunk sıralar; sayfa kimlikleri döndürür."""
@@ -99,11 +111,26 @@ class LateInteractionChannel:
     def __post_init__(self) -> None:
         validate_index_shapes(self.embeddings, self.offsets, self.chunk_ids)
 
+    def _score_query(self, query: str) -> tuple[np.ndarray, int]:
+        """Chunk skorları + etkin sorgu tokenı sayısı; kodlamanın tek kaynağı."""
+        q = np.asarray(self.encoder.encode_query_vectors(query), dtype=np.float32)
+        if q.ndim != 2 or q.shape[0] == 0:
+            raise ValueError(
+                "sorgu vektörü matrisi boş olamaz ve (n_token, dim) biçiminde olmalı: "
+                f"{q.shape}"
+            )
+        if q.shape[1] != self.embeddings.shape[1]:
+            raise ValueError(
+                "sorgu vektörü boyutu indeksle eşleşmeli: "
+                f"{q.shape[1]} != {self.embeddings.shape[1]}"
+            )
+        sims = q @ np.asarray(self.embeddings, dtype=np.float32).T
+        scores = np.maximum.reduceat(sims, self.offsets[:-1], axis=1).sum(axis=0)
+        return scores, int(q.shape[0])
+
     def scores(self, query: str) -> np.ndarray:
         """Chunk başına MaxSim skoru — sorgu token'ları üzerinde TOPLAM."""
-        q = np.asarray(self.encoder.encode_query_vectors(query), dtype=np.float32)
-        sims = q @ np.asarray(self.embeddings, dtype=np.float32).T
-        return np.maximum.reduceat(sims, self.offsets[:-1], axis=1).sum(axis=0)
+        return self._score_query(query)[0]
 
     def rank_chunks(self, query: str) -> list[str]:
         order = np.argsort(self.scores(query), kind="stable")[::-1]
@@ -111,7 +138,45 @@ class LateInteractionChannel:
 
     def candidate_pages(self, query: str, limit: int = 200) -> list[str]:
         """İlk `limit` chunk'ın sayfaları, sırayı koruyarak, tekrarsız."""
-        return chunk_ranking_to_pages(self.rank_chunks(query)[:limit], self.chunk_pages)
+        return list(self.search_with_scores(query, limit=limit).pages)
+
+    def search_with_scores(self, query: str, limit: int = 200) -> LateSearchResult:
+        """Aday sayfaları ve kalibrasyon skorlarını tek sorgu kodlamasıyla üretir.
+
+        MaxSim chunk üzerinde hesaplanır; güven marjı ise servis sözleşmesiyle
+        aynı birimde, birbirinden farklı ilk iki SAYFA üzerinden ölçülür. Aynı
+        sayfayı taşıyan ikinci bir chunk sahte bir top-2 rakibi sayılmaz.
+
+        `mean_*` alanları sorgu başına sabit bir bölme olduğundan sıralamayı
+        değiştirmez. Yalnız ham MaxSim toplamının etkin sorgu tokenı sayısıyla
+        büyümesini çekimserlik ekseninden çıkarır.
+        """
+        scores, query_tokens = self._score_query(query)
+        order = np.argsort(scores, kind="stable")[::-1]
+        ranked_chunks = [self.chunk_ids[int(i)] for i in order]
+        pages = tuple(chunk_ranking_to_pages(ranked_chunks[:limit], self.chunk_pages))
+
+        page_scores: list[float] = []
+        seen_pages: set[str] = set()
+        for idx, chunk_id in zip(order, ranked_chunks, strict=True):
+            for page_id in self.chunk_pages.get(chunk_id, ()):
+                if page_id in seen_pages:
+                    continue
+                seen_pages.add(page_id)
+                page_scores.append(float(scores[int(idx)]))
+            if len(page_scores) >= 2:
+                break
+
+        raw_top1 = page_scores[0] if page_scores else 0.0
+        raw_margin = raw_top1 - page_scores[1] if len(page_scores) >= 2 else 0.0
+        return LateSearchResult(
+            pages=pages,
+            query_tokens=query_tokens,
+            raw_top1=raw_top1,
+            raw_margin=raw_margin,
+            mean_top1=raw_top1 / query_tokens,
+            mean_margin=raw_margin / query_tokens,
+        )
 
 
 def require_calibrated_late_channel(
