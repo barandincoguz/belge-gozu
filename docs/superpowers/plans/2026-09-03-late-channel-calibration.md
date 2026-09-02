@@ -32,7 +32,7 @@
 - Consumes: the current branch at `a3b158d` plus the committed design document.
 - Produces: `LateInteractionChannel`, `ColBERTEncoder.encode_query_vectors()`, `union_candidates()`, `canary_v2`, and the two-channel production parity script.
 
-- [ ] **Step 1: Merge the local measured implementation**
+- [x] **Step 1: Merge the local measured implementation**
 
 ```bash
 git merge --no-edit main
@@ -40,7 +40,7 @@ git merge --no-edit main
 
 Expected: a merge commit containing the 15 late-channel research/implementation commits and no conflict with the new spec.
 
-- [ ] **Step 2: Verify the imported focused tests**
+- [x] **Step 2: Verify the imported focused tests**
 
 ```bash
 uv run pytest tests/retrieval/test_late.py tests/retrieval/test_union.py tests/index/test_colbert_encode.py -q
@@ -48,7 +48,7 @@ uv run pytest tests/retrieval/test_late.py tests/retrieval/test_union.py tests/i
 
 Expected: all focused tests pass.
 
-- [ ] **Step 3: Verify measured/production parity on the data-bearing checkout**
+- [x] **Step 3: Verify measured/production parity on the data-bearing checkout**
 
 ```bash
 cd /Users/barandincoguz/Desktop/project-delta
@@ -67,7 +67,7 @@ Expected: `R@5=0.7766`, `R@20=0.9149`, `R@50=0.9362`, and `paraphrase R@50=0.857
 - Consumes: `QueryEncoder.encode_query_vectors(text) -> np.ndarray`, flattened chunk embeddings/offsets, and `chunk_pages`.
 - Produces: `LateSearchResult` and `LateInteractionChannel.search_with_scores(query, limit=200) -> LateSearchResult`.
 
-- [ ] **Step 1: Write failing score-summary tests**
+- [x] **Step 1: Write failing score-summary tests**
 
 Add tests proving that one query encoding yields a page ranking and these exact values for two query vectors over synthetic chunks:
 
@@ -84,7 +84,7 @@ assert encoder.calls == 1
 
 Also add cases for duplicate pages across chunks and an encoder returning zero query vectors.
 
-- [ ] **Step 2: Run the tests and observe the expected failure**
+- [x] **Step 2: Run the tests and observe the expected failure**
 
 ```bash
 uv run pytest tests/retrieval/test_late.py -q
@@ -92,7 +92,7 @@ uv run pytest tests/retrieval/test_late.py -q
 
 Expected: failure because `search_with_scores` and `LateSearchResult` do not exist.
 
-- [ ] **Step 3: Implement the minimal score result**
+- [x] **Step 3: Implement the minimal score result**
 
 Add an immutable result type with:
 
@@ -109,7 +109,7 @@ class LateSearchResult:
 
 Implement `search_with_scores()` by encoding once, computing the existing chunk MaxSim scores, walking ranked chunks until page-level top-1/top-2 distinct pages are known, and dividing both top-1 and margin by `query_tokens`. Raise `ValueError` for an empty query-vector matrix. Make `scores()` and `candidate_pages()` delegate to shared private helpers so the scoring formula has one implementation.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 ```bash
 uv run pytest tests/retrieval/test_late.py tests/retrieval/test_union.py -q
@@ -117,7 +117,7 @@ uv run pytest tests/retrieval/test_late.py tests/retrieval/test_union.py -q
 
 Expected: all tests pass and the fake encoder call count is one.
 
-- [ ] **Step 5: Commit the runtime-aligned feature surface**
+- [x] **Step 5: Commit the runtime-aligned feature surface**
 
 ```bash
 git add src/belge_gozu/retrieval/late.py tests/retrieval/test_late.py
@@ -134,7 +134,7 @@ git commit -m "feat(retrieval): expose calibrated late score summary"
 - Consumes: `Calibrator`, `choose_threshold`, `evaluate`, `univariate_auc`, `sha256_file`, `git_blob_sha`, and `LateSearchResult`.
 - Produces: `LATE_FEATURE_ORDER`, `LateCalibrationRow`, `LateCalibrationArtifact`, `group_key()`, `assign_inner_split()`, `fit_late_calibration()`, `evaluate_late_calibration()`, and `enablement_verdict()`.
 
-- [ ] **Step 1: Write failing tests for feature and split contracts**
+- [x] **Step 1: Write failing tests for feature and split contracts**
 
 Cover:
 
@@ -151,7 +151,7 @@ assert group_key(anlamsiz_row) == "qid:u201"
 
 Verify deterministic inner assignment, same-group co-location, class-presence validation, and finite four-feature vectors.
 
-- [ ] **Step 2: Run the new unit test and observe failure**
+- [x] **Step 2: Run the new unit test and observe failure**
 
 ```bash
 uv run pytest tests/answer/test_late_calibrate.py -q
@@ -159,11 +159,11 @@ uv run pytest tests/answer/test_late_calibrate.py -q
 
 Expected: collection failure because `belge_gozu.answer.late_calibrate` is absent.
 
-- [ ] **Step 3: Implement row and grouped-split primitives**
+- [x] **Step 3: Implement row and grouped-split primitives**
 
 Use the fixed salt `late-calibration-v1`. Map the first digest byte into `fit` for values `< 170` and `calibration` otherwise. Validate that each inner split contains both labels before fitting or threshold selection.
 
-- [ ] **Step 4: Run split tests green**
+- [x] **Step 4: Run split tests green**
 
 ```bash
 uv run pytest tests/answer/test_late_calibrate.py -q
@@ -171,7 +171,7 @@ uv run pytest tests/answer/test_late_calibrate.py -q
 
 Expected: split and feature tests pass.
 
-- [ ] **Step 5: Write failing artifact and metric tests**
+- [x] **Step 5: Write failing artifact and metric tests**
 
 Create synthetic rows where the fit model separates labels and the calibration threshold is known. Assert:
 
@@ -184,7 +184,7 @@ assert evaluate_late_calibration(loaded, calibration_rows)["counts"]["total"] ==
 
 Also assert wrong fingerprint failure, atomic JSON round-trip, `safe_answerable_accept_rate`, unanswerable false accepts with Clopper-Pearson upper bound, and all five enablement checks.
 
-- [ ] **Step 6: Run artifact tests and observe failure**
+- [x] **Step 6: Run artifact tests and observe failure**
 
 ```bash
 uv run pytest tests/answer/test_late_calibrate.py -q
@@ -192,7 +192,7 @@ uv run pytest tests/answer/test_late_calibrate.py -q
 
 Expected: failures for missing artifact/metric behavior.
 
-- [ ] **Step 7: Implement calibration, evaluation, and verdict**
+- [x] **Step 7: Implement calibration, evaluation, and verdict**
 
 Fit the existing deterministic `Calibrator` on `fit_rows`, predict on the independent `calibration_rows`, and call `choose_threshold(..., max_risk=0.05)` only there. Store the fitted model, chosen threshold, feature order, late recipe ID, identity fields, fit/calibration metrics, counts, and provenance. Evaluation must never refit or change `tau`.
 
@@ -209,7 +209,7 @@ checks = {
 eligible = all(checks.values())
 ```
 
-- [ ] **Step 8: Run pure calibration tests green**
+- [x] **Step 8: Run pure calibration tests green**
 
 ```bash
 uv run pytest tests/answer/test_late_calibrate.py tests/answer/test_calibrate.py -q
@@ -217,7 +217,7 @@ uv run pytest tests/answer/test_late_calibrate.py tests/answer/test_calibrate.py
 
 Expected: all tests pass; the existing BM25 calibration suite is unchanged.
 
-- [ ] **Step 9: Commit the pure calibration layer**
+- [x] **Step 9: Commit the pure calibration layer**
 
 ```bash
 git add src/belge_gozu/answer/late_calibrate.py tests/answer/test_late_calibrate.py
@@ -234,11 +234,11 @@ git commit -m "feat(answer): add leakage-resistant late calibration artifact"
 - Consumes: primary `chunks.parquet`/`page_texts.parquet`, two late-index directories, `canary_v2.jsonl`, `unans_v1.jsonl`, `splits_v1.json`, `LateInteractionChannel.search_with_scores()`, and `union_candidates()`.
 - Produces: `fit` and `eval` subcommands, `calibrator.json`, and self-contained JSON reports.
 
-- [ ] **Step 1: Write failing CLI tests with injected synthetic channels**
+- [x] **Step 1: Write failing CLI tests with injected synthetic channels**
 
 Test the parser and orchestration through a `run_fit(inputs, scorer)` / `run_eval(inputs, scorer)` boundary so no model or network is needed. Assert that fit reads only outer-dev rows, eval refuses without `--yes-final-gate`, eval reads only outer-test rows, and output JSON includes per-question features plus raw-vs-normalized diagnostics.
 
-- [ ] **Step 2: Run the CLI test and observe failure**
+- [x] **Step 2: Run the CLI test and observe failure**
 
 ```bash
 uv run pytest tests/test_calibrate_late_channel.py -q
@@ -246,7 +246,7 @@ uv run pytest tests/test_calibrate_late_channel.py -q
 
 Expected: failure because the script module does not exist.
 
-- [ ] **Step 3: Implement input loading and runtime-aligned scoring**
+- [x] **Step 3: Implement input loading and runtime-aligned scoring**
 
 The scorer must:
 
@@ -257,7 +257,7 @@ The scorer must:
 5. keep raw top-1/query-token counts for diagnostics but feed only normalized top-1/margins to the calibrator,
 6. derive all content hashes and late-index identities before fitting.
 
-- [ ] **Step 4: Implement guarded fit/eval commands and atomic reports**
+- [x] **Step 4: Implement guarded fit/eval commands and atomic reports**
 
 Use these defaults:
 
@@ -273,7 +273,7 @@ Use these defaults:
 
 `eval` must require `--yes-final-gate`, load the existing artifact by expected identity, and never call a fit function.
 
-- [ ] **Step 5: Run CLI and related tests green**
+- [x] **Step 5: Run CLI and related tests green**
 
 ```bash
 uv run pytest tests/test_calibrate_late_channel.py tests/answer/test_late_calibrate.py tests/retrieval/test_late.py -q
@@ -281,7 +281,7 @@ uv run pytest tests/test_calibrate_late_channel.py tests/answer/test_late_calibr
 
 Expected: all tests pass without model downloads.
 
-- [ ] **Step 6: Commit the runner**
+- [x] **Step 6: Commit the runner**
 
 ```bash
 git add scripts/calibrate_late_channel.py tests/test_calibrate_late_channel.py
@@ -299,7 +299,7 @@ git commit -m "feat(bench): add locked late-channel calibration runner"
 - Consumes: real data and late indices from `/Users/barandincoguz/Desktop/project-delta/data` through explicit absolute CLI paths.
 - Produces: locked threshold artifact, dev report, test report, and `eligible_to_enable` verdict.
 
-- [ ] **Step 1: Fit without reading test rows**
+- [x] **Step 1: Fit without reading test rows**
 
 ```bash
 uv run python scripts/calibrate_late_channel.py fit \
@@ -312,13 +312,13 @@ uv run python scripts/calibrate_late_channel.py fit \
 
 Expected: report states `outer_split=dev`, distinct non-empty `fit` and `calibration` groups, the raw Mogan length correlation remains high, and the selected threshold comes only from inner calibration rows.
 
-- [ ] **Step 2: Verify deterministic replay of fit**
+- [x] **Step 2: Verify deterministic replay of fit**
 
 Run the same command to a temporary output path and compare calibrator model fields, threshold, row assignments, and per-question probabilities while excluding timestamps/output paths.
 
 Expected: values and assignments are identical.
 
-- [ ] **Step 3: Run the locked test exactly once**
+- [x] **Step 3: Run the locked test exactly once**
 
 ```bash
 uv run python scripts/calibrate_late_channel.py eval \
@@ -332,7 +332,7 @@ uv run python scripts/calibrate_late_channel.py eval \
 
 Expected: report states `outer_split=test`, records every enablement check, and prints either `ELIGIBLE` or `BLOCKED` without changing the artifact.
 
-- [ ] **Step 4: Commit only reproducible reports**
+- [x] **Step 4: Commit only reproducible reports**
 
 ```bash
 git add data/bench/results/late-channel-calibration-dev-v1.json \
@@ -350,11 +350,11 @@ git commit -m "exp(calibration): measure late-channel abstention gate"
 - Consumes: both committed reports and the immutable artifact identity.
 - Produces: a concise decision record that says which checks passed, which failed, and why the default-closed guard remains or may proceed to a separate integration.
 
-- [ ] **Step 1: Write the finding from report values**
+- [x] **Step 1: Write the finding from report values**
 
 Include dataset counts and verification caveats, fit/calibration/test metrics, raw-vs-normalized evidence, the exact `tau`, all enablement checks, and the decision. Do not describe model-cross-checked `unans_v1` rows as human verified.
 
-- [ ] **Step 2: Verify documentation and repository diff**
+- [x] **Step 2: Verify documentation and repository diff**
 
 ```bash
 git diff --check
@@ -366,7 +366,7 @@ rg -n "TBD|TODO|implement later|fill in details" \
 
 Expected: no whitespace errors and no placeholders.
 
-- [ ] **Step 3: Run the full verification suite**
+- [x] **Step 3: Run the full verification suite**
 
 ```bash
 uv run pytest -q
@@ -376,7 +376,7 @@ uv run pyright
 
 Expected: all tests pass, Ruff reports no errors, and Pyright reports zero errors.
 
-- [ ] **Step 4: Commit the finding**
+- [x] **Step 4: Commit the finding**
 
 ```bash
 git add docs/research/findings/2026-09-03-late-channel-calibration.md \
@@ -384,7 +384,7 @@ git add docs/research/findings/2026-09-03-late-channel-calibration.md \
 git commit -m "docs(research): record late-channel calibration verdict"
 ```
 
-- [ ] **Step 5: Re-run final evidence commands after the last commit**
+- [x] **Step 5: Re-run final evidence commands after the last commit**
 
 ```bash
 uv run pytest -q
