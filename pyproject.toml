@@ -26,7 +26,20 @@ dependencies = [
 # davranışına karşı doğrulandı (T11/Step 1 — visual_prompt_prefix ClassVar'ı
 # 0.3.11'de, "Query: " prefix'i 0.3.13'te değişti). Manifest engine sürümünü
 # KAYDEDER ama uyumluluk kontrolünde KARŞILAŞTIRMAZ; asıl kilit bu pin.
-ml = ["colpali-engine==0.3.18", "torch>=2.4"]
+# D2 ile `transformers` ve `safetensors` artık DOĞRUDAN bağımlılık (ColBERT
+# kodlama sözleşmesi), transitive değil — beyan edilmezse bir colpali-engine
+# yükseltmesi onları sessizce değiştirebilir.
+#
+# `pylate` BİLEREK YOK: kurulumu torch 2.13->2.11 ve transformers 5.15->5.3
+# düşürüyor (fast-plaid `torch==2.11.0` tam pinliyor). Bu bir çakışma değil,
+# revalidasyon bedeli: colpali-engine==0.3.18 pini MEVCUT yığın altında
+# doğrulandı. Karşılığı `index/colbert_encode.py`de ~120 satır.
+ml = [
+  "colpali-engine==0.3.18",
+  "torch>=2.4",
+  "transformers>=5.3,<6",
+  "safetensors>=0.6",
+]
 dev = ["pytest>=8.0", "ruff>=0.6", "pyright>=1.1.380", "pre-commit>=3.8"]
 
 [tool.uv.sources]

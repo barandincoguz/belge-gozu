@@ -1,19 +1,19 @@
 # Canary Ön-Kontrol Raporu
 
-Oluşturulma: 2026-08-29T16:34:12.897687+00:00  ·  toplam soru: 48
+Oluşturulma: 2026-09-02T14:00:52.617502+00:00  ·  toplam soru: 66
 
 Normalizasyon: karşılaştırmadan önce boşluk/satır sonları tek boşluğa indirgenir, ardından Türkçe'ye duyarlı küçültme uygulanır (İ->i, I->ı, sonra str.casefold()); hem sayfa metni hem alıntı AYNI fonksiyondan geçer.
 
 ## Özet
 
-- **TEMİZ**: 45
-- **ŞÜPHELİ**: 3
+- **TEMİZ**: 59
+- **ŞÜPHELİ**: 7
 - **MANUEL**: 0
 
-## TEMİZ (45)
+## TEMİZ (59)
 
-- `c001` (paraphrase, orta)
-- `c002` (paraphrase, kolay)
+- `c001` (dogrudan-madde, orta)
+- `c002` (dogrudan-madde, kolay)
 - `c003` (korpus-disi, orta) — cevaplanamaz soru: kontrol edilecek kanıt yok
 - `c004` (korpus-disi, orta) — cevaplanamaz soru: kontrol edilecek kanıt yok
 - `c005` (korpus-disi, orta) — cevaplanamaz soru: kontrol edilecek kanıt yok
@@ -26,10 +26,8 @@ Normalizasyon: karşılaştırmadan önce boşluk/satır sonları tek boşluğa 
 - `c105` (dogrudan-madde, orta)
 - `c106` (ayni-kanun-hard-negative, zor)
 - `c107` (dogrudan-madde, kolay)
-- `c108` (paraphrase, zor)
+- `c108` (dogrudan-madde, zor)
 - `c109` (dogrudan-madde, kolay)
-- `c110` (paraphrase, orta)
-- `c111` (paraphrase, kolay)
 - `c112` (ayni-kanun-hard-negative, orta)
 - `c201` (dogrudan-madde, kolay)
 - `c202` (dogrudan-madde, kolay)
@@ -38,8 +36,6 @@ Normalizasyon: karşılaştırmadan önce boşluk/satır sonları tek boşluğa 
 - `c205` (dogrudan-madde, kolay)
 - `c206` (paraphrase, orta)
 - `c207` (paraphrase, orta)
-- `c208` (paraphrase, orta)
-- `c209` (paraphrase, orta)
 - `c210` (madde-numarali, orta)
 - `c211` (madde-numarali, kolay)
 - `c212` (madde-numarali, orta)
@@ -57,8 +53,46 @@ Normalizasyon: karşılaştırmadan önce boşluk/satır sonları tek boşluğa 
 - `c311` (capraz-kanun-terim, orta)
 - `c312` (capraz-kanun-terim, orta)
 - `c313` (ayni-kanun-hard-negative, zor)
+- `c401` (paraphrase, orta)
+- `c402` (paraphrase, kolay)
+- `c403` (paraphrase, orta)
+- `c404` (paraphrase, orta)
+- `c405` (paraphrase, kolay)
+- `c406` (paraphrase, orta)
+- `c407` (paraphrase, orta)
+- `c408` (paraphrase, orta)
+- `c409` (paraphrase, kolay)
+- `c410` (paraphrase, kolay)
+- `c411` (paraphrase, orta)
+- `c412` (paraphrase, orta)
+- `c413` (paraphrase, orta)
+- `c414` (paraphrase, orta)
+- `c415` (paraphrase, orta)
+- `c416` (paraphrase, kolay)
+- `c417` (paraphrase, orta)
+- `c418` (paraphrase, orta)
 
-## ŞÜPHELİ (3)
+## ŞÜPHELİ (7)
+
+### `c110` — Onbir yaşındaki bir çocuk suç sayılan bir eylemde bulunursa hakkında ceza davası açılabilir mi?
+- dilim: paraphrase, zorluk: orta
+- gold_page_ids: ['k5237:8']
+- not: paraphrase dilimi ama sözlüksel örtüşme %55 (azami %50) — soru sözcükleri gold sayfada birebir geçiyor, dilim etiketi yanlış olabilir
+
+### `c111` — Kanunun kendisine tanıdığı bir yetkiyi kullanan kişi, bunun sonucunda oluşan bir suçtan dolayı cezalandırılır mı?
+- dilim: paraphrase, zorluk: kolay
+- gold_page_ids: ['k5237:7']
+- not: paraphrase dilimi ama sözlüksel örtüşme %58 (azami %50) — soru sözcükleri gold sayfada birebir geçiyor, dilim etiketi yanlış olabilir
+
+### `c208` — İşyeri başka bir şirkete satıldığında, yeni işveren sadece bu satış nedeniyle çalışanların iş sözleşmesini sona erdirebilir mi?
+- dilim: paraphrase, zorluk: orta
+- gold_page_ids: ['k4857:5']
+- not: paraphrase dilimi ama sözlüksel örtüşme %64 (azami %50) — soru sözcükleri gold sayfada birebir geçiyor, dilim etiketi yanlış olabilir
+
+### `c209` — Gözaltına alınan bir kişiye, neden gözaltına alındığı derhal bildirilmek zorunda mıdır?
+- dilim: paraphrase, zorluk: orta
+- gold_page_ids: ['k2709:6']
+- not: paraphrase dilimi ama sözlüksel örtüşme %57 (azami %50) — soru sözcükleri gold sayfada birebir geçiyor, dilim etiketi yanlış olabilir
 
 ### `c307` — 10 Kasım 1975 tarihli Resmî Gazete'de yayımlanan 7/10445 sayılı Kararname hangi konudadır?
 - dilim: tarihi-tarama, zorluk: zor
