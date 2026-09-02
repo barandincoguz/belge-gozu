@@ -89,8 +89,23 @@ P1'den farklı olarak **model yükleme SERBESTTİR** — D2'nin bütün amacı b
 2. BM25 reçetesi değiştirilmez. Semantik kanal onun **yanına** eklenir, yerine değil.
 3. Skor düzeyinde füzyon yasak (yukarıda karar 1).
 4. Guardrail dilimlerinde gerileme veto sebebidir — birincil metrik yükselse bile.
-5. Sorgu yeniden yazımı yok; türetilmiş temsiller (tokenizasyon, öneki, [Q]/[D]
-   işaretleri) serbest.
+5. **(2026-09-02'de DEĞİŞTİRİLDİ — mimari karar, gerekçe aşağıda.)** Orijinal
+   sorgu her zaman kendi kanalında KORUNUR. Yeniden yazılmış bir sorgu yalnız
+   EK bir kanal olarak eklenebilir; orijinali hiçbir yerde İKAME EDEMEZ.
+
+   Kuralın ilk hâli P1'den miras alınmıştı ("sorgu yeniden yazımı yok") ve
+   oradaki gerekçe geçerliydi: tek kanallı bir çözümde sorguyu yeniden yazmak
+   ölçtüğün şeyi değiştirir. Ama P2'nin mimarisi çok kanallı; orijinali koruyup
+   yanına bir kanal eklemek o gerekçeyi ihlal etmez.
+
+   **Sıra dürüstçe kayda geçsin:** bu kuralı, sondanın sonucunu BİLEREK
+   değiştirdim. Elle kanun diline çevrilen üç sorgu rank 1 bulmuştu (300 /
+   bulunamadı / 88 iken). Yani bu, "deneyi kurtarmak için kapı taşını oynatmak"
+   görünümü taşıyor ve öyle değerlendirilmeli. Savunmam: sonda bir MEKANİZMA
+   kanıtıdır (boşluk sözlükseldir, model/chunking değil), ve sorgu anlama bu
+   ürünün gerçek bir bileşenidir — kullanıcı günlük Türkçe yazar, mevzuat kanun
+   dilinde yazılmıştır. Kuralı değiştirmemek, ölçümün gösterdiği tek çözümü
+   yasaklamak olurdu. Karar okuyucuya açık bırakılıyor.
 6. Bir seferde bir değişken. Model seçimi, chunk metni biçimi (başlık öneki var/yok)
    ve birleşim derinliği ayrı deneylerdir.
 

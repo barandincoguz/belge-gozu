@@ -257,12 +257,24 @@ def _article_chunks(doc_id: str, pages: list[tuple[int, str]]):
     lines = blob.split("\n")
     line_start = _line_start_offsets(blob)
 
+    # Madde numarası bir belgede TEKRARLANABİLİR: bir Resmî Gazete sayısı birden
+    # çok kanun yayımlar ve her birinin kendi "Madde 1-"i vardır (`rg1935a:m1`
+    # gerçek veride 21 kez geçiyordu). Tekrarlı kimlik, `{chunk_id: page_ids}`
+    # sözlüğünde son-kayıt-kazanır davranışıyla 22 sayfayı ERİŞİLEMEZ yapıyordu
+    # — bench gold sayfası `rg1935a:1` dahil. İlk geçiş düz kimliği KORUR
+    # (bench'in `gold_article_ids` alanı o biçimi kullanıyor), sonrakiler
+    # sıra numarası alır.
+    seen_ids: dict[str, int] = {}
+
     for i, mk in enumerate(markers):
         end = markers[i + 1].start if i + 1 < len(markers) else len(blob)
         body = blob[mk.start : end].strip()
         touched = tuple(f"{doc_id}:{pno}" for (a, b, pno) in spans if a < end and b > mk.start)
+        n = seen_ids.get(mk.article_id, 0) + 1
+        seen_ids[mk.article_id] = n
+        suffix = "" if n == 1 else f"#{n}"
         yield Chunk(
-            chunk_id=f"{doc_id}:{mk.article_id}",
+            chunk_id=f"{doc_id}:{mk.article_id}{suffix}",
             doc_id=doc_id,
             kind="article",
             heading=extract_heading(lines, line_start[mk.start]),

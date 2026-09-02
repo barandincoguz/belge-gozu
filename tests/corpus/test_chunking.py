@@ -249,3 +249,42 @@ def test_oversized_article_block_falls_back_to_page_chunks():
     assert "k1:m1" in ids, "normal madde korunmalı"
     assert "k1:m5" not in ids, "8 sayfaya yayılan blok düşmeli"
     assert "k1:p12" in ids, "düşen bloğun sayfaları sayfa-chunk'ı olmalı"
+
+
+# --------------------------------------------------------------------------
+# chunk_id benzersizliği
+#
+# Gerçek veride yakalandı: bir Resmî Gazete SAYISI birden çok kanun yayımlıyor
+# ve her birinin kendi "Madde 1-"i var. `rg1935a:m1` 21 kez tekrarlanıyordu.
+# `{chunk_id: page_ids}` sözlüğü kurulduğunda son kayıt kazanıyor ve 22 sayfa
+# erişilemez oluyordu — bench gold sayfası `rg1935a:1` dahil.
+# --------------------------------------------------------------------------
+
+
+def test_repeated_article_numbers_get_unique_chunk_ids():
+    """Aynı belgede ikinci kez geçen madde numarası ayrı kimlik almalı."""
+    pages = [
+        (1, "Madde 1- birinci kanunun ilk maddesi."),
+        (2, "Madde 2- birinci kanunun ikinci maddesi."),
+        (3, "Madde 1- İKİNCİ kanunun ilk maddesi."),
+        (4, "Madde 2- ikinci kanunun ikinci maddesi."),
+    ]
+    ids = [c.chunk_id for c in chunk_document("rg1935a", pages)]
+    assert len(ids) == len(set(ids)), f"tekrarlı kimlik: {ids}"
+
+
+def test_first_occurrence_keeps_the_plain_id():
+    """Bench'in gold_article_ids'i düz biçimi kullanıyor (`k4721:m19`) — bozulmamalı."""
+    pages = [(1, "Madde 1- ilk."), (2, "Madde 1- tekrar.")]
+    ids = [c.chunk_id for c in chunk_document("d", pages)]
+    assert ids[0] == "d:m1"
+    assert ids[1] != "d:m1"
+
+
+def test_chunk_id_map_reaches_every_page():
+    """Değişmez: kimlikten sayfaya sözlük hiçbir sayfayı düşürmemeli."""
+    pages = [(n, f"Madde 1- {n}. kanunun maddesi.") for n in range(1, 6)]
+    chunks = chunk_document("rg", pages)
+    cmap = {c.chunk_id: c.page_ids for c in chunks}
+    reachable = {p for ps in cmap.values() for p in ps}
+    assert reachable == {f"rg:{n}" for n in range(1, 6)}
