@@ -38,7 +38,9 @@ from belge_gozu.retrieval.text import routed_docs as routed  # noqa: E402
 KS = (1, 5, 20, 50)
 
 
-def page_ranking_from_chunks(order: list[str], chunk_pages: dict[str, tuple[str, ...]]) -> list[str]:
+def page_ranking_from_chunks(
+    order: list[str], chunk_pages: dict[str, tuple[str, ...]]
+) -> list[str]:
     """Chunk sırası -> sayfa sırası; ilk görülme kazanır, tekrar atılır."""
     seen: set[str] = set()
     out: list[str] = []
@@ -86,11 +88,13 @@ def main() -> int:
     df["pno"] = df.page_id.astype(str).str.split(":").str[1].astype(int)
     page_ids = list(df.page_id)
     _, doc_names = load_text_channel(s.index_dir, page_ids)
-    rows = [json.loads(x) for x in (REPO_ROOT / "data/bench/canary_v2.jsonl").read_text().splitlines() if x.strip()]
+    bench = (REPO_ROOT / "data/bench/canary_v2.jsonl").read_text().splitlines()
+    rows = [json.loads(x) for x in bench if x.strip()]
 
     chunks = []
     for doc, g in df.groupby("doc"):
-        chunks += chunk_document(doc, [(int(r.pno), r.text) for _, r in g.sort_values("pno").iterrows()])
+        pages = [(int(r.pno), r.text) for _, r in g.sort_values("pno").iterrows()]
+        chunks += chunk_document(doc, pages)
     cmap = {c.chunk_id: c.page_ids for c in chunks}
 
     arms = [
@@ -104,7 +108,8 @@ def main() -> int:
 
     print(f"{'kol':22}{'birim':>8}" + "".join(f"{'R@'+str(k):>9}" for k in KS))
     for a in arms:
-        print(f"{a['name']:22}{a['chunks']:>8}" + "".join(f"{a['overall'][f'R@{k}']:>9.4f}" for k in KS))
+        print(f"{a['name']:22}{a['chunks']:>8}"
+              + "".join(f"{a['overall'][f'R@{k}']:>9.4f}" for k in KS))
     base = arms[0]["overall"]
     for a in arms[1:]:
         print(f"{'  fark (A->' + a['name'][:2] + ')':22}{'':>8}"
