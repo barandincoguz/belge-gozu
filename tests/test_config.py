@@ -57,6 +57,8 @@ def test_production_index_pipeline_and_threshold_defaults():
     assert s.index_dir == Path("data/index-traincompat-int8")
     assert s.retrieval_pipeline == "hybrid"
     assert s.min_score_threshold == 10.6
+    assert s.late_channel_enabled is True
+    assert s.late_candidate_limit == 200
     # ölçek korkuluğunun (app/main.py) hibrit kolda reddettiği banda düşmemeli
     assert not (0 < s.min_score_threshold <= 1.5) and s.min_score_threshold <= 200
 

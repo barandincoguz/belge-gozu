@@ -108,6 +108,14 @@ class Settings(BaseSettings):
     doc_prompt_id: Literal["processor-default", "train-compat"] = "train-compat"
     stage1_candidates: int = 200
     top_k: int = 5
+    # P2 geç-etkileşim aday kanalları. BM25 sayfa sıralaması birincil kalır;
+    # bu kanallar yalnız aday örme ile top-k'ya çeşitlilik ekler. İki indeks
+    # birlikte ölçülen en iyi konfigürasyondur (canary_v2 insan n=47):
+    # R@5 0.6277 -> 0.7766, paraphrase R@50 0.5714 -> 0.8571.
+    late_channel_enabled: bool = True
+    late_mogan_index_dir: Path = Path("data/index-colbert-mogan-f16")
+    late_colmm_index_dir: Path = Path("data/index-colbert-colmm-f16")
+    late_candidate_limit: int = 200
     # hybrid (VARSAYILAN, P1): sıralamayı PDF metin katmanı üzerindeki BM25 +
     # doküman-adı pencere-içi yönlendirmesi belirler; görsel MaxSim kanalı
     # koşmaya devam eder ama sıralamaya girmez (telemetri + P2 kalibrasyon

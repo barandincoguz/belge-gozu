@@ -31,9 +31,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
+
+from belge_gozu.index.colbert_encode import ColBERTEncoder
 
 
 class LateChannelNotCalibrated(RuntimeError):
@@ -178,6 +182,55 @@ class LateInteractionChannel:
             mean_top1=raw_top1 / query_tokens,
             mean_margin=raw_margin / query_tokens,
         )
+
+
+def load_late_channel(
+    index_dir: Path,
+    chunk_pages: Mapping[str, tuple[str, ...]],
+    *,
+    device: str | None = None,
+) -> LateInteractionChannel:
+    """Doğrulanmış ColBERT sidecar'ını üretim aday kanalına yükler.
+
+    Geç indeksin ``chunk_ids`` listesi ana korpusun ``chunks.parquet``
+    eşlemesiyle birebir aynı olmalı. Eksik veya yabancı tek bir kimlik bile
+    chunk->sayfa dönüşümünde sessiz sayfa kaybına yol açacağından başlangıçta
+    reddedilir.
+    """
+    index_dir = Path(index_dir)
+    chunk_ids = json.loads((index_dir / "chunk_ids.json").read_text(encoding="utf-8"))
+    if not isinstance(chunk_ids, list) or not all(isinstance(item, str) for item in chunk_ids):
+        raise ValueError("geç indeks chunk_ids.json bir dize listesi olmalı")
+    index_chunks = set(chunk_ids)
+    corpus_chunks = set(chunk_pages)
+    if index_chunks != corpus_chunks:
+        missing = sorted(corpus_chunks - index_chunks)
+        unknown = sorted(index_chunks - corpus_chunks)
+        raise ValueError(
+            "geç indeks chunk eşlemesiyle uyuşmuyor: "
+            f"korpusta eksik={len(missing)} {missing[:3]}; yabancı={len(unknown)} {unknown[:3]}"
+        )
+
+    side = json.loads((index_dir / "colbert.json").read_text(encoding="utf-8"))
+    embeddings = np.load(index_dir / "embs.npy", mmap_mode="r")
+    offsets = np.load(index_dir / "offsets.npy", mmap_mode="r")
+    if embeddings.ndim != 2 or int(side["dim"]) != embeddings.shape[1]:
+        raise ValueError(
+            "geç indeks vektör boyutu sidecar ile uyuşmuyor: "
+            f"sidecar={side.get('dim')}, embeddings={embeddings.shape}"
+        )
+    return LateInteractionChannel(
+        embeddings=embeddings,
+        offsets=offsets,
+        chunk_ids=chunk_ids,
+        chunk_pages=chunk_pages,
+        encoder=ColBERTEncoder(
+            side["model_repo"],
+            side["revision"],
+            device=device,
+            document_length=int(side["document_length"]),
+        ),
+    )
 
 
 def require_calibrated_late_channel(

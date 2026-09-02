@@ -20,6 +20,7 @@ from belge_gozu.retrieval.late import (
     LateChannelNotCalibrated,
     LateInteractionChannel,
     chunk_ranking_to_pages,
+    load_late_channel,
     validate_index_shapes,
 )
 
@@ -166,6 +167,13 @@ def test_validate_index_shapes_rejects_duplicate_chunk_ids():
     """`rg1935a:m1` 21 kez tekrarlanıyordu ve 22 sayfayı erişilemez yapmıştı."""
     with pytest.raises(ValueError, match="benzersiz"):
         validate_index_shapes(EMBS, OFFSETS, ["d:m1", "d:m1"])
+
+
+def test_late_loader_rejects_chunk_ids_missing_from_corpus_map(tmp_path):
+    (tmp_path / "chunk_ids.json").write_text('["missing"]')
+
+    with pytest.raises(ValueError, match="chunk eşlemesi"):
+        load_late_channel(tmp_path, {"known": ("p:1",)}, device="cpu")
 
 
 # --------------------------------------------------------------------------
