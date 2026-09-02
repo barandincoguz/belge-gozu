@@ -32,7 +32,7 @@ import logging
 import time
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Protocol, Sequence
 
 import numpy as np
 import pandas as pd
@@ -48,7 +48,9 @@ from belge_gozu.retrieval.text import (
     route_window,
 )
 from belge_gozu.retrieval.text import routed_docs as _routed_docs
+from belge_gozu.retrieval.late import LateSearchResult
 from belge_gozu.retrieval.types import PageHit
+from belge_gozu.retrieval.union import union_candidates
 from belge_gozu.telemetry.collect import stage
 
 if TYPE_CHECKING:
@@ -73,6 +75,12 @@ _LAST_META: ContextVar[dict | None] = ContextVar("bg_hybrid_meta", default=None)
 # istek başına İKİNCİ bir korpus taraması eklerdi — 4222 sayfa, sorgu token'ı
 # başına bir Python döngüsü.
 _LAST_BM25: ContextVar = ContextVar("bg_hybrid_bm25", default=None)
+
+
+class LateCandidateChannel(Protocol):
+    """Üretim geç kanalı için yalnız gerekli aday sözleşmesi."""
+
+    def search_with_scores(self, query: str, limit: int) -> LateSearchResult: ...
 
 
 def require_text_artifact(index_dir: Path) -> Path:
@@ -174,6 +182,8 @@ class HybridRetriever:
         text: BM25Index,
         doc_names: dict[str, frozenset[str]],
         window: int = WINDOW,
+        late_channels: Sequence[LateCandidateChannel] = (),
+        late_candidate_limit: int = 200,
     ) -> None:
         if list(text.page_ids) != list(index.page_ids):
             raise ValueError(
@@ -187,6 +197,8 @@ class HybridRetriever:
         self.text = text
         self.doc_names = doc_names
         self.window = window
+        self.late_channels = tuple(late_channels)
+        self.late_candidate_limit = late_candidate_limit
 
     @property
     def last_retrieval_meta(self) -> dict | None:
@@ -255,6 +267,22 @@ class HybridRetriever:
         _LAST_BM25.set(bm25)
         with stage("route_fuse"):
             ranking, routed = self.rank(query, bm25)
+        bm25_top1 = ranking[0] if ranking else None
+        late_detail: list[dict[str, float | int]] = []
+        if self.late_channels:
+            with stage("late_candidate_union"):
+                for channel in self.late_channels:
+                    result = channel.search_with_scores(query, limit=self.late_candidate_limit)
+                    ranking = union_candidates(ranking, list(result.pages))
+                    late_detail.append(
+                        {
+                            "query_tokens": result.query_tokens,
+                            "mean_top1": result.mean_top1,
+                            "mean_margin": result.mean_margin,
+                        }
+                    )
+        if bm25_top1 is not None and ranking[0] != bm25_top1:
+            raise RuntimeError("geç aday birleşimi BM25 birincisini değiştiremez")
         by_id = dict(zip(self.index.page_ids, bm25.tolist(), strict=True))
         visual_by_id = dict(zip(self.index.page_ids, visual.tolist(), strict=True))
         _LAST_META.set(
@@ -262,6 +290,7 @@ class HybridRetriever:
                 "bm25_top1": float(bm25.max()) if bm25.size else 0.0,
                 "visual_top1": float(visual.max()) if visual.size else 0.0,
                 "routed_docs": sorted(routed),
+                "late_channels": late_detail,
             }
         )
         out: list[PageHit] = []

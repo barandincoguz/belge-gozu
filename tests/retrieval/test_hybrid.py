@@ -7,6 +7,7 @@ import pytest
 from belge_gozu.answer.base import ABSTAIN_TEXT, Answer, AskService
 from belge_gozu.index.store import PackedIndex
 from belge_gozu.retrieval.hybrid import HybridRetriever
+from belge_gozu.retrieval.late import LateSearchResult
 from belge_gozu.retrieval.text import BM25Index, extract_doc_name_tokens
 from belge_gozu.telemetry.collect import collecting
 
@@ -33,6 +34,23 @@ class _FixedEncoder:
 
     def encode_query(self, text: str) -> np.ndarray:
         return self.emb
+
+
+class _FixedLateChannel:
+    """Yalnız aday sırasını sağlayan, gerçek geç-kanal sonuç sözleşmesi."""
+
+    def __init__(self, pages: list[str]):
+        self.pages = tuple(pages)
+
+    def search_with_scores(self, query: str, limit: int) -> LateSearchResult:
+        return LateSearchResult(
+            pages=self.pages[:limit],
+            query_tokens=3,
+            raw_top1=12.0,
+            raw_margin=2.0,
+            mean_top1=4.0,
+            mean_margin=2 / 3,
+        )
 
 
 def _fixture(encoder=None):
@@ -95,6 +113,26 @@ def test_visual_channel_does_not_change_ranking():
     r_b, _, _ = _fixture(encoder=_FixedEncoder(embs[0]))
     q = "yıllık ücretli izin süresi"
     assert [h.page_id for h in r_a.search(q, k=5)] == [h.page_id for h in r_b.search(q, k=5)]
+
+
+def test_late_candidates_are_interleaved_but_bm25_top1_and_score_are_preserved():
+    base, _, _ = _fixture()
+    r = HybridRetriever(
+        base.index,
+        base.meta.reset_index(drop=True),
+        base.encoder,
+        base.text,
+        base.doc_names,
+        late_channels=(_FixedLateChannel(["k2:2", "k3:1"]),),
+    )
+    q = "yerleşim yeri"
+
+    expected = base.search(q, k=3)
+    hits = r.search(q, k=3)
+
+    assert hits[0].page_id == expected[0].page_id
+    assert hits[0].score == pytest.approx(expected[0].score)
+    assert "k2:2" in [hit.page_id for hit in hits]
 
 
 def test_zero_match_query_scores_zero_and_abstains_at_service_level():

@@ -234,7 +234,10 @@ def load_late_channel(
 
 
 def require_calibrated_late_channel(
-    enabled: bool, calibrated_threshold: float | None
+    enabled: bool,
+    calibrated_threshold: float | None,
+    *,
+    bm25_top1_pinned: bool = False,
 ) -> None:
     """Kanal açıksa kalibre bir çekimserlik eşiği ZORUNLUDUR.
 
@@ -242,8 +245,13 @@ def require_calibrated_late_channel(
     edildi ve ColBERT'in bulduğu bir sayfa top-1'e girdiğinde o eşik yanlış
     sebeple kapanır. Kalibrasyon yapılana kadar açılmak, ölçülen kazancı
     üretimde ÇEKİMSERLİĞE çevirebilir — sessiz ve ölçüm ortamında görünmez.
+
+    Yalnız aday örmede BM25 birincisi sabit tutulursa servis edilen skor ve
+    çekimserlik kararı hâlâ BM25 ölçeğindedir. Bu topolojide geç kanal kendi
+    eşiğine ihtiyaç duymaz; geç skorun top-1'i veya kapıyı belirlemesi hâlinde
+    ise `bm25_top1_pinned=False` kalmalı ve kalibrasyon zorunlu olmalıdır.
     """
-    if enabled and calibrated_threshold is None:
+    if enabled and calibrated_threshold is None and not bm25_top1_pinned:
         raise LateChannelNotCalibrated(
             "geç-etkileşim kanalı açık ama bu ölçekte kalibre bir çekimserlik eşiği yok. "
             "`min_score_threshold` BM25 ölçeğinde (bant ~4-70) kalibre edildi; ColBERT "

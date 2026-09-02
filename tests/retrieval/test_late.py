@@ -200,6 +200,16 @@ def test_disabled_channel_needs_no_calibration():
     require_calibrated_late_channel(enabled=False, calibrated_threshold=None)
 
 
+def test_bm25_pinned_candidate_channel_needs_no_late_threshold():
+    from belge_gozu.retrieval.late import require_calibrated_late_channel
+
+    require_calibrated_late_channel(
+        enabled=True,
+        calibrated_threshold=None,
+        bm25_top1_pinned=True,
+    )
+
+
 def test_enabled_channel_with_a_calibrated_threshold_is_allowed():
     from belge_gozu.retrieval.late import require_calibrated_late_channel
 
