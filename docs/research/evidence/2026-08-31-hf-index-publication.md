@@ -1,9 +1,9 @@
 # Refreshed Hugging Face index publication
 
-Publication date: **2026-09-02**  
-Dataset: `barandincoguz/belge-gozu-index`  
-Immutable revision: `700ac324fffefb22de02c8e90347b31185547948`  
-Superseded remote revision: `283a4c23bc32148b0ee96bab40e92664e7d2f2ea`
+- Publication date: **2026-09-02**
+- Dataset: `barandincoguz/belge-gozu-index`
+- Immutable revision: `700ac324fffefb22de02c8e90347b31185547948`
+- Superseded remote revision: `283a4c23bc32148b0ee96bab40e92664e7d2f2ea`
 
 ## What was published
 

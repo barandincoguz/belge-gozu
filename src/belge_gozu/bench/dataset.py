@@ -191,9 +191,17 @@ def select_bench(
     )
 
 
-def load_bench(path: Path | str, only_verified: bool = True) -> list[BenchQuestion]:
+def load_bench(
+    path: Path | str,
+    only_verified: bool = True,
+    min_verification: VerificationLevel | str | None = None,
+) -> list[BenchQuestion]:
     """Compatibility wrapper returning only selected benchmark questions."""
-    return select_bench(path, only_verified=only_verified).questions
+    return select_bench(
+        path,
+        only_verified=only_verified,
+        min_verification=min_verification,
+    ).questions
 
 
 def bench_stats(questions: list[BenchQuestion]) -> dict[str, int]:

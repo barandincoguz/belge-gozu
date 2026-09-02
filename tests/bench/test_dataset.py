@@ -75,6 +75,21 @@ def test_min_verification_human_filters_model_and_mechanical_rows(tmp_path: Path
     assert selected.filtered_out == 2
 
 
+def test_load_bench_exposes_min_verification_compatibility_api(tmp_path: Path):
+    p = tmp_path / "b.jsonl"
+    write_jsonl(
+        p,
+        [
+            q_dict(question_id="human", verification_kind="human"),
+            q_dict(question_id="model", verification_kind="model-cross-check"),
+        ],
+    )
+
+    questions = load_bench(p, min_verification=VerificationLevel.human)
+
+    assert [q.question_id for q in questions] == ["human"]
+
+
 def test_min_verification_model_includes_human_and_model(tmp_path: Path):
     p = tmp_path / "b.jsonl"
     write_jsonl(
