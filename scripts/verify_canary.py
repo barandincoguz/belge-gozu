@@ -65,6 +65,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from belge_gozu.bench.dataset import BenchQuestion, bench_stats, load_bench  # noqa: E402
 from belge_gozu.config import Settings  # noqa: E402
+from belge_gozu.retrieval.text import tokenize as recipe_tokenize  # noqa: E402
 
 DEFAULT_BENCH = REPO_ROOT / "data" / "bench" / "canary_v1.jsonl"
 DEFAULT_PDF_DIR = REPO_ROOT / "data" / "pdf"
@@ -73,6 +74,17 @@ DEFAULT_REPORT_OUT = REPO_ROOT / "data" / "bench" / "canary_precheck.md"
 
 # "sayfa boş/çok kısa" eşiği: bunun altı taranmış sayfa varsayılır (rg* belgeleri).
 SCANNED_MIN_CHARS = 40
+
+# `paraphrase` dilimi için AZAMİ sözlüksel örtüşme. Sorunun içerik
+# token'larının bu orandan fazlası gold sayfada birebir geçiyorsa satır
+# yeniden ifade edilmiş DEĞİLDİR ve dilim etiketi yanlıştır.
+#
+# 0.5 keyfi değil, çapraz-kontrol turunun bulduğu üç gerçek kusurdan türedi:
+# c001 ("Yerleşim yeri nedir?"), c002 ve c108'in üçü de 1.0 örtüşmeyle
+# `paraphrase` etiketliydi ve elle `dogrudan-madde`ye düzeltildi. Yarıdan
+# fazlası birebir geçen bir soru, BM25'in kelime eşleşmesini ölçer; oysa bu
+# dilim TAM OLARAK kelime eşleşmesinin olmadığı durumu ölçmek için var.
+PARAPHRASE_MAX_OVERLAP = 0.5
 
 Group = str  # "TEMİZ" | "ŞÜPHELİ" | "MANUEL"
 GROUPS: tuple[Group, ...] = ("TEMİZ", "ŞÜPHELİ", "MANUEL")
@@ -124,6 +136,27 @@ def closest_line(span: str, page_text: str) -> str | None:
         return difflib.SequenceMatcher(None, target, normalize_for_match(ln)).ratio()
 
     return max(lines, key=ratio)
+
+
+def content_overlap(question: str, page_text: str) -> float:
+    """Sorunun içerik token'larının kaçta kaçı gold sayfada da geçiyor (0..1).
+
+    ÜRETİM reçetesinin tokenizer'ını kullanır (`retrieval.text.tokenize`:
+    tr_lower -> ASCII katlama -> stopword eleme -> F5 kırpma) — kendi
+    tokenizasyonunu yazmaz. Sebep: kapı, getirimin GERÇEKTEN gördüğü örtüşmeyi
+    ölçmeli. Ayrı bir tokenizer, ölçtüğünü sandığımız şeyden sapardı; üstelik
+    reçete yazım-değişmez olduğu için aksanlı ve aksansız yazılmış aynı soru
+    aynı oranı alır.
+
+    Kapsama (containment) oranıdır, Jaccard DEĞİL: sayfa metni sorudan kat kat
+    uzun olduğu için Jaccard her zaman sıfıra yakın çıkar ve hiçbir şey ayırt
+    etmez. Sorulan şey "sorunun ne kadarı sayfadan aynen alınmış".
+    """
+    q_tokens = set(recipe_tokenize(question))
+    if not q_tokens:
+        return 0.0
+    page_tokens = set(recipe_tokenize(page_text))
+    return len(q_tokens & page_tokens) / len(q_tokens)
 
 
 def doc_prefix_consistent(gold_doc_ids: list[str], gold_page_ids: list[str]) -> bool:
@@ -198,6 +231,18 @@ def precheck_question(
             cl = closest_line(span, page_texts.get(display_page) or "")
         span_checks.append(SpanCheck(span=span, found=found, page_id=display_page, closest=cl))
 
+    if q.slice == "paraphrase":
+        overlap = max(
+            (content_overlap(q.question, page_texts.get(gp) or "") for gp in q.gold_page_ids),
+            default=0.0,
+        )
+        if overlap > PARAPHRASE_MAX_OVERLAP:
+            notes.append(
+                f"paraphrase dilimi ama sözlüksel örtüşme %{overlap * 100:.0f} "
+                f"(azami %{PARAPHRASE_MAX_OVERLAP * 100:.0f}) — soru sözcükleri gold "
+                "sayfada birebir geçiyor, dilim etiketi yanlış olabilir"
+            )
+
     group: Group = "ŞÜPHELİ" if (notes or not all_found) else "TEMİZ"
     return QuestionPrecheck(q.question_id, group, notes, span_checks)
 
@@ -235,13 +280,45 @@ def apply_decision(raw_row: dict, letter: str, note: str, by: str) -> dict:
     if letter == "e":
         updated["verification_status"] = "verified"
         updated["verified_by"] = by
+        updated["verification_kind"] = "human"
     elif letter == "h":
         updated["verification_status"] = "rejected"
         updated["verified_by"] = by
-    # "a": verification_status/verified_by'a dokunma (taslak kalsın).
+        updated["verification_kind"] = "human"
+    # "a": verification_status/verified_by/verification_kind'a dokunma.
+    #
+    # `verification_kind` NEDEN burada yazılıyor: bu betiğin her iki inceleme
+    # yolu da (terminal --review ve HTML --serve) bir İNSANIN sayfayı okuyup
+    # karar vermesidir. Alan yazılmazsa, model çapraz-kontrollü bir satır insan
+    # onayından geçtikten sonra bile `model-cross-check` kalır ve `--status`
+    # onu insan sayısına EKLEMEZ — yani emek harcanır ama kapı kapanmaz.
     if note:
         updated["verification_note"] = note
     return updated
+
+
+def select_review_queue(
+    raw_rows: list[dict], slices: set[str] | None = None
+) -> list[dict]:
+    """İnsan doğrulaması BEKLEYEN ham satırlar (giriş sırası korunur).
+
+    Ölçüt tek: `verification_kind != "human"`. `verification_status` bilerek
+    BAKILMAZ — v1'in 48 satırının hepsi `verified` ama 45'i model
+    çapraz-kontrolü, ve terminal `--review` yalnız `draft` gösterdiği için o 45
+    satır hiçbir insan kuyruğuna düşmüyordu. D1'in açtığı boşluk tam olarak bu.
+
+    `slices` verilirse yalnız o dilimler döner (karar dilimlerini önceliklendirmek
+    için). Alan yoksa `human` varsayılır — BenchQuestion'ın varsayılanıyla aynı,
+    yani alan eklenmeden önce yazılmış satırlar kuyruğa düşmez.
+    """
+    out = []
+    for row in raw_rows:
+        if row.get("verification_kind", "human") == "human":
+            continue
+        if slices is not None and row.get("slice") not in slices:
+            continue
+        out.append(row)
+    return out
 
 
 def write_jsonl_atomic(path: Path, rows: list[dict]) -> None:

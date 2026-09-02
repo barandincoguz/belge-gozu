@@ -6,8 +6,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from verify_canary import (  # noqa: E402
+    PARAPHRASE_MAX_OVERLAP,
     apply_decision,
     compute_status,
+    content_overlap,
     doc_prefix_consistent,
     gold_image_paths,
     load_raw_rows,
@@ -16,6 +18,7 @@ from verify_canary import (  # noqa: E402
     parse_decision,
     precheck_question,
     run_precheck,
+    select_review_queue,
     span_found,
     tr_lower,
     write_jsonl_atomic,
@@ -122,7 +125,9 @@ def test_doc_prefix_consistent_empty_lists():
 
 
 def test_precheck_clean_when_all_spans_match_and_page_known():
-    q = bq()
+    # c001 gerçek veride `dogrudan-madde`; varsayılan `paraphrase` dilimi
+    # örtüşme kapısına takılır (bkz. test_precheck_flags_paraphrase_row_...).
+    q = bq(slice="dogrudan-madde")
     page_texts = {
         "k4721:4": "Madde 19- Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
     }
@@ -182,8 +187,14 @@ def test_precheck_unanswerable_question_is_always_clean():
 
 
 def test_run_precheck_multiple_questions():
-    q1 = bq(question_id="c001")
-    q2 = bq(question_id="c002", minimal_evidence_spans=["hiç bulunmayacak ifade"])
+    # c001/c002 gerçek veride `dogrudan-madde` (çapraz-kontrol turu düzeltti);
+    # varsayılan `paraphrase` dilimi örtüşme kapısına takılırdı.
+    q1 = bq(question_id="c001", slice="dogrudan-madde")
+    q2 = bq(
+        question_id="c002",
+        slice="dogrudan-madde",
+        minimal_evidence_spans=["hiç bulunmayacak ifade"],
+    )
     page_texts = {
         "k4721:4": "Madde 19- Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
     }
@@ -364,3 +375,132 @@ def test_compute_status_by_slice_includes_all_slices_with_zero_default():
     assert status["by_slice_total"]["paraphrase"] == 1
     assert status["by_slice_total"]["multi-hop"] == 0
     assert status["by_slice_verified"]["paraphrase"] == 0  # taslak, henüz doğrulanmamış
+
+
+# --------------------------------------------------------------------------
+# paraphrase sözlüksel örtüşme kapısı
+#
+# Çapraz-kontrol turunun bulduğu 6 kusurun 3'ü (c001, c002, c108) tek bir
+# hataydı: soru, gold sayfanın KENDİ sözcüklerini tekrarlıyor ama `paraphrase`
+# etiketli. Bu, dilimi ölçtüğü şeyden koparır — "yeniden ifade edilmiş sorgu"
+# dilimi aslında birebir kelime eşleşmesini ölçer ve BM25 haksız yere iyi
+# görünür. Kapı, etiketi görüşten ÖLÇÜME çevirir.
+# --------------------------------------------------------------------------
+
+
+def test_content_overlap_is_full_when_question_reuses_page_vocabulary():
+    """c001'in ta kendisi: soru maddenin terimlerini aynen taşıyor."""
+    page = "Madde 19- Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
+    assert content_overlap("Yerleşim yeri nedir?", page) == 1.0
+
+
+def test_content_overlap_is_low_for_genuinely_reworded_question():
+    page = "Madde 19- Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
+    reworded = "Bir kişinin resmî adresi hangi ölçüte göre saptanır?"
+    assert content_overlap(reworded, page) < PARAPHRASE_MAX_OVERLAP
+
+
+def test_content_overlap_is_spelling_invariant():
+    """exp12 yazım-değişmezliği: aksanlı ve aksansız soru aynı oranı vermeli."""
+    page = "Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
+    assert content_overlap("Yerleşim yeri nedir?", page) == content_overlap(
+        "Yerlesim yeri nedir?", page
+    )
+
+
+def test_content_overlap_is_zero_when_question_has_no_content_tokens():
+    """Yalnız stopword'den oluşan soru sıfır döner (sıfıra bölme değil)."""
+    assert content_overlap("ve veya ile", "herhangi bir sayfa metni") == 0.0
+
+
+def test_precheck_flags_paraphrase_row_that_reuses_page_vocabulary():
+    q = bq(slice="paraphrase")
+    page_texts = {
+        "k4721:4": "Madde 19- Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
+    }
+    pc = precheck_question(q, page_texts, known_page_ids={"k4721:4"})
+    assert pc.group == "ŞÜPHELİ"
+    assert any("paraphrase" in n and "örtüşme" in n for n in pc.notes)
+
+
+def test_precheck_does_not_apply_overlap_gate_outside_paraphrase_slice():
+    """dogrudan-madde diliminde yüksek örtüşme BEKLENEN davranıştır, kusur değil."""
+    q = bq(slice="dogrudan-madde")
+    page_texts = {
+        "k4721:4": "Madde 19- Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
+    }
+    pc = precheck_question(q, page_texts, known_page_ids={"k4721:4"})
+    assert pc.group == "TEMİZ"
+    assert pc.notes == []
+
+
+# --------------------------------------------------------------------------
+# insan inceleme kuyruğu (HTML arayüzünün saf mantığı)
+#
+# v1'in 48 satırının hepsi `verification_status: verified`, ama 45'i
+# `model-cross-check`. Terminal `--review` yalnız `draft` gösterdiği için bu 45
+# satır hiçbir insan kuyruğuna düşmüyordu — D1 tam olarak bunu açmak zorunda.
+# --------------------------------------------------------------------------
+
+
+def test_apply_decision_marks_verification_kind_human_on_verify():
+    row = q_dict(verification_kind="model-cross-check")
+    out = apply_decision(row, "e", "", by="baran")
+    assert out["verification_kind"] == "human"
+
+
+def test_apply_decision_marks_verification_kind_human_on_reject():
+    row = q_dict(verification_kind="model-cross-check")
+    out = apply_decision(row, "h", "yanlış sayfa", by="baran")
+    assert out["verification_kind"] == "human"
+
+
+def test_apply_decision_skip_leaves_verification_kind_untouched():
+    row = q_dict(verification_kind="model-cross-check")
+    out = apply_decision(row, "a", "", by="baran")
+    assert out["verification_kind"] == "model-cross-check"
+
+
+def test_select_review_queue_returns_rows_not_yet_human_verified():
+    rows = [
+        q_dict(question_id="c001", verification_kind="model-cross-check"),
+        q_dict(question_id="c002", verification_kind="human"),
+    ]
+    queue = select_review_queue(rows)
+    assert [r["question_id"] for r in queue] == ["c001"]
+
+
+def test_select_review_queue_filters_by_slice():
+    rows = [
+        q_dict(question_id="c001", slice="paraphrase", verification_kind="model-cross-check"),
+        q_dict(question_id="c002", slice="tablo-layout", verification_kind="model-cross-check"),
+    ]
+    queue = select_review_queue(rows, slices={"paraphrase"})
+    assert [r["question_id"] for r in queue] == ["c001"]
+
+
+def test_select_review_queue_includes_mechanical_rows():
+    """Mekanik doğrulama en zayıf türdür; insan kuyruğundan muaf değildir."""
+    rows = [q_dict(question_id="c001", verification_kind="mechanical:manifest-absence")]
+    assert len(select_review_queue(rows)) == 1
+
+
+def test_select_review_queue_preserves_input_order():
+    rows = [
+        q_dict(question_id="c003", verification_kind="model-cross-check"),
+        q_dict(question_id="c001", verification_kind="model-cross-check"),
+    ]
+    assert [r["question_id"] for r in select_review_queue(rows)] == ["c003", "c001"]
+
+
+def test_display_path_is_relative_inside_repo():
+    from review_server import REPO_ROOT, display_path
+
+    assert display_path(REPO_ROOT / "data" / "bench" / "x.jsonl", REPO_ROOT) == "data/bench/x.jsonl"
+
+
+def test_display_path_falls_back_to_absolute_outside_repo():
+    """--bench repo dışını gösterebilir (duman testi /tmp kullandı); patlamamalı."""
+    from review_server import REPO_ROOT, display_path
+
+    assert display_path(Path("/tmp/smoke.jsonl"), REPO_ROOT) == "/tmp/smoke.jsonl"
