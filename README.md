@@ -244,7 +244,9 @@ uv run belge-gozu --help
 
 # 1. pull the published visual index + page images (int8, 476 MB)
 #    -> data/index-traincompat-int8 by default (see BG_INDEX_DIR)
-BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index uv run belge-gozu index pull
+BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index \
+BG_HF_REVISION=<40-character-commit-sha> \
+  uv run belge-gozu index pull
 
 # 2. the hybrid (default) pipeline additionally needs the BM25 text channel.
 #    It is extracted from the source PDFs, so the corpus download is required
@@ -257,6 +259,25 @@ uv run belge-gozu index build-text   # -> <BG_INDEX_DIR>/page_texts.parquet
 BG_DEVICE=cpu uv run belge-gozu serve
 # -> http://localhost:7860
 ```
+
+Hub pull deliberately accepts only a full 40-character commit SHA; branch names such as
+`main` are rejected so the same deployment cannot silently receive a different index later.
+`index push --revision main` writes to the branch and prints the immutable SHA to pin.
+
+The container follows the same contract and runs as UID/GID 1000. All mutable state is under
+`/data` (`index`, page images, SQLite telemetry, and the Hugging Face cache), while Linux
+installs PyTorch from the explicit CPU wheel index:
+
+```bash
+docker build -t belge-gozu:p0 .
+docker run --rm -p 7860:7860 -v belge-gozu-data:/data \
+  -e BG_HF_REVISION=<40-character-commit-sha> \
+  -e GOOGLE_API_KEY="$GOOGLE_API_KEY" \
+  belge-gozu:p0
+```
+
+For a host bind mount instead of the named volume, make the mounted directory writable by
+UID 1000. An empty/missing `BG_HF_REVISION` fails before Uvicorn or a model download starts.
 
 **Why the download is not optional any more.** The published Hub index was pushed before P1
 and therefore contains no `page_texts.parquet`; `serve --pull` alone leaves the hybrid

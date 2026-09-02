@@ -9,7 +9,8 @@ name: ci
 #
 # `ml` extra'sı (torch, colpali-engine) testlerde BİLİNÇLİ olarak kurulmaz:
 # `-m "not slow"` süiti modeli stub'lar, ağır tekerlekleri indirmek CI'ı
-# dakikalarca uzatır. Gerçek `ml` kurulumu `docker` işinde doğrulanır.
+# dakikalarca uzatır. Gerçek `ml` kurulumu `docker` işinde frozen `uv sync`
+# ile doğrulanır.
 
 on:
   push: {branches: [main]}
@@ -37,13 +38,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # İmaj SADECE build edilir, itilmez: amaç dağıtım zincirinin (frozen
-      # export + ml kurulumu + konsol betiği) gerçekten çalıştığını kanıtlamak.
       - name: imaj build (dağıtım zinciri kanıtı)
         run: docker build -t belge-gozu:ci .
-      # Sağlık kanıtı: indeks olmadan `serve` fail-fast eder (beklenen), o
-      # yüzden yalnız CLI'ın imaj içinde ayağa kalktığı doğrulanır — bu, ağır
-      # `ml` bağımlılıklarının (torch, colpali-engine) gerçekten import
-      # edilebildiğini de kanıtlar, çünkü konsol betiği onları çeker.
-      - name: imaj içinde CLI çalışıyor mu
-        run: docker run --rm belge-gozu:ci belge-gozu --help
+      - name: root olmayan kullanıcı ve yazılabilir veri yolları
+        run: >-
+          docker run --rm --entrypoint sh belge-gozu:ci -c
+          'test "$(id -u)" = 1000 && test -w /data && test -w /data/hf'
+      - name: Linux imajı CPU-only PyTorch kullanıyor
+        run: >-
+          docker run --rm --entrypoint python belge-gozu:ci -c
+          'import torch; assert "+cpu" in torch.__version__, torch.__version__'
+      - name: sabitlenmemiş Hub revision fail-fast
+        run: |
+          set +e
+          output=$(docker run --rm -e BG_HF_REVISION= belge-gozu:ci 2>&1)
+          status=$?
+          set -e
+          test "$status" -ne 0
+          printf '%s\n' "$output" | grep -q 'BG_HF_REVISION'
+      - name: ağsız üretim fabrikası sağlık smoke testi
+        run: |
+          container=$(docker run --rm -d -p 7860:7860 --entrypoint python \
+            belge-gozu:ci scripts/docker_smoke.py)
+          cleanup() {
+            docker logs "$container" || true
+            docker stop "$container" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 30); do
+            if body=$(curl --fail --silent http://127.0.0.1:7860/healthz); then
+              break
+            fi
+            sleep 1
+          done
+          test -n "${body:-}"
+          BODY="$body" python -c \
+            'import json, os; payload=json.loads(os.environ["BODY"]); assert payload["status"] == "ok"'

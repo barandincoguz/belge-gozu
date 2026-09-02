@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+data
+docs
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.pyright
+dist
+build

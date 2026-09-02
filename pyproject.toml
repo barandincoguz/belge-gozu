@@ -29,6 +29,16 @@ dependencies = [
 ml = ["colpali-engine==0.3.18", "torch>=2.4"]
 dev = ["pytest>=8.0", "ruff>=0.6", "pyright>=1.1.380", "pre-commit>=3.8"]
 
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [project.scripts]
 belge-gozu = "belge_gozu.cli:app"
 
