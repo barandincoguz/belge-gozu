@@ -57,6 +57,30 @@ def test_report_metrics_and_survival(tmp_path: Path):
     assert out.exists()
 
 
+def test_report_preserves_verification_selection_provenance(tmp_path: Path):
+    qs = [BenchQuestion(**q_dict())]
+    pipe = MapPipeline({"Yerleşim yeri nedir?": ["k4721:4"]})
+    verification = {
+        "only_verified": True,
+        "min_verification": "human",
+        "total": 48,
+        "selected": 3,
+        "filtered_out": 45,
+    }
+
+    report = run_retrieval_eval(
+        pipe,
+        qs,
+        known_page_ids={"k4721:4"},
+        config={"verification": verification},
+    )
+    out = tmp_path / "report.json"
+    report.to_json(out)
+
+    assert report.config["verification"] == verification
+    assert '"filtered_out":45' in out.read_text(encoding="utf-8").replace(" ", "")
+
+
 def test_missing_gold_page_reported():
     qs = [BenchQuestion(**q_dict())]
     pipe = MapPipeline({"Yerleşim yeri nedir?": ["x:1"]})

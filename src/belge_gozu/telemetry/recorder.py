@@ -63,6 +63,21 @@ _INSERT = (
 )
 
 
+def _initialize_connection(connection: sqlite3.Connection) -> None:
+    """Aynı şema ve migrasyonları kalıcı ya da bellek içi bağlantıya uygular."""
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA busy_timeout=5000")
+    connection.execute(EVENTS_DDL)
+    for col, coltype in _ADDED_COLUMNS:
+        try:
+            connection.execute(f"ALTER TABLE events ADD COLUMN {col} {coltype}")
+        except sqlite3.OperationalError:
+            pass
+    for idx in EVENTS_INDEXES:
+        connection.execute(idx)
+    connection.commit()
+
+
 class EventRecorder:
     """WAL'lı, thread-güvenli, best-effort olay yazıcısı.
 
@@ -72,27 +87,29 @@ class EventRecorder:
     """
 
     def __init__(self, db_path: Path) -> None:
-        db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
-        self._db = sqlite3.connect(db_path, check_same_thread=False)
         self._lock = threading.Lock()
         self._last_warn_at: float | None = None
         self._suppressed = 0
         self.write_failures = 0
-        self._db.execute("PRAGMA journal_mode=WAL")
-        self._db.execute("PRAGMA busy_timeout=5000")
-        self._db.execute(EVENTS_DDL)
-        # Migrasyon: eski events tablolarına eksik kolonları ekle (best-effort —
-        # kolon zaten varsa sqlite hata fırlatır, bunu yutuyoruz; telemetri
-        # hiçbir koşulda isteği düşürmez).
-        for col, coltype in _ADDED_COLUMNS:
-            try:
-                self._db.execute(f"ALTER TABLE events ADD COLUMN {col} {coltype}")
-            except sqlite3.OperationalError:
-                pass
-        for idx in EVENTS_INDEXES:
-            self._db.execute(idx)
-        self._db.commit()
+        persistent: sqlite3.Connection | None = None
+        try:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            persistent = sqlite3.connect(db_path, check_same_thread=False)
+            _initialize_connection(persistent)
+            self._db = persistent
+        except (OSError, sqlite3.Error):
+            if persistent is not None:
+                try:
+                    persistent.close()
+                except sqlite3.Error:
+                    pass
+            logger.warning(
+                "kalıcı telemetri açılamadı; bellek içi kayda düşülüyor",
+                exc_info=True,
+            )
+            self._db = sqlite3.connect(":memory:", check_same_thread=False)
+            _initialize_connection(self._db)
 
     def record(self, ev: RequestEvent) -> None:
         try:

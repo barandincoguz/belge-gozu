@@ -13,11 +13,19 @@
 | **Getirim kalitesi / Retrieval** | Recall@5 **0.8605** (37/43) · Recall@20 0.930 — aksanlı ve aksansız yazımda aynı |
 | **Başlangıç / Starting point** | Aynı kıyas kümesinde Recall@5 **0.116** |
 | **Gecikme / Latency** | metin getirimi 2–5 ms · uçtan uca cevap 6–24 sn (LLM'e bağlı) |
-| **Mühendislik / Engineering** | 667 test · CI hem süiti koşar hem dağıtım imajını derler · her sayı tarihli bir koşum artefaktına bağlı |
+| **Mühendislik / Engineering** | 707 test · CI hem süiti koşar hem dağıtım imajını derler · her sayı tarihli bir koşum artefaktına bağlı |
 | **Yığın / Stack** | Python 3.12 · FastAPI · PyTorch · Transformers · ColPali-class vision encoder · BM25 (hand-written) · SQLite · Prometheus · Grafana · Docker · GitHub Actions · pytest · ruff · pyright · uv |
 
 İndeks ve tüm sayfa görüntüleri Hugging Face Datasets üzerinde herkese açık:
 **[barandincoguz/belge-gozu-index](https://huggingface.co/datasets/barandincoguz/belge-gozu-index)**
+Üretim pull'u, içinde int8 vektörler ve hizalı metin kanalı bulunan değişmez
+[`700ac324...`](https://huggingface.co/datasets/barandincoguz/belge-gozu-index/tree/700ac324fffefb22de02c8e90347b31185547948)
+revizyonuna sabitlenmiştir.
+
+Getirim kazancı bütün P1 kapılarını geçmiş sayılmaz. Resmî
+[P1/G1 kararı](docs/research/findings/2026-08-31-p1-gate.md) **FAIL**'dir:
+Recall@50 ve paraphrase dilimi hedefi kaçırdı; reranker ve canlı dağıtım
+bütçeleri henüz ölçülmedi.
 
 ---
 
@@ -120,8 +128,9 @@ yeniden düzenlemedir.
 
 **Görsel kanalın ilk 5'e benzersiz katkısı sıfırdır** — metin kanalı ayarlandıktan sonra.
 Kanal yine de her sorguda çalışır: telemetriyi ve kalibrasyon veri kümesini besler, ayrıca
-metin katmanı zayıf olan 16 sayfa için yedektir. Ama artık sıralamıyor. Bu, ilk sunuma
-uyan sonuç değil; ölçümün söylediği sonuçtur.
+metin katmanı zayıf olan 16 sayfa için ayrı bir ölçüm sinyali sağlar. Ama artık
+sıralamıyor. Bu, ilk sunuma uyan sonuç değil; ölçümün söylediği sonuçtur.
+**Üretimde iki kanal koşar; sıralamayı yalnız BM25 metin kanalı belirler.**
 
 **Aksan işaretleri bir üretim hatasıydı, incelik değil.** Türkçe klavye rutin olarak devre
 dışı bırakılır; kullanıcı *"yillik ucretli izin"* yazar. Ölçüldüğünde bu, Recall@5'i
@@ -217,7 +226,10 @@ sayıyı oynatmak bunu düzeltmiyor:
 Plan değil, bulgu olarak: **getirim tarafı güven tek başına seçici cevaplamayı taşıyamaz.**
 İddia düzeyinde bir kanıt doğrulayıcı — cevabı iddialara böl, her iddiayı atıf verdiği
 sayfanın metnine karşı sına, desteklenmeyen iddia varsa cevabı düşür — yazıldı ve bayrak
-arkasında test edildi. Varsayılan yola bağlanması bir sonraki kilometre taşı.
+arkasında test edildi. `bench answers`, cevaplanabilir ve cevaplanamaz dev sorularını
+aynı künyeli raporda koşturur; atıf precision/completeness ve false-supported-answer
+oranını tek taraflı %95 Clopper–Pearson sınırlarıyla yazar. Test yakası ayrı bir
+`--yes-final-gate` kilidi taşır. Kapılar kütüphane varsayılanında kapalı kalır.
 
 ### Kıyas kümeleri ve künyeleri
 
@@ -242,9 +254,13 @@ anahtarı servis etti, model dürüst ıska bildirdi mi), bir Prometheus uç nok
 sağlanmış bir Grafana panosu. Girdi doğrulaması boş, aşırı uzun ve bozuk sorguları reddeder;
 IP başına tahliyeli hız sınırı ve ham sorgu metnini diske yazmayan gizlilik varsayılanı
 konteyner imajında etkindir.
+`/ask` ve `/search`, aynı sunucu eşik kararından türetilen `no_match` alanını taşır;
+arayüz eşik-altı sonuçları geçerli sayfa kartları gibi göstermez. Etkin sıralama kanalı,
+skor etiketi ve eşik `/healthz` tarafından sahiplenilir.
 
-CI; lint, tip denetimi, 667 test ve kıyas bütünlüğü doğrulayıcısını koşar, ayrıca dağıtım
-imajını derler. İlk iki koşumu kırmızıydı ve 147 yerel commit'in yakalayamadığı iki
+CI; lint, tip denetimi, 707 test ve kıyas bütünlüğü doğrulayıcısını koşar. Ayrı Docker
+işi imajı derler; UID 1000, yazılabilir `/data`, CPU-only PyTorch, eksik revizyonda
+fail-fast ve `/healthz` smoke sözleşmelerini denetler. İlk iki koşumu kırmızıydı ve 147 yerel commit'in yakalayamadığı iki
 taşınabilirlik hatasını yakaladı: terminal rengine bağımlı CLI kontrolleri ve doğrulayıcının
 ihtiyaç duyduğu, hiç izlenmemiş korpus künyesi.
 
@@ -260,9 +276,9 @@ aksan eksikliğine dayanıklı ve tükenen API kotasını anahtar değiştirerek
 | Alan | Durum |
 |---|---|
 | Seçici cevaplama | Güven modeli kuruldu ve ölçüldü; açılamayacak kadar temkinli. Doğrulayıcı yazıldı, bayrak arkasında. |
-| Resmî kapı raporları | Faz 0 geçti ve belgelendi. Faz 1'in iki ölçülmüş başarısızlığı (Recall@50 0.930, hedef 0.95; paraphrase dilimi 0.571) **henüz bir raporda hükme bağlanmadı**. |
+| Resmî kapı raporları | Faz 0 geçti. Faz 1, Recall@50 0.930 ve paraphrase 0.571 nedeniyle resmî raporda **FAIL** olarak hükme bağlandı; reranker ve canlı dağıtım bütçeleri ölçülmedi. |
 | İnsan doğrulaması | 48 satırın 3'ü. İnsan kapılı bir kıyas kümesi, dürüst olan bir sonraki adımdır. |
-| Herkese açık dağıtım | Yerelde çalışıyor; barındırma ücretli katman istiyor. İmaj CI'da derleniyor ama hiç dağıtılmadı. |
+| Herkese açık dağıtım | Pinli, kendi kendine yeterli Hub indeksi ile root olmayan CPU Docker/CI sözleşmesi hazır; barındırma ücretli katman istiyor ve uygulama henüz canlıya dağıtılmadı. |
 | Madde yapısı ve OCR | Madde düzeyinde hiyerarşi tasarlandı ama hiç kurulmadı; 16 sayfanın metin katmanı zayıf ve OCR yedeği yok. |
 
 Hepsi bu depoda issue olarak izleniyor — yukarıdaki başarısızlıklar dahil, dipnot değil
@@ -277,17 +293,29 @@ arkasındaki koşumlar `docs/research/findings/` altında, tarihli, ham artefakt
 ### Çalıştırma
 
 ```bash
-uv sync --extra dev --extra ml          # kilitli bağımlılıklar
-uv run belge-gozu corpus download       # kamuya açık PDF'ler
-uv run belge-gozu corpus render         # PDF -> sayfa görüntüleri
-uv run belge-gozu index build           # gömmeler (GPU/MPS önerilir)
-uv run belge-gozu index derive --quant int8
-uv run belge-gozu index build-text      # metin kanalı artefaktı
-uv run belge-gozu serve --port 7860     # http://localhost:7860
+uv sync --all-extras
+BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index \
+BG_HF_REVISION=700ac324fffefb22de02c8e90347b31185547948 \
+  uv run belge-gozu index pull
+BG_DEVICE=cpu uv run belge-gozu serve --port 7860  # http://localhost:7860
 ```
 
 `.env` içinde `GOOGLE_API_KEY` (rotasyon için isteğe bağlı `GOOGLE_API_KEY_2`) gerekir.
 Testler: `make test` · lint ve tipler: `make lint` · panolar: `make obs-up`
+
+G2 dev ölçümü gerçek API denemesi bütçesini açıkça ister:
+
+```bash
+uv run belge-gozu bench answers --split dev --max-llm-attempts 40
+```
+
+Docker aynı pinli artefaktı kullanır ve UID/GID 1000 ile çalışır:
+
+```bash
+docker build -t belge-gozu:p0 .
+docker run --rm -p 7860:7860 -v belge-gozu-data:/data \
+  -e GOOGLE_API_KEY="$GOOGLE_API_KEY" belge-gozu:p0
+```
 
 ### Depo haritası
 
@@ -401,8 +429,9 @@ granularity tried. What survived is lexical-primary ranking with a rule-based re
 
 **The visual channel contributes zero unique top-5 hits** once the text channel is tuned.
 It still runs on every query — it feeds telemetry and the calibration dataset, and it is
-the fallback for the 16 pages with a weak text layer — but it no longer ranks. That is the
-honest result, not the one that fits the original pitch.
+an independent measurement signal for the 16 pages with a weak text layer — but it no
+longer ranks. That is the honest result, not the one that fits the original pitch.
+**Both channels run in production; BM25 alone determines the ranking.**
 
 **Diacritics were a production bug, not a nicety.** Turkish keyboards are routinely
 bypassed: users type *"yillik ucretli izin"*. Measured, that collapsed Recall@5 from 0.837
@@ -498,7 +527,10 @@ Measured, moving the number does not fix that:
 Stated as a finding rather than a plan: **retrieval-side confidence alone cannot carry
 selective answering here.** A claim-level evidence verifier — segment the answer, check each
 claim against its cited page text, demote the answer if any claim is unsupported — is built
-and tested behind a flag. Wiring it into the default path is the next milestone.
+and tested behind a flag. `bench answers` evaluates answerable and unanswerable dev
+questions in one provenance-rich report, with claim-level citation precision/completeness,
+false-supported-answer rate, and one-sided 95% Clopper–Pearson bounds. The test split is
+locked behind `--yes-final-gate`; library defaults remain off.
 
 ### Benchmarks and their provenance
 
@@ -524,9 +556,13 @@ whether the model reported an honest miss), a Prometheus endpoint and a provisio
 dashboard. Input validation rejects empty, overlong and malformed queries; a per-IP rate
 limiter with eviction and a privacy default that keeps raw query text off disk are both
 enabled in the container image.
+`/ask` and `/search` expose `no_match` from the same server-side threshold decision, so
+the UI does not present below-threshold diagnostics as valid page cards. `/healthz` owns
+the active ranking-channel, score-label, and threshold presentation contract.
 
-CI runs lint, type-check, 667 tests and the benchmark-integrity validator, and separately
-builds the deployment image. Its first two runs were red — catching two portability bugs
+CI runs lint, type-check, 707 tests and the benchmark-integrity validator. A separate
+Docker job builds the image and checks UID 1000, writable `/data`, CPU-only PyTorch,
+missing-revision fail-fast, and a `/healthz` smoke. Its first two runs were red — catching two portability bugs
 that 147 local commits had not: CLI assertions that depended on terminal colour, and a
 corpus manifest the validator needs that was never tracked.
 
@@ -543,9 +579,9 @@ keys.
 | Area | Status |
 |---|---|
 | Selective answering | Confidence model built and measured; too conservative to enable. Verifier built, behind a flag. |
-| Formal gate reports | Phase 0 passed and documented. Phase 1 has two measured failures (Recall@50 0.930 against a 0.95 target; paraphrase slice 0.571) **not yet adjudicated in a report**. |
+| Formal gate reports | Phase 0 passed. Phase 1 is formally adjudicated **FAIL** on Recall@50 0.930 and paraphrase 0.571; reranker and live-deployment budgets remain unmeasured. |
 | Human validation | 3 of 48 rows. A human-gated benchmark is the honest next step. |
-| Public deployment | Runs locally; hosting needs a paid tier. The image builds in CI but has never been deployed. |
+| Public deployment | A pinned self-contained Hub index and non-root CPU Docker/CI contract are ready; hosting needs a paid tier and the app has not been deployed live. |
 | Article structure & OCR | Article-level hierarchy was specified but never built; 16 pages have a weak text layer and no OCR fallback. |
 
 All of it is tracked as issues in this repository — the failures included, filed rather
@@ -561,17 +597,29 @@ artefacts beside them.
 ### Run it
 
 ```bash
-uv sync --extra dev --extra ml          # locked dependencies
-uv run belge-gozu corpus download       # public PDFs
-uv run belge-gozu corpus render         # PDF -> page images
-uv run belge-gozu index build           # embeddings (GPU/MPS recommended)
-uv run belge-gozu index derive --quant int8
-uv run belge-gozu index build-text      # text-channel artefact
-uv run belge-gozu serve --port 7860     # http://localhost:7860
+uv sync --all-extras
+BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index \
+BG_HF_REVISION=700ac324fffefb22de02c8e90347b31185547948 \
+  uv run belge-gozu index pull
+BG_DEVICE=cpu uv run belge-gozu serve --port 7860  # http://localhost:7860
 ```
 
 Requires `GOOGLE_API_KEY` (optionally `GOOGLE_API_KEY_2` for rotation) in `.env`.
 Tests: `make test` · lint and types: `make lint` · dashboards: `make obs-up`
+
+Answer-gate evaluation requires an explicit real-attempt budget:
+
+```bash
+uv run belge-gozu bench answers --split dev --max-llm-attempts 40
+```
+
+The container uses the same pinned artifact and runs as UID/GID 1000:
+
+```bash
+docker build -t belge-gozu:p0 .
+docker run --rm -p 7860:7860 -v belge-gozu-data:/data \
+  -e GOOGLE_API_KEY="$GOOGLE_API_KEY" belge-gozu:p0
+```
 
 ### Repository map
 

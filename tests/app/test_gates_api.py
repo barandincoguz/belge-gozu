@@ -104,7 +104,7 @@ def _client(tiny_corpus, verdict="supported", tau=0.4, monkeypatch=None, **flags
 def test_flags_off_body_has_no_detail_key_and_event_has_no_gate_blocks(tiny_corpus):
     data_dir, _, _ = tiny_corpus
     body = _client(tiny_corpus).post("/ask", json={"question": "yerleşim yeri nedir"}).json()
-    assert set(body) == {"status", "honest_miss", "answer", "hits"}
+    assert set(body) == {"status", "honest_miss", "no_match", "answer", "hits"}
     assert body["status"] == "answered"
     detail = _event_detail(data_dir)
     assert "gate1" not in detail and "gate2" not in detail

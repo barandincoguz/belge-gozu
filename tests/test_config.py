@@ -80,6 +80,18 @@ def test_env_override(monkeypatch):
     assert Settings().top_k == 3
 
 
+def test_hf_token_accepts_standard_hugging_face_env_name(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HF_TOKEN", "secret-token")
+    assert Settings().hf_token == "secret-token"
+
+
+def test_hf_revision_uses_bg_prefix(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BG_HF_REVISION", "a" * 40)
+    assert Settings().hf_revision == "a" * 40
+
+
 def test_env_file_and_google_alias(monkeypatch, tmp_path):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("BG_GEMINI_API_KEY", raising=False)

@@ -152,7 +152,7 @@
   .svc-note p { margin: 0; font-size: .92rem; color: var(--ink); max-width: 56ch; }
 
   /* Durum bandı: MÜHÜR DEĞİL, SERVİS NOTU DEĞİL — üçüncü bir dil.
-     İki varyantı var ve ikisi de "normal yanıt" görünümünden ayrışır.
+     Üç varyantı var ve üçü de "normal yanıt" görünümünden ayrışır.
 
      .miss  = DÜRÜST ISKA (status=answered + honest_miss=true). Anlamı mühürden
               FARKLI: mühür "getirim eşiği geçemedi, LLM hiç çağrılmadı" der;
@@ -162,7 +162,9 @@
               kendisi bakabilir. Yanıt metni GİZLENMEZ, yalnız yumuşatılır.
      .unknown = TANIMADIĞIM DURUM. Sunucuya yeni bir `status` eklendiğinde
               arayüzün onu "tam dayanaklı yanıt" gibi çizmesini önler (Y32);
-              bu durumda #answer-text ve atıflar GİZLENİR. */
+              bu durumda #answer-text ve atıflar GİZLENİR.
+     .no-match = SUNUCU EŞİĞİNİN altında kalan getirim. Teşhis hit'leri API'de
+                 kalsa da arayüz onları geçerli sonuç kartları gibi sunmaz. */
   .state-note { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 14px;
                 padding: 11px 14px; background: var(--paper); border-left: 3px solid var(--scan); }
   .state-note[hidden] { display: none; }
@@ -173,6 +175,8 @@
   .state-note p { margin: 0; font-size: .92rem; color: var(--ink); max-width: 60ch; }
   .state-note.unknown { border-left-style: dashed; border-left-color: var(--muted); }
   .state-note.unknown .tag { color: var(--muted); border-color: var(--rule); }
+  .state-note.no-match { border-left-color: var(--seal); }
+  .state-note.no-match .tag { color: var(--seal); border-color: var(--seal); }
   .answer-card.honest-miss #answer-text { color: var(--muted); max-width: 56ch; }
 
   .cites { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -217,7 +221,8 @@
   /* eşik çizgisi: her satırın track'i içinde %'yle çizilir; -5px taşma satır
      aralıklarını kapatıp tek sürekli çizgi görünümü verir */
   .crow .track::after { content: ""; position: absolute; top: -5px; bottom: -5px;
-                        left: var(--th); width: 2px; background: var(--seal); }
+                        left: var(--th); width: 2px; background: var(--seal); display: none; }
+  .chart.has-threshold .crow .track::after { display: block; }
   .crow .barfill { display: block; height: 100%; border-radius: 0 4px 4px 0;
                    background: var(--stamp-lt); min-width: 2px; }
   .crow.above .barfill { background: var(--stamp); }
@@ -327,7 +332,7 @@
   <div class="rule-thin"></div>
   <h1>Belge-Gözü</h1>
   <p class="tagline">Türk mevzuatında hibrit arama — metin kanalı sıralar, sayfalar görüntü olarak dizinlidir.</p>
-  <p class="kunye"><b id="page-count">4.222</b> sayfa · <b>50</b> kanun · <b>1928–2024</b> · Resmî Gazete ve mevzuat.gov.tr kaynaklı</p>
+  <p class="kunye"><b id="page-count">—</b> sayfa · <b>50</b> kanun · <b>1928–2024</b> · Resmî Gazete ve mevzuat.gov.tr kaynaklı</p>
   <div class="rule-thin"></div>
 </header>
 
@@ -344,7 +349,7 @@
 
     <div class="chips-head">
       <span class="eyebrow">örnek sorular</span>
-      <p>Altı farklı zorluk sınıfı — hepsi 43 soruluk canary setinden ya da onun yazım varyantından.</p>
+      <p>Altı örneğin dördü canary setinden; ikisi vitrin için seçilmiş sorgulardır.</p>
     </div>
     <div class="chips" id="chips">
       <button class="chip" type="button" aria-label="Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"
@@ -383,7 +388,7 @@
   <section id="pipeline" class="pipeline" hidden aria-label="İşlem aşamaları">
     <ol>
       <li class="stage" data-st="0"><span class="dot"></span><span id="st-encode">sorgu kodlanıyor — görsel kanal</span></li>
-      <li class="stage" data-st="1"><span class="dot"></span><span id="st-scan">4.222 sayfada BM25 + doküman yönlendirme → ilk 5</span></li>
+      <li class="stage" data-st="1"><span class="dot"></span><span id="st-scan">arama yapılandırması yükleniyor</span></li>
       <li class="stage" data-st="2"><span class="dot"></span><span id="st-th">eşik kontrolü</span></li>
       <li class="stage" data-st="3"><span class="dot"></span><span id="st-llm">Gemini sayfaları okuyor</span></li>
       <li class="elapsed" id="elapsed" aria-hidden="true"></li>
@@ -409,7 +414,7 @@
 
   <section id="retrieval-sec" hidden aria-label="Retrieval sonuçları">
     <h2 class="sec-title">Sistem hangi sayfalara baktı?</h2>
-    <p class="sec-sub">Retrieval’ın seçtiği en yakın <span id="hits-count">5</span> sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
+    <p class="sec-sub">Retrieval’ın seçtiği en yakın <span id="hits-count">—</span> sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
       kaba, kalibre edilmemiş bir kesme noktasıdır (güven ölçüsü değil) — eşik
       <b>sıralamanın birincisine</b> uygulanır: o sayfa çizgiyi geçemezse sistem, yanıt
       uydurmak yerine “dayanak bulunamadı” der ve Gemini hiç çağrılmaz. Doküman-adı
@@ -477,60 +482,40 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 1) => n.toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
-const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const MAX_CHARS = 500;
 
-/* Skorlar hibrit yolda BM25 ölçeğinde (kalibre edilmemiş, tipik 5-70), bu
-   yüzden eşik de o bantta: 10.6 = config.py'deki varsayılan (int8@0.58'in
-   MEKANİK ölçek taşıması). /healthz'e ulaşılamazsa kullanılan yedek değer de
-   AYNI bantta olmalı — bant dışı bir yedek (eski 0.58 ya da daha eski 60.0)
-   grafikte eşik çizgisini yanlış yere koyar ve tüm çubukları "eşik üstü"
-   gösterirdi. */
-let THRESHOLD = 10.6;
-let TOP_K = 5;
+/* Eşik ve sunum etiketleri yalnız sunucunun etkin yapılandırmasından gelir.
+   Health yüklenmeden sayı/kanal tahmin edilmez; null durumda eşik çizilmez. */
+let THRESHOLD = null;
+let TOP_K = null;
+let RETRIEVAL = null;
 
 fetch("/healthz").then(r => r.json()).then(h => {
-  THRESHOLD = h.threshold ?? THRESHOLD;
-  TOP_K = h.top_k ?? TOP_K;
+  THRESHOLD = typeof h.threshold === "number" ? h.threshold : null;
+  TOP_K = Number.isInteger(h.top_k) ? h.top_k : null;
+  RETRIEVAL = h.retrieval && h.retrieval.ranking_channel ? h.retrieval : null;
   $("page-count").textContent = h.pages.toLocaleString("tr-TR");
-  /* Aşama etiketleri ETKİN pipeline'ı anlatır. Hibrit yolda SIRA gerçekten
-     şudur: önce sorgu görsel kanal için kodlanır (~1 sn, en pahalı adım),
-     sonra BM25 metin araması + doküman yönlendirmesi koşar (milisaniyeler),
-     sonra eşik, sonra LLM. Görsel kanal koşar ama sıralamaya girmez. */
-  const SCAN_LABEL = {
-    hybrid: "BM25 metin araması + doküman yönlendirme",
-    exhaustive: "exhaustive MaxSim (görsel)",
-    "two-stage": "Hamming eleme + MaxSim (görsel)",
-  };
-  const scan = SCAN_LABEL[h.pipeline] ?? SCAN_LABEL.hybrid;
-  $("st-scan").textContent = `${h.pages.toLocaleString("tr-TR")} sayfada ${scan} → ilk ${TOP_K}`;
-  $("st-th").textContent = `eşik kontrolü (${fmt(THRESHOLD, 2)})`;
-  $("hits-count").textContent = String(TOP_K);
+  const stageLabel = h.retrieval && h.retrieval.stage_label;
+  if (stageLabel && TOP_K !== null) {
+    $("st-scan").textContent =
+      `${h.pages.toLocaleString("tr-TR")} sayfada ${stageLabel} → ilk ${TOP_K}`;
+  }
+  $("st-th").textContent = THRESHOLD === null
+    ? "eşik kontrolü"
+    : `eşik kontrolü (${fmt(THRESHOLD, 2)})`;
+  if (TOP_K !== null) $("hits-count").textContent = String(TOP_K);
   if (h.pipeline !== "hybrid") $("st-encode").textContent = "sorgu kodlanıyor";
 }).catch(() => {});
 
 /* ---- pipeline ---- */
-let stageTimers = [];
 function pipelineStart() {
-  stageTimers.forEach(clearTimeout); stageTimers = [];
   const stages = document.querySelectorAll(".stage");
   stages.forEach(s => s.className = "stage");
   $("pipeline").hidden = false;
   $("elapsed").textContent = "";
-  if (reduced) { stages.forEach(s => s.classList.add("active")); return; }
-  /* Gerçek aşama süreleri istemciden görünmez; SIRA gerçeği, tempo ölçüme
-     yakın bir tahmindir: encode ~1.1 sn (yükün büyük kısmı), BM25 + yönlendirme
-     + eşik milisaniyeler, kalan süre LLM'in. */
-  const pacing = [0, 1150, 1260, 1340];
-  pacing.forEach((t, i) => stageTimers.push(setTimeout(() => {
-    stages.forEach((s, j) => {
-      if (j < i) { s.className = "stage done"; }
-      else if (j === i) { s.className = "stage active"; }
-    });
-  }, t)));
+  if (stages.length) stages[0].classList.add("active");
 }
 function pipelineFinish(status, ms) {
-  stageTimers.forEach(clearTimeout);
   document.querySelectorAll(".stage").forEach((s, j) => {
     s.className = "stage done";
     if (j !== 3) return;
@@ -558,30 +543,34 @@ function renderChart(hits) {
   c.innerHTML = "";
   if (!hits.length) { c.innerHTML = '<p class="sec-sub">Hiç sayfa bulunamadı.</p>'; return; }
   const hasScan = hits.some(h => typeof h.visual_score === "number");
-  /* Skorlar NEGATİF olabilir (görsel kollarda normalize [-1,1] bant): oran
-     hesapları %0'ın altına inebilir. İki ayrı tuzak var, ikisi de kapatılıyor:
-       1) tek bir negatif skor -> oran negatif -> Math.max(0, ...) yakalar;
-       2) TÜM skorlar VE eşik negatifse maxV'nin KENDİSİ negatif olur, bölme
-          işareti ters çevirir ve Math.max(0, ...) hiç devreye girmez
-          (ör. skorlar [-0.3,-0.9], eşik -0.2 -> çubuk %416). Bunun için
-          bölen kesin POZİTİF tutuluyor; sonuç ayrıca [0,100]'e kırpılıyor. */
-  const maxV = Math.max(...hits.map(h => h.score), THRESHOLD, 0.01) * 1.08;
-  const pct = (v) => Math.min(100, Math.max(0, v / maxV * 100)).toFixed(2) + "%";
-  const thPct = pct(THRESHOLD);
+  const hasThreshold = typeof THRESHOLD === "number";
+  const values = hits.map(h => h.score);
+  if (hasThreshold) values.push(THRESHOLD);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const pad = Math.max((rawMax - rawMin) * .08, Math.abs(rawMax) * .02, .01);
+  const axisMin = rawMin - pad;
+  const axisSpan = Math.max(rawMax + pad - axisMin, .01);
+  const axisPos = (v) =>
+    Math.min(100, Math.max(0, (v - axisMin) / axisSpan * 100)).toFixed(2) + "%";
+  const thPos = hasThreshold ? axisPos(THRESHOLD) : null;
+  const rankingChannel = RETRIEVAL && RETRIEVAL.ranking_channel;
+  const scoreLabel = RETRIEVAL && RETRIEVAL.score_label;
+  c.classList.toggle("has-threshold", hasThreshold);
 
   const head = document.createElement("div");
   head.className = "chart-head";
   head.innerHTML = `<span class="h-doc">belge · sayfa</span>
-      <span class="h-track" style="--th:${thPct}">skor dağılımı
-        <span class="thlabel">eşik ${fmt(THRESHOLD, 2)}</span></span>
-      <span class="h-bm25">BM25</span>${hasScan ? '<span class="h-scan">görsel</span>' : "<span></span>"}`;
+      <span class="h-track"${hasThreshold ? ` style="--th:${thPos}"` : ""}>bağıl eksen; yüzde değildir
+        ${hasThreshold ? `<span class="thlabel">eşik ${fmt(THRESHOLD, 2)}</span>` : ""}</span>
+      <span class="h-bm25">${esc(rankingChannel || "—")}</span>${hasScan ? '<span class="h-scan">görsel</span>' : "<span></span>"}`;
   c.appendChild(head);
 
   const rows = document.createElement("div");
   rows.className = "chart-rows";
-  rows.style.paddingTop = "22px"; /* eşik etiketi için yer */
+  rows.style.paddingTop = hasThreshold ? "22px" : "0";
   hits.forEach((h, i) => {
-    const above = h.score >= THRESHOLD;
+    const above = hasThreshold && h.score >= THRESHOLD;
     const row = document.createElement("button");
     row.type = "button";
     row.className = "crow " + (above ? "above" : "below");
@@ -592,14 +581,15 @@ function renderChart(hits) {
        hangi satırın karar verdiği burada açıkça söyleniyor. */
     const scanTxt = typeof h.visual_score === "number" ? fmt(h.visual_score, 2) : "";
     row.setAttribute("aria-label",
-      `${h.doc_name}, sayfa ${h.page_no}, BM25 skoru ${fmt(h.score, 2)}` +
+      `${h.doc_name}, sayfa ${h.page_no}, ${scoreLabel || "skor"} ${fmt(h.score, 2)}` +
       (scanTxt ? `, görsel skoru ${scanTxt}` : "") +
-      (i === 0 ? ", eşik bu satıra uygulanır" : "") + ". Sayfa kartına git.");
-    row.title = `${h.doc_name} — sayfa ${h.page_no}` + (i === 0 ? " · eşik bu satıra uygulanır" : "");
+      (i === 0 && hasThreshold ? ", eşik bu satıra uygulanır" : "") + ". Sayfa kartına git.");
+    row.title = `${h.doc_name} — sayfa ${h.page_no}` +
+      (i === 0 && hasThreshold ? " · eşik bu satıra uygulanır" : "");
     row.innerHTML = `
       <span class="name"><span class="nm">${esc(h.doc_name)}</span><small>s.${h.page_no}</small></span>
-      <span class="track" style="--th:${thPct}">
-        <span class="barfill" style="width:${pct(h.score)}"></span>
+      <span class="track"${hasThreshold ? ` style="--th:${thPos}"` : ""}>
+        <span class="barfill" style="width:${axisPos(h.score)}"></span>
       </span>
       <span class="val">${fmt(h.score, 2)}</span>
       <span class="scan">${scanTxt}</span>`;
@@ -614,12 +604,11 @@ function renderChart(hits) {
   c.appendChild(rows);
   const foot = document.createElement("p");
   foot.className = "chart-foot";
-  /* Kanal şeffaflığı, tek cümlede: iki sütun iki AYRI ölçek, tek eksende
-     çizilmemelerinin sebebi de bu. */
   foot.innerHTML =
-    `<span class="sw" style="background:var(--stamp)"></span>BM25: sıralamayı kuran metin skoru — kalibre edilmemiş, tipik 5-70, güven yüzdesi DEĞİL.` +
+    `<span class="sw" style="background:var(--stamp)"></span>${esc(rankingChannel || "Sıralama skoru")}: ` +
+    `${esc(scoreLabel || "sunucu skoru")} bağıl eksende gösterilir; yüzde değildir.` +
     (hasScan
-      ? `<br><span class="sw" style="background:var(--scan)"></span>görsel: ColSmol’ün aynı sayfaya verdiği normalize [-1,1] benzerlik — koşar ama sıralamaya girmez.`
+      ? `<br><span class="sw" style="background:var(--scan)"></span>${esc((RETRIEVAL && RETRIEVAL.visual_role) || "Görsel skor ayrı ölçektedir.")}`
       : "");
   c.appendChild(foot);
 }
@@ -636,8 +625,9 @@ function flash(el) {
 function renderHits(hits) {
   const wrap = $("hits");
   wrap.innerHTML = "";
+  const hasThreshold = typeof THRESHOLD === "number";
   for (const h of hits) {
-    const above = h.score >= THRESHOLD;
+    const above = hasThreshold && h.score >= THRESHOLD;
     const card = document.createElement("button");
     card.type = "button";
     card.className = "hit " + (above ? "above" : "below");
@@ -807,6 +797,28 @@ async function ask() {
        bg_honest_miss_total ile aynı satır) — arayüz metni tahmin etmez. */
     const honestMiss = known && status === "answered" && data.honest_miss === true;
     pipelineFinish(known ? status : "unknown", ms);
+
+    /* Eşik-altı hit'ler API'de teşhis için kalır ama kullanıcıya geçerli
+       sonuç kartları gibi sunulmaz. Karar istemcide skordan yeniden
+       hesaplanmaz; sunucunun AskService ile aynı eşik kararını taşıyan alanı
+       kullanılır. */
+    if (data.no_match === true) {
+      $("answer").className = "answer-card no-match";
+      $("stamp").hidden = true;
+      $("svc-note").hidden = true;
+      $("state-note-tag").textContent = "Eşleşme bulunamadı";
+      $("state-note-text").textContent =
+        "Getirilen sayfaların birincisi sunucunun cevap eşiğini geçemedi. " +
+        "Eşik-altı teşhis sonuçları geçerli dayanak gibi gösterilmiyor.";
+      $("state-note").className = "state-note no-match";
+      $("state-note").hidden = false;
+      $("answer-text").innerHTML = "";
+      $("answer-text").hidden = true;
+      $("cites").innerHTML = "";
+      $("answer-sec").hidden = false;
+      $("retrieval-sec").hidden = true;
+      return;
+    }
 
     /* N1 (review NIT-1, 2026-08-30): `degraded` kendi sınıfını taşır, artık
        `abstained`ı ÖDÜNÇ almaz — sınıf adı durumu yanlış söylemesin diye. */

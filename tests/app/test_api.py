@@ -1,6 +1,8 @@
 import json
+import logging
 import sqlite3
 import time
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -47,9 +49,13 @@ def make_client(tiny_corpus, **overrides) -> TestClient:
     Eşik -1e9 ("her zaman cevapla") KASITLI: negatif eşik her pipeline'da
     serbesttir, yani bu fikstür ölçek korkuluğuna takılmaz."""
     data_dir, enc, _ = tiny_corpus
-    settings = Settings(
-        data_dir=data_dir, index_dir=data_dir / "index", min_score_threshold=-1e9, **overrides
-    )
+    values = {
+        "data_dir": data_dir,
+        "index_dir": data_dir / "index",
+        "min_score_threshold": -1e9,
+        **overrides,
+    }
+    settings = Settings(**values)
     app = create_app(settings=settings, encoder=enc, answerer=StubAnswerer())
     return TestClient(app)
 
@@ -79,7 +85,38 @@ def test_healthz(tiny_corpus):
             "quantization": "sign-1bit",
             "revision": f"{m.corpus_checksum[:12]}/train-compat-v1/sign-1bit",
         },
+        "retrieval": {
+            "ranking_channel": "BM25",
+            "score_label": "BM25 skoru",
+            "stage_label": "BM25 metin araması + doküman yönlendirme",
+            "visual_role": "Görsel kanal ölçüm için koşar; sıralamaya girmez.",
+        },
     }
+
+
+def test_healthz_survives_unwritable_telemetry_directory(tiny_corpus, caplog, monkeypatch):
+    data_dir, enc, _ = tiny_corpus
+    real_mkdir = Path.mkdir
+
+    def deny_data_dir(path: Path, *args, **kwargs):
+        if path == data_dir:
+            raise PermissionError("read-only filesystem")
+        return real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", deny_data_dir)
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        min_score_threshold=-1e9,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        app = create_app(settings=settings, encoder=enc, answerer=StubAnswerer())
+        response = TestClient(app).get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert "kalıcı telemetri açılamadı; bellek içi kayda düşülüyor" in caplog.text
 
 
 def test_healthz_reports_active_pipeline(tiny_corpus):
@@ -88,12 +125,36 @@ def test_healthz_reports_active_pipeline(tiny_corpus):
     assert c.get("/healthz").json()["pipeline"] == "exhaustive"
 
 
+def test_healthz_owns_retrieval_labels(tiny_corpus):
+    retrieval = make_client(tiny_corpus).get("/healthz").json()["retrieval"]
+    assert retrieval["ranking_channel"] == "BM25"
+    assert "görsel" in retrieval["visual_role"].lower()
+    assert "sıralamaya girmez" in retrieval["visual_role"]
+
+
 def test_search_returns_hits(tiny_corpus):
     c = make_client(tiny_corpus)
     r = c.post("/search", json={"query": "deneme sorgusu"})
     assert r.status_code == 200
     hits = r.json()["hits"]
     assert len(hits) == 3 and {"page_id", "score", "image_path"} <= hits[0].keys()
+
+
+def test_search_marks_an_oov_result_as_no_match(tiny_corpus):
+    c = make_client(tiny_corpus, min_score_threshold=10.6)
+    body = c.post("/search", json={"query": "asdfgh qwerty"}).json()
+    assert body["status"] == "no_match"
+    assert body["no_match"] is True
+    assert body["threshold"] == 10.6
+    assert body["pipeline"] == "hybrid"
+    assert body["hits"], "teşhis için eşik-altı hit listesi korunmalı"
+
+
+def test_ask_marks_the_same_threshold_decision_as_no_match(tiny_corpus):
+    c = make_client(tiny_corpus, min_score_threshold=10.6)
+    body = c.post("/ask", json={"question": "asdfgh qwerty"}).json()
+    assert body["status"] == "abstained"
+    assert body["no_match"] is True
 
 
 def test_ask_returns_answer_and_logs(tiny_corpus):
@@ -629,6 +690,20 @@ def test_ui_shows_six_example_chips_and_both_channels(tiny_corpus):
     assert html.count('class="chip"') == 6
     assert "visual_score" in html  # görsel kanal sütunu gerçekten besleniyor
     assert "aksansız yazım" in html  # yazım-değişmezlik vitrini
+
+
+def test_ui_uses_server_owned_retrieval_truth_and_no_match_state(tiny_corpus):
+    html = make_client(tiny_corpus).get("/").text
+    assert "Altı örneğin dördü canary setinden; ikisi vitrin için seçilmiş sorgulardır." in html
+    assert "let THRESHOLD = 10.6" not in html
+    assert "const pacing" not in html
+    assert "const SCAN_LABEL" not in html
+    assert "let THRESHOLD = null" in html
+    assert "h.retrieval.ranking_channel" in html
+    assert "h.retrieval.stage_label" in html
+    assert "data.no_match" in html
+    assert "Eşleşme bulunamadı" in html
+    assert "bağıl eksen; yüzde değildir" in html
 
 
 def test_degraded_card_gets_its_own_class_not_abstained(tiny_corpus):
