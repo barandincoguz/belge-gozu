@@ -242,20 +242,13 @@ make setup                  # dev deps: ruff, pyright, pytest
 uv sync --all-extras        # + ml deps (torch, colpali-engine) — needed for index/serve
 uv run belge-gozu --help
 
-# 1. pull the published visual index + page images (int8, 476 MB)
+# 1. pull the published visual index + BM25 text channel + page images (int8)
 #    -> data/index-traincompat-int8 by default (see BG_INDEX_DIR)
 BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index \
-BG_HF_REVISION=<40-character-commit-sha> \
+BG_HF_REVISION=700ac324fffefb22de02c8e90347b31185547948 \
   uv run belge-gozu index pull
 
-# 2. the hybrid (default) pipeline additionally needs the BM25 text channel.
-#    It is extracted from the source PDFs, so the corpus download is required
-#    even when the index itself came from the Hub:
-uv run belge-gozu corpus download    # ~56 PDFs -> data/pdf/ (polite, resumable)
-uv run belge-gozu index build-text   # -> <BG_INDEX_DIR>/page_texts.parquet
-                                     # no model, no GPU: ~9 s for 4,222 pages -> 5.5 MB
-
-# 3. serve
+# 2. serve
 BG_DEVICE=cpu uv run belge-gozu serve
 # -> http://localhost:7860
 ```
@@ -263,6 +256,9 @@ BG_DEVICE=cpu uv run belge-gozu serve
 Hub pull deliberately accepts only a full 40-character commit SHA; branch names such as
 `main` are rejected so the same deployment cannot silently receive a different index later.
 `index push --revision main` writes to the branch and prints the immutable SHA to pin.
+The published pin above contains the aligned 4,222-row `page_texts.parquet`; publication
+and fresh-pull evidence is recorded in
+[the HF index publication note](docs/research/evidence/2026-08-31-hf-index-publication.md).
 
 The container follows the same contract and runs as UID/GID 1000. All mutable state is under
 `/data` (`index`, page images, SQLite telemetry, and the Hugging Face cache), while Linux
@@ -271,7 +267,7 @@ installs PyTorch from the explicit CPU wheel index:
 ```bash
 docker build -t belge-gozu:p0 .
 docker run --rm -p 7860:7860 -v belge-gozu-data:/data \
-  -e BG_HF_REVISION=<40-character-commit-sha> \
+  -e BG_HF_REVISION=700ac324fffefb22de02c8e90347b31185547948 \
   -e GOOGLE_API_KEY="$GOOGLE_API_KEY" \
   belge-gozu:p0
 ```
@@ -279,13 +275,10 @@ docker run --rm -p 7860:7860 -v belge-gozu-data:/data \
 For a host bind mount instead of the named volume, make the mounted directory writable by
 UID 1000. An empty/missing `BG_HF_REVISION` fails before Uvicorn or a model download starts.
 
-**Why the download is not optional any more.** The published Hub index was pushed before P1
-and therefore contains no `page_texts.parquet`; `serve --pull` alone leaves the hybrid
-pipeline without its text channel and the server **fails fast** at startup rather than
-silently degrading to visual-only retrieval (which would quietly give up the measured
-recipe). The same fail-fast fires if the artifact is present but not row-for-row aligned
-with the index's `page_ids.json`. If you re-push the index after `index build-text`, the
-artifact travels with it and `serve --pull` becomes self-sufficient again.
+The pinned Hub artifact is self-contained for retrieval: int8 vectors, metadata, the BM25
+text channel, and page images are all present. Startup still fails fast if the text artifact
+is missing or not row-for-row aligned with `page_ids.json`; it never silently degrades to
+visual-only retrieval.
 For a visual-only run with no PDFs at all, set `BG_RETRIEVAL_PIPELINE=exhaustive` — and move
 `BG_MIN_SCORE_THRESHOLD` onto that scale too (see the threshold note above).
 

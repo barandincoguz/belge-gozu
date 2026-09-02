@@ -16,7 +16,7 @@ RUN uv sync --frozen --no-dev --extra ml \
     && mkdir -p /data/index /data/images /data/hf \
     && chown -R 1000:1000 /data /home/app
 
-ARG BG_HF_REVISION=""
+ARG BG_HF_REVISION="700ac324fffefb22de02c8e90347b31185547948"
 ENV BG_HF_REVISION=${BG_HF_REVISION}
 ENV BG_HF_DATASET_REPO=barandincoguz/belge-gozu-index
 ENV BG_DATA_DIR=/data
