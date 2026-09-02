@@ -165,3 +165,34 @@ diline çevirip aynı kanallara sordum:
 | c411 | 88 | **1** |
 
 Yani boşluk tamamen sözlükseldir. Model, chunking, kesme ve gold masum.
+
+---
+
+## exp5 — LLM sorgu yeniden yazımı (kanun diline çeviri kanalı) · **ENGELLENDİ**
+
+**Hipotez.** Sonda kanıtladı: üç ıskanın da kök nedeni kayıt uyuşmazlığı ve elle
+çevrilen sorgular rank 1 buluyor. Bir LLM kanalı bunu otomatikleştirirse
+`paraphrase` R@50 0,8571 → ~1,0000 olmalı.
+
+**Ön koşul — kural değişikliği.** `program-p2.md` kural 5 "sorgu yeniden yazımı
+yok" diyordu. Değiştirdim: yeniden yazım artık EK kanal olarak serbest,
+orijinali ikame edemez. **Sıra dürüstçe kayda geçti: kuralı sondanın sonucunu
+bilerek değiştirdim** ve program dosyası bunu o şekilde yazıyor.
+
+**Bench hijyeni.** İstem, dört sorunun konusunu hiçbir şekilde adlandırmıyor;
+yalnız kayıt çevirisi ilkesini tarif ediyor. Yeniden yazımlar ÖLÇÜMDEN ÖNCE
+dosyaya yazılacak ve commit'lenecekti.
+
+**Sonuç: ÖLÇÜLEMEDİ.** Gemini kotası tükendi — 47 sorgunun 45'i 429
+`RESOURCE_EXHAUSTED` aldı ve betik güvenli biçimde orijinal sorguya düştü.
+Gerçekten çevrilen 2 satırla ölçüm yapmak, çeyreği dolu bir kanalı "ölçtüm"
+diye raporlamak olurdu. Üretilen dosya SİLİNDİ; yanıltıcı bir artefakt repoda
+durmasın.
+
+**Bilinen:** mekanizma kanıtlı (sonda: 300/bulunamadı/88 → 1/1/1), kural
+hazır, kod yolu hazır. Eksik olan tek şey kota.
+
+**Sıradaki denemede:** ya kota yenilendiğinde bu deney koşulur, ya da LLM'siz
+bir alternatif ölçülür — korpusun kendi madde başlıklarından üretilmiş
+günlük-dil → kanun-dili sözlüğü (exp4'ün başlık kanalı BİRLEŞİM üyesi olarak
+başarısızdı, ama SORGU GENİŞLETME kaynağı olarak denenmedi).
