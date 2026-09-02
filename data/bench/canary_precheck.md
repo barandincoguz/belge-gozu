@@ -1,16 +1,16 @@
 # Canary Ön-Kontrol Raporu
 
-Oluşturulma: 2026-09-02T11:51:14.687634+00:00  ·  toplam soru: 48
+Oluşturulma: 2026-09-02T12:06:07.783382+00:00  ·  toplam soru: 62
 
 Normalizasyon: karşılaştırmadan önce boşluk/satır sonları tek boşluğa indirgenir, ardından Türkçe'ye duyarlı küçültme uygulanır (İ->i, I->ı, sonra str.casefold()); hem sayfa metni hem alıntı AYNI fonksiyondan geçer.
 
 ## Özet
 
-- **TEMİZ**: 41
+- **TEMİZ**: 55
 - **ŞÜPHELİ**: 7
 - **MANUEL**: 0
 
-## TEMİZ (41)
+## TEMİZ (55)
 
 - `c001` (dogrudan-madde, orta)
 - `c002` (dogrudan-madde, kolay)
@@ -53,6 +53,20 @@ Normalizasyon: karşılaştırmadan önce boşluk/satır sonları tek boşluğa 
 - `c311` (capraz-kanun-terim, orta)
 - `c312` (capraz-kanun-terim, orta)
 - `c313` (ayni-kanun-hard-negative, zor)
+- `c401` (paraphrase, orta)
+- `c402` (paraphrase, kolay)
+- `c403` (paraphrase, orta)
+- `c404` (paraphrase, orta)
+- `c405` (paraphrase, kolay)
+- `c406` (paraphrase, orta)
+- `c407` (paraphrase, orta)
+- `c408` (paraphrase, orta)
+- `c409` (paraphrase, kolay)
+- `c410` (paraphrase, kolay)
+- `c411` (paraphrase, orta)
+- `c412` (paraphrase, orta)
+- `c413` (paraphrase, orta)
+- `c414` (paraphrase, orta)
 
 ## ŞÜPHELİ (7)
 

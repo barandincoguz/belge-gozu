@@ -28,7 +28,7 @@ birini elle onaylaması gerekir. Bu betik üç modda çalışır:
              doğrulanmış cevaplanabilir + >=5 doğrulanmış cevaplanamaz)
              karşılanıp karşılanmadığını basar. Hedef satırı hem birleşik hem
              yalnız-insan sayısını gösterir; birleşik sayı insan doğrulaması
-             DEĞİLDİR (bkz. data/bench/canary_v1.README.md).
+             DEĞİLDİR (bkz. data/bench/canary_v2.README.md).
 
              uv run python scripts/verify_canary.py --status
 
@@ -67,7 +67,10 @@ from belge_gozu.bench.dataset import BenchQuestion, bench_stats, load_bench  # n
 from belge_gozu.config import Settings  # noqa: E402
 from belge_gozu.retrieval.text import tokenize as recipe_tokenize  # noqa: E402
 
-DEFAULT_BENCH = REPO_ROOT / "data" / "bench" / "canary_v1.jsonl"
+# CANLI set v2'dir: v1 D1'de donduruldu (bkz. canary_v2.README.md) ve artık
+# yalnız tarihsel referanstır. Varsayılan v1 kalsaydı `--status`/`--report`
+# sessizce ESKİ seti ölçer, kullanıcı yeni sayıları gördüğünü sanırdı.
+DEFAULT_BENCH = REPO_ROOT / "data" / "bench" / "canary_v2.jsonl"
 DEFAULT_PDF_DIR = REPO_ROOT / "data" / "pdf"
 DEFAULT_IMAGES_DIR = REPO_ROOT / "data" / "images"
 DEFAULT_REPORT_OUT = REPO_ROOT / "data" / "bench" / "canary_precheck.md"
@@ -367,7 +370,7 @@ def compute_status(questions: list[BenchQuestion]) -> dict:
     model çapraz-kontrolü) sayar, `target_met_human_only` yalnız insan
     doğrulamalı satırları. İkisi ayrı raporlanır ki birleşik sayı yanlışlıkla
     "insan doğrulanmış" diye okunmasın — model çapraz-kontrolü insan onayının
-    yerine geçmez (bkz. data/bench/canary_v1.README.md).
+    yerine geçmez (bkz. data/bench/canary_v2.README.md).
     """
     by_status = Counter(q.verification_status for q in questions)
     verified = [q for q in questions if q.verification_status == "verified"]
@@ -573,7 +576,7 @@ def print_status(status: dict) -> None:
         print(
             "  UYARI: 'toplam' rakamı model çapraz-kontrolünü içerir ve İNSAN DOĞRULAMASI\n"
             "  DEĞİLDİR. Bu set insan-doğrulanmış olarak alıntılanamaz; gerekçe ve bilinen\n"
-            "  kısıtlar için bkz. data/bench/canary_v1.README.md"
+            "  kısıtlar için bkz. data/bench/canary_v2.README.md"
         )
 
 
