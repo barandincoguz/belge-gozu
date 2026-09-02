@@ -50,3 +50,48 @@ Guardrail'ler: `ayni-kanun-hard-negative`, `madde-numarali`, `tarihi-tarama`
 
 **Sıradaki.** exp2: reranker (`BAAI/bge-reranker-v2-m3`) — birleşimi sıralayıp
 R@5'i R@50'ye yaklaştırmak, ve G1.3'ü ölçülmüşe çevirmek.
+
+---
+
+## exp2 — ikinci nöral kanal (ColmmBERT-small-TR) · **KEPT**
+
+**Hipotez.** R@50 bir KÜME kapsama metriğidir; ikinci bir nöral kanal onu
+matematiksel olarak düşüremez. Farklı tokenizer (Türkçe-native 50k vs
+çok-dilli mmBERT 256k) ve farklı eğitim, farklı sorularda isabet etmeli.
+
+**Değişiklik.** `newmindai/ColmmBERT-small-TR` @ `3b5dd41`, `document_length`
+180 → **512 override** (native pencere korpusun %50,3'ünü kesiyordu). Aday
+düzeyinde üçlü birleşim. 2.530.392 vektör, 648 MB fp16, 170 sn kodlama.
+
+**Sayılar** (insan-doğrulanmış, n=47; paraphrase n=21):
+
+| kol | R@5 | R@20 | R@50 | paraphrase R@50 |
+|---|---|---|---|---|
+| BM25 | 0,5745 | 0,7021 | 0,7872 | 0,5714 |
+| A Mogan | 0,6809 | 0,8723 | 0,9149 | 0,8095 |
+| B ColmmBERT | 0,6064 | 0,7660 | 0,8298 | 0,8095 |
+| **A+B** | **0,7234** | **0,8936** | **0,9362** | **0,8571** |
+| BM25+A+B | 0,7021 | 0,8723 | 0,9362 | 0,8571 |
+
+**Birincil metrik: `paraphrase` R@50 0,8095 → 0,8571 (+0,0476), 18/21.**
+Hedef 0,90'a **bir soru** kaldı.
+
+**Karar: KEPT.** Guardrail gerilemesi yok.
+
+**Öğrenilenler.**
+
+1. **İki model tek modelden iyi, çünkü FARKLI soruları ıskalıyorlar.** İkisi de
+   tek başına 0,8095 veriyor ama birleşimleri 0,8571 — yani ıskaları örtüşmüyor.
+   Ensemble çeşitliliği gerçek.
+2. **BM25 artık R@50'ye HİÇBİR benzersiz katkı yapmıyor** (A+B ile BM25+A+B
+   ikisi de 0,9362). Yine de TUTULDU: `dogrudan-madde` R@5'inde 0,8462 → 0,9231
+   kazandırıyor ve 2–5 ms'e mal oluyor. Sıralamayı reranker çözecek; karar
+   reranker ölçüldükten sonra yeniden bakılmalı.
+3. **ColmmBERT'in native 180 penceresi bir tuzaktı** ve override edilmeseydi
+   kanal korpusun yarısını görmeyecekti. Sözleşme okunur ama sorgulanır.
+
+**Kanıt.** `data/bench/results/d2-multiarm.json`,
+`data/index-colbert-colmm-f16/colbert.json`.
+
+**Kalan üç ıska:** c206 (KVKK saklama süresi), c404 (ayıplı hizmet),
+c411 (rekabet muafiyeti). c412 exp2 ile çözüldü.
