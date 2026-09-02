@@ -108,22 +108,71 @@ Aday modeller (hepsi HF'de doğrulandı):
 Ortam: torch 2.13.0, transformers 5.15.1, MPS mevcut, 14 CPU / 24 GB.
 `pylate`, `sentence-transformers`, `qdrant-client` **kurulu değil**.
 
-**Qdrant kararı.** Vector store'u elle yazmıyoruz — BM25'i elle yazmak ölçülmüş
-bir Türkçe reçetesi kazandırdığı için savunulabilirdi, çok-vektörlü depolamada
-öyle bir kazanç yok, orada tekerleği yeniden icat etmek olurdu. Qdrant'ın native
-late-interaction (multi-vector) desteği bu iş için doğru araç.
+**Qdrant kararı: REDDEDİLDİ — ve bu bir ölçüm sonucu, tercih değil.**
 
-Tek kısıt bağlayıcı: **tek konteyner.** Ayrı bir Qdrant sunucusu HF Space
-topolojisini kırar ve G1.5/G1.7 bellek bütçesi zaten ölçülmemiş. Bu yüzden karar
-şu iki koşula bağlıdır ve araştırma turu bunları cevaplıyor:
+Bu bölümün ilk hâli Qdrant'ı seçiyordu ("vector store'u elle yazmıyoruz").
+Araştırma turu o kararı çürüttü; gerekçe aynen kayda geçiyor çünkü karar
+ölçümle değişti:
 
-- Qdrant **gömülü (in-process) modda** çalışabiliyorsa → kullan.
-- 10.531 chunk × ~100–300 token vektörü ölçeğinde kaba-kuvvet MaxSim yeterince
-  hızlıysa (mevcut görsel kanal 4.222 sayfada 0,24 sn/sorgu yapıyor) → önce onunla
-  ölç, Qdrant'ı ölçüm kazancı gösterdiğinde devreye al.
+| | Qdrant gömülü | mevcut FloatIndex (fp16) |
+|---|---|---|
+| sorgu gecikmesi | 323 ms | **29 ms** (11× hızlı) |
+| RSS | 1.034 MB | **352 MB** |
+| yeni bağımlılık | 7 paket / ~74 MB (grpcio, protobuf 7.x) | yok |
 
-> Bu bölümün kesin hâli araştırma turunun bellek ve gecikme sayılarıyla
-> tamamlanacaktır.
+Üç bağımsız ret sebebi:
+
+1. **Her eksende kaybediyor.** Gecikme, bellek ve bağımlılık ağırlığı — üçü birden.
+2. **Gömülü mod zaten kaba kuvvet.** Qdrant local mode saf Python + numpy; HNSW
+   yok. Yani kendi yazacağımız algoritmanın daha yavaş bir uygulamasına bağımlılık
+   ödemiş olurduk. Üstelik dokümantasyonu onu "geliştirme/test, ~20.000 noktaya
+   kadar" diye tanımlıyor; 10.531 chunk o tavanın %53'ü.
+3. **Yaklaşık indeks D2'nin amacına ters.** PLAID ve MUVERA kayıplıdır; MUVERA'nın
+   0,54 ms'i gerçek ama D2 bir **recall** açığını kapatmak için var. Kesin MaxSim,
+   verilen model için recall TAVANIDIR — her yaklaşık indeks oradan aşağı iner.
+   İhtiyacımız olmayan 28 ms için recall takas etmek tam tersi yöndür.
+
+Genel ilke değişmedi ("vector store elle yazılmaz"); değişen şey, **bu ölçekte
+yazılacak bir vector store olmadığı**. Depo katmanı `embs.npy` + `offsets.npy`;
+`FloatIndex.load` onu zaten mmap'liyor. Tam yeniden inşa ~2 dakika, yani indeks
+bir veritabanı değil **önbellek**.
+
+**fp16, int8 DEĞİL.** Sayaltı sonuç: bu iş yükünde fp16 int8'den ~3× HIZLI
+(28 ms vs 87 ms), üstelik nicemleme hatası sıfır. int8 görsel kanalda doğru
+karardı çünkü orada 1,9 GB fp32 bağlayıcı kısıttı; metin kanalı ölçeğinde o kısıt
+yok, yani int8'i miras almak 3× gecikme + recall kaybı demek olurdu. 1-bit de
+yasak (repo zaten ölçmüş: canary top-1 int8 0,6250 vs 1-bit 0,4953).
+
+**pylate: HAYIR.** Kurulumu torch 2.13.0 → 2.11.0 ve transformers 5.15.1 → 5.3.0
+**düşürüyor** (pylate 1.6.0 `transformers<=5.3.0` ve `sentence-transformers==5.3.0`
+pinliyor; uv 4 paket kaldırıp 30 paket kuruyor). Ölçülmüş ve dondurulmuş bir
+yığında bu kabul edilemez risk. Düz `transformers` ile ~60 satırlık bir yeniden
+yazım `pylate.models.ColBERT.encode()`'u bit düzeyinde üretiyor (max_abs_diff
+4,7e-07, kosinüs 1,000000, MaxSim skorları birebir). Yeni bağımlılık: **sıfır**.
+
+**Model: `moganai/Mogan-ColBERT-TR` (A kolu).** ColmmBERT TurkColBERT'te önde ama
+belge penceresi 180 token'da sabit ve bizim korpusumuzda **chunk'ların %50,3'ünü
+kesiyor, token'ların %61,1'ini atıyor** — Türk mevzuatında işletici koşul sıklıkla
+uzun bir maddenin SONUNDA durur, yani tam olarak silinen yarıda. Mogan'ın Türkçe
+tokenizer'ı %33 daha verimli ve native penceresi 512; kesme oranı %12,7.
+B kolu: `ytu-ce-cosmos/turkish-colbert` (dim 256, legacy colbert-ai formatı).
+C kolu / yedek: `lightonai/mLateOn`.
+
+**Kodlama sözleşmesi — tahmin edilmeyecek, config'den okunacak.** Beş kural:
+(1) `max_length - 1`'e kadar tokenize et, işaret bir slot yiyor; (2) işaret
+token'ı metin olarak DEĞİL, id olarak index 1'e (CLS'ten sonra) yerleştirilir;
+(3) sorgu tarafı `[MASK]` ile `query_length`e doldurulur ve 32 vektörün TAMAMI
+korunur; (4) belge tarafı doldurulmaz, noktalama skiplist ile atılır;
+(5) `Linear(128, bias=False)` → **sonra** L2 normalize.
+
+Bir tuzak kayda geçsin: `pylate.ColBERT.encode()`'un `is_query` varsayılanı
+**True**. Belgeleri bayrağı vermeden kodlamak her chunk'a [Q] işareti verir,
+32 token'a keser ve [MASK] ile doldurur — hata yok, uyarı yok. Bu, görsel
+kodlayıcıda R@5 0,233 vs 0,093'e mal olan hata sınıfının aynısı. Bu yüzden
+çağrı yüzeyi `encode_documents()` / `encode_queries()` olacak ve indeksleyici ham
+`encode(..., is_query=...)` ÇAĞIRAMAYACAK; ayrıca inşa zamanında "chunk başına
+ortalama vektör > 40" doğrulaması konacak (sorgu olarak kodlanmış bir belge tam
+32 verir).
 
 ## Karar kuralı
 
