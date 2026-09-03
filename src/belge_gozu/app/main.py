@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import math
 import sqlite3
@@ -35,6 +36,7 @@ from belge_gozu.index.manifest import (
 from belge_gozu.index.store import PackedIndex
 from belge_gozu.retrieval.core import ExhaustiveRetriever, TwoStageRetriever
 from belge_gozu.retrieval.hybrid import HybridRetriever, load_text_channel, require_text_artifact
+from belge_gozu.retrieval.late import load_late_channel, require_calibrated_late_channel
 from belge_gozu.retrieval.text import tokenize
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import StageCollector, collecting
@@ -244,6 +246,52 @@ def resolve_formats(s: Settings) -> tuple[QueryFormat, str | None]:
 Retriever = ExhaustiveRetriever | TwoStageRetriever | HybridRetriever
 
 
+def load_configured_late_channels(s: Settings, page_ids: list[str]):
+    """Ana korpusa hizalı, iki kanallı ColBERT adaylarını yükler.
+
+    Bu yol yalnız aday üretir: `HybridRetriever` BM25 top-1'i sabit tutar ve
+    `PageHit.score` BM25 ölçeğinde kalır. Böylece geç skor kalibrasyonunun
+    başarısız çalışma noktası cevap kapısına taşınmaz.
+    """
+    chunks_path = s.index_dir / "chunks.parquet"
+    if not chunks_path.exists():
+        raise IndexCompatibilityError(
+            f"geç kanal {chunks_path} chunk eşlemesini gerektirir ama dosya yok"
+        )
+    chunks = pd.read_parquet(chunks_path)
+    if "chunk_id" not in chunks or "page_ids" not in chunks:
+        raise IndexCompatibilityError("chunks.parquet chunk_id ve page_ids sütunlarını içermeli")
+    if chunks["chunk_id"].duplicated().any():
+        raise IndexCompatibilityError("chunks.parquet yinelenen chunk_id içeriyor")
+    chunk_pages = {
+        str(chunk_id): tuple(str(page_id) for page_id in pages)
+        for chunk_id, pages in zip(chunks["chunk_id"], chunks["page_ids"], strict=True)
+    }
+    known_pages = set(page_ids)
+    unknown_pages = sorted(
+        {page_id for pages in chunk_pages.values() for page_id in pages} - known_pages
+    )
+    if unknown_pages:
+        raise IndexCompatibilityError(
+            "chunks.parquet ana indeksin bilmediği sayfalar taşıyor: "
+            f"{unknown_pages[:3]}"
+        )
+    device = None if s.device == "auto" else s.device
+    try:
+        channels = (
+            load_late_channel(s.late_mogan_index_dir, chunk_pages, device=device),
+            load_late_channel(s.late_colmm_index_dir, chunk_pages, device=device),
+        )
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError) as exc:
+        raise IndexCompatibilityError(f"geç kanal indeksi kullanılamıyor: {exc}") from exc
+    require_calibrated_late_channel(
+        enabled=True,
+        calibrated_threshold=None,
+        bm25_top1_pinned=True,
+    )
+    return channels
+
+
 def build_retriever(s: Settings, encoder) -> tuple[Retriever, IndexManifest | None]:
     """İndeksi yükler, uyumluluğu doğrular ve yapılandırılmış getiriciyi kurar.
 
@@ -264,6 +312,11 @@ def build_retriever(s: Settings, encoder) -> tuple[Retriever, IndexManifest | No
     kazanan int8 indeks (float16 ile birebir kalite, 1-bit'e karşı +7 puan
     R@20 ve 4.3x hız) bu yüzden üretimde HİÇ yüklenemiyordu (ruling R16/D1).
     """
+    if s.late_channel_enabled and s.retrieval_pipeline != "hybrid":
+        raise IndexCompatibilityError(
+            "geç kanal yalnız hybrid pipeline ile kullanılabilir; "
+            f"etkin pipeline={s.retrieval_pipeline}"
+        )
     index = load_scorable_index(s.index_dir)
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
     resolved_query_format, resolved_doc_prompt = resolve_formats(s)
@@ -296,7 +349,20 @@ def build_retriever(s: Settings, encoder) -> tuple[Retriever, IndexManifest | No
     retriever: Retriever
     if s.retrieval_pipeline == "hybrid":
         bm25, doc_names = load_text_channel(s.index_dir, list(index.page_ids))
-        retriever = HybridRetriever(index, meta, encoder, bm25, doc_names)
+        late_channels = (
+            load_configured_late_channels(s, list(index.page_ids))
+            if s.late_channel_enabled
+            else ()
+        )
+        retriever = HybridRetriever(
+            index,
+            meta,
+            encoder,
+            bm25,
+            doc_names,
+            late_channels=late_channels,
+            late_candidate_limit=s.late_candidate_limit,
+        )
     elif s.retrieval_pipeline == "exhaustive":
         retriever = ExhaustiveRetriever(index, meta, encoder)
     else:
@@ -386,6 +452,10 @@ def create_app(
     # `build_retriever` içinde (load_text_channel) kalır ve orada da koşar.
     if s.retrieval_pipeline == "hybrid":
         require_text_artifact(s.index_dir)
+    if s.late_channel_enabled and s.retrieval_pipeline != "hybrid":
+        raise IndexCompatibilityError(
+            "BG_LATE_CHANNEL_ENABLED=true yalnız BG_RETRIEVAL_PIPELINE=hybrid ile kullanılabilir"
+        )
 
     # Kalibrasyon artefaktı kontrolü de AYNI GEREKÇEYLE burada (review L1):
     # `BG_GATE_CALIBRATED=true` + eksik artefakt, `build_gates` aşağıda
@@ -691,7 +761,10 @@ def create_app(
             "top_k": s.top_k,
             "pipeline": s.retrieval_pipeline,
             "index": {"quantization": quantization, "revision": revision},
-            "retrieval": RETRIEVAL_LABELS[s.retrieval_pipeline],
+            "retrieval": {
+                **RETRIEVAL_LABELS[s.retrieval_pipeline],
+                "late_channel": "enabled" if s.late_channel_enabled else "disabled",
+            },
         }
 
     @app.post("/search")

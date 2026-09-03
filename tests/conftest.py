@@ -25,6 +25,9 @@ def _deterministic_cli_output(monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setenv("TERM", "dumb")
     monkeypatch.setenv("COLUMNS", "200")
+    # Gerçek ColBERT indeksleri test fikstürlerinin üç sayfalık korpusuyla
+    # hizalı değildir; üretim varsayımını yalnız bu test ortamında kapat.
+    monkeypatch.setenv("BG_LATE_CHANNEL_ENABLED", "false")
     monkeypatch.delenv("FORCE_COLOR", raising=False)
 
 

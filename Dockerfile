@@ -23,6 +23,11 @@ ENV BG_DATA_DIR=/data
 ENV BG_INDEX_DIR=/data/index
 ENV HF_HOME=/data/hf
 ENV BG_DEVICE=cpu
+# İmaj yalnız ana görsel/BM25 indeksini çeker; iki ColBERT artefaktı (~1.1 GB)
+# henüz dağıtım veri setinde yok. Mount edilip bu bayrak true yapılana kadar
+# container eski, çalışır yolu korur. Kütüphane varsayılanı ise artefaktlı
+# üretim hostlarında geç aday kanalını açar.
+ENV BG_LATE_CHANNEL_ENABLED=false
 # HERKESE AÇIK DAĞITIM varsayılanları (kütüphane varsayılanları değil — yerelde
 # hız sınırı kapalı, sorgu metni loglanır kalır).
 #   * hız sınırı: /ask ücretli bir LLM çağrısıdır, /search saf yerel hesaptır —

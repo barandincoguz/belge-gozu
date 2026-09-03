@@ -30,9 +30,10 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Protocol, Sequence
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 import numpy as np
 import pandas as pd
@@ -40,6 +41,7 @@ import pandas as pd
 from belge_gozu.index.chunking import CHUNK_TOKENS
 from belge_gozu.index.compat import IndexCompatibilityError
 from belge_gozu.index.encode import ENCODE_LIMIT, Encoder
+from belge_gozu.retrieval.late import LateSearchResult
 from belge_gozu.retrieval.text import (
     WINDOW,
     BM25Index,
@@ -48,7 +50,6 @@ from belge_gozu.retrieval.text import (
     route_window,
 )
 from belge_gozu.retrieval.text import routed_docs as _routed_docs
-from belge_gozu.retrieval.late import LateSearchResult
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.retrieval.union import union_candidates
 from belge_gozu.telemetry.collect import stage

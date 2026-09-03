@@ -30,7 +30,7 @@
 - Produces `Settings.late_channel_enabled`, `late_mogan_index_dir`, `late_colmm_index_dir`, and `late_candidate_limit`.
 - Produces `load_late_channel(index_dir: Path, chunk_pages: Mapping[str, tuple[str, ...]], *, device: str | None) -> LateInteractionChannel`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_late_channel_is_enabled_for_default_hybrid_production():
@@ -43,13 +43,13 @@ def test_late_loader_rejects_chunk_ids_missing_from_corpus_map(tmp_path):
         load_late_channel(tmp_path, {"known": ("p:1",)}, device="cpu")
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `uv run pytest tests/test_config.py tests/retrieval/test_late.py -q`
 
 Expected: FAIL because the settings and loader do not exist.
 
-- [ ] **Step 3: Implement the minimal loader**
+- [x] **Step 3: Implement the minimal loader**
 
 ```python
 def load_late_channel(index_dir, chunk_pages, *, device=None):
@@ -66,7 +66,7 @@ def load_late_channel(index_dir, chunk_pages, *, device=None):
     )
 ```
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `uv run pytest tests/test_config.py tests/retrieval/test_late.py -q`
 
@@ -82,7 +82,7 @@ Expected: PASS.
 - Consumes `LateInteractionChannel.search_with_scores(query, limit)`.
 - Produces `HybridRetriever(..., late_channels=(), late_candidate_limit=200)` whose `search()` keeps BM25 first.
 
-- [ ] **Step 1: Write the failing integration test**
+- [x] **Step 1: Write the failing integration test**
 
 ```python
 def test_late_candidates_are_interleaved_but_bm25_top1_and_score_are_preserved():
@@ -93,13 +93,13 @@ def test_late_candidates_are_interleaved_but_bm25_top1_and_score_are_preserved()
     assert "k2:2" in [hit.page_id for hit in hits]
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `uv run pytest tests/retrieval/test_hybrid.py -q`
 
 Expected: FAIL because `HybridRetriever` has no late-channel constructor argument.
 
-- [ ] **Step 3: Add candidate-only interleaving**
+- [x] **Step 3: Add candidate-only interleaving**
 
 ```python
 for channel in self.late_channels:
@@ -110,7 +110,7 @@ for channel in self.late_channels:
 
 Keep `by_id[pid]` as the only source of `PageHit.score` and assert the first ranked page remains the original BM25 first page.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `uv run pytest tests/retrieval/test_hybrid.py -q`
 
@@ -127,7 +127,7 @@ Expected: PASS.
 - `build_retriever()` loads both channels only for `hybrid` plus `late_channel_enabled`.
 - `/healthz` returns `retrieval.late_channel="enabled"` when active.
 
-- [ ] **Step 1: Write the failing health test**
+- [x] **Step 1: Write the failing health test**
 
 ```python
 def test_healthz_reports_late_candidate_channel(tiny_corpus):
@@ -135,13 +135,13 @@ def test_healthz_reports_late_candidate_channel(tiny_corpus):
     assert client.get("/healthz").json()["retrieval"]["late_channel"] == "disabled"
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `uv run pytest tests/app/test_api.py -q`
 
 Expected: FAIL because the health payload has no late-channel state.
 
-- [ ] **Step 3: Wire only the approved hybrid path**
+- [x] **Step 3: Wire only the approved hybrid path**
 
 ```python
 if s.late_channel_enabled and s.retrieval_pipeline != "hybrid":
@@ -155,7 +155,7 @@ if s.late_channel_enabled:
 
 Record that calibrated confidence remains blocked, but BM25-pinned candidate union is now the production route.
 
-- [ ] **Step 4: Verify API and parity**
+- [x] **Step 4: Verify API and parity**
 
 Run: `uv run pytest tests/app/test_api.py -q && uv run python scripts/eval_late_channel.py`
 
@@ -180,4 +180,3 @@ Expected: all tests pass, Ruff is clean, Pyright reports zero errors, and parity
 Run: `git status --short --branch && git log --oneline -4`
 
 Expected: only explicitly preserved user-owned untracked files may remain.
-

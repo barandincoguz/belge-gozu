@@ -90,6 +90,7 @@ def test_healthz(tiny_corpus):
             "score_label": "BM25 skoru",
             "stage_label": "BM25 metin araması + doküman yönlendirme",
             "visual_role": "Görsel kanal ölçüm için koşar; sıralamaya girmez.",
+            "late_channel": "disabled",
         },
     }
 
@@ -130,6 +131,13 @@ def test_healthz_owns_retrieval_labels(tiny_corpus):
     assert retrieval["ranking_channel"] == "BM25"
     assert "görsel" in retrieval["visual_role"].lower()
     assert "sıralamaya girmez" in retrieval["visual_role"]
+
+
+def test_healthz_reports_late_candidate_channel(tiny_corpus):
+    retrieval = make_client(tiny_corpus, late_channel_enabled=False).get("/healthz").json()[
+        "retrieval"
+    ]
+    assert retrieval["late_channel"] == "disabled"
 
 
 def test_search_returns_hits(tiny_corpus):

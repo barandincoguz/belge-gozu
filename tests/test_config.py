@@ -43,7 +43,7 @@ def test_query_format_id_is_the_enum_value(monkeypatch):
     assert QUERY_FORMATS[s.query_format_id]  # doğrudan sözlük anahtarı olarak çalışır
 
 
-def test_production_index_pipeline_and_threshold_defaults():
+def test_production_index_pipeline_and_threshold_defaults(monkeypatch):
     """Üç varsayılan BİRLİKTE kilitlenir: temsil + pipeline + o ölçeğe ait eşik.
 
     Bu alanlar eskiden hiç assert edilmiyordu — tam da bu yüzden bir ölçek
@@ -53,6 +53,7 @@ def test_production_index_pipeline_and_threshold_defaults():
 
     Gerekçe ve ölçümler: config.py'deki yorumlar + findings
     2026-08-29-autoresearch-text-channel.md."""
+    monkeypatch.delenv("BG_LATE_CHANNEL_ENABLED")
     s = Settings()
     assert s.index_dir == Path("data/index-traincompat-int8")
     assert s.retrieval_pipeline == "hybrid"

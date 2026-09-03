@@ -1,7 +1,7 @@
 # Geç kanal çekimserlik kalibrasyonu — sonuç
 
 Tarih: 2026-09-03  
-Karar: **BLOCKED — üretim bayrağı açılmadı**
+Karar: **BLOCKED — ColBERT skoru cevap kapısına bağlanmadı**
 
 ## Kısa hüküm
 
@@ -13,8 +13,24 @@ test yakasına taşınmadı: testte **hiçbir soru eşiği geçmedi**.
 
 Bu sonuç güvenli ama yararsız bir kapıdır. Cevaplanamazlarda sıfır yanlış kabul,
 tam çekimserlikten geliyor; paraphrase getirim kazancını ürüne taşıyamıyor.
-Mevcut `require_calibrated_late_channel` korkuluğu bu yüzden yerinde ve kanal
-kapalı kaldı.
+Mevcut `require_calibrated_late_channel` korkuluğu bu yüzden yerindedir:
+ColBERT skoru cevap kapısını belirleyecekse kanal açılmaz.
+
+## Sevk edilen yol (ayrı karar)
+
+2026-09-03'te ölçülmüş konfigürasyon, **BM25 sayfa sırası birincil ve top-1
+sabit** kalacak biçimde aday-örme olarak sevk edildi. Mogan ve Colmm ColBERT
+kanalları yalnız BM25 listesindeki sayfaları birleştirir; `PageHit.score` ve
+10,6 çekimserlik eşiği BM25 ölçeğinde kalır. Bu yüzden bu aktivasyon yeni bir
+ColBERT güven eşiği gerektirmez ve ölçülen sonuçları taşır: insan-doğrulanmış
+n=47'de R@5 **0,7766**, R@20 **0,9149**, R@50 **0,9362**; paraphrase n=21'de
+R@50 **0,8571**. Önceki yalnız BM25 üretim yolu sırasıyla 0,6277 / 0,7660 /
+0,8085 / 0,5714'tü.
+
+Başlangıçta geç indeks yan-dosyaları ile ana `chunks.parquet` eşleşmesi zorunlu
+doğrulanır; eksik veya uyumsuz indeks uygulamayı durdurur. Container imajı bu
+~1,1 GB artefaktı henüz dağıtmadığı için `Dockerfile` kanalı açıkça kapalı
+tutar; artefaktlar mount edilip bayrak açılmadan container yolu değişmez.
 
 ## Protokol
 
@@ -150,4 +166,3 @@ Koşucu:
 
 `eval` aynı argümanlarla ve açık `--yes-final-gate` ile çalışır. Bu rapordaki
 test koşumu tek sefer yapılmıştır; yeniden koşmak yeni kanıt üretmez.
-

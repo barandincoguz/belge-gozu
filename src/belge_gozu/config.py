@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     late_channel_enabled: bool = True
     late_mogan_index_dir: Path = Path("data/index-colbert-mogan-f16")
     late_colmm_index_dir: Path = Path("data/index-colbert-colmm-f16")
-    late_candidate_limit: int = 200
+    late_candidate_limit: int = Field(default=200, ge=1)
     # hybrid (VARSAYILAN, P1): sıralamayı PDF metin katmanı üzerindeki BM25 +
     # doküman-adı pencere-içi yönlendirmesi belirler; görsel MaxSim kanalı
     # koşmaya devam eder ama sıralamaya girmez (telemetri + P2 kalibrasyon
