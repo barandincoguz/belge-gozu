@@ -161,7 +161,7 @@ Run: `uv run pytest tests/app/test_api.py -q && uv run python scripts/eval_late_
 
 Expected: API tests PASS and parity prints `ÜRETİM YOLU ÖLÇÜMLE BİREBİR`.
 
-- [ ] **Step 5: Remove only generated artefacts**
+- [x] **Step 5: Remove only generated artefacts**
 
 Run: `rm -rf /Users/barandincoguz/Desktop/project-delta/graphify-out /Users/barandincoguz/Desktop/project-delta/.pytest_cache /Users/barandincoguz/Desktop/project-delta/.ruff_cache`
 
@@ -169,13 +169,13 @@ Then remove only `__pycache__` directories under `src/`, `tests/`, `scripts/`, a
 
 ### Task 4: Verify the merged production state
 
-- [ ] **Step 1: Run full verification**
+- [x] **Step 1: Run full verification**
 
 Run: `uv run pytest -q && uv run ruff check . && uv run pyright --pythonpath /Users/barandincoguz/Desktop/project-delta/.venv/bin/python && uv run python scripts/eval_late_channel.py`
 
 Expected: all tests pass, Ruff is clean, Pyright reports zero errors, and parity reports the four measured retrieval values.
 
-- [ ] **Step 2: Inspect final state**
+- [x] **Step 2: Inspect final state**
 
 Run: `git status --short --branch && git log --oneline -4`
 
