@@ -28,12 +28,28 @@ tasarım seçimi içindir, üretim kararı değildir.
 
 ## Kol A — dense sayfa adayları
 
-İki sabit checkpoint aynı sayfa metinlerinden, ayrı ayrı dense indeks kurar:
+İki güncel Qwen checkpoint'i aynı sayfa metinlerinden, ayrı ayrı dense indeks
+kurar. Birincil kalite kolu 8B'dir; 4B, aynı model ailesinin ölçülmüş bellek ve
+gecikme alternatifi olarak tutulur:
 
 | Model | Sabit revision |
 |---|---|
-| `BAAI/bge-m3` | `5617a9f61b028005a4858fdac845db406aefb181` |
-| `intfloat/multilingual-e5-large` | `3d7cfbdacd47fdda877c5cd8a79fbcc4f2a574f3` |
+| `Qwen/Qwen3-Embedding-8B` | `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af` |
+| `Qwen/Qwen3-Embedding-4B` | `5cf2132abc99cad020ac570b19d031efec650f2b` |
+
+Her sorgu, Qwen'in önerdiği sabit İngilizce retrieval instruction'ıyla
+`Instruct: ...\nQuery: ...` biçiminde kodlanır; sayfalar instruction'sız
+kodlanır. Kodlayıcı Qwen'in resmi `AutoModel` + sol dolgu + last-token pooling
+protokolünü ve L2 normalizasyonunu uygular. Instruction metni, model revisionı
+gibi rapor künyesinin parçasıdır. Generic CLS/mean pooling veya sessiz model
+fallback'i yasaktır.
+
+Makinede 24 GiB birleşik bellek vardır. Bu nedenle 36.99 GB
+`BAAI/bge-multilingual-gemma2` ve 29.55 GB `Qwen/Qwen3-14B` adayları yerel
+deney için dışarıda bırakılmıştır. Her Qwen kolu, diğer Transformer modelleri
+serbest bırakıldıktan sonra, gerçek bir tek-sorgu preflight yükleme/kodlama
+kontrolüyle başlar. 8B preflight'ı OOM ile başarısız olursa koşum bunu rapora
+yazar; yalnız 4B kolu, ayrı ve açıkça etiketli bir sonuç olarak çalışır.
 
 Her sorguda dense kanal en fazla 50 sayfa döndürür. Aday havuzu, mevcut
 yönlendirilmiş BM25 ilk 50 sayfası, Mogan ilk 50 chunk'ından indirgenen sayfalar,
@@ -51,13 +67,17 @@ sayılmaz.
 Kol A'nın development seçicisiyle kazanan dense modeli kullanılır. Sorgu,
 değişmez aşağıdaki modelle tek bir Türkçe hukukî arama varyantına dönüştürülür:
 
-`Qwen/Qwen2.5-3B-Instruct@aa8e72537993ba99e69dfaafa59ed015b17504d1`.
+`Qwen/Qwen3-8B@b968826d9c46dd6066d109eabc6255188de91218`.
 
 Sistem istemi yalnız sorgudaki anlamı koruyan, kısa Türkçe hukukî anahtar
 terimler/olası kanun adı içeren tek varyant ister; cevap, kanıt, madde numarası
 veya gerekçe uydurmasını yasaklar. Çözümleme `do_sample=False` ile deterministiktir.
 Boş, özgün sorguya eşit veya parse edilemeyen çıktı açık hatadır; sessiz fallback
-ya da üretim sorgusuna müdahale yoktur.
+ya da üretim sorgusuna müdahale yoktur. Qwen3 düşünme modu kapalı, `do_sample=False`
+ve `max_new_tokens=64` olur. Üretici model dense modelden sonra yüklenir; dense,
+Mogan ve ColBERT nesneleri açıkça serbest bırakılıp MPS önbelleği boşaltılmadan
+yüklenmez. 8B preflight'ı OOM ile başarısız olursa genişletme kolu `skipped_oom`
+olarak rapora yazılır; daha küçük bir modele kendiliğinden düşmez.
 
 Özgün ve genişletilmiş sorgu; BM25, seçilen dense kanal, Mogan ve Colmm üzerinde
 ayrı çalışır. Sekiz aday listesi aynı ilk-görülen/tekrarsız kuralla birleşir;
