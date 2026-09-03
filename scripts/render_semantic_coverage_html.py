@@ -64,7 +64,9 @@ def render_report(report: Mapping[str, Any]) -> str:
     if not isinstance(arms, Mapping):
         raise ValueError("semantic raporda arms nesnesi zorunlu")
     rows = "".join(_row(str(name), arm) for name, arm in arms.items() if isinstance(arm, Mapping))
-    selected = html.escape(str(report.get("selected_dense") or "seçim yok"))
+    selected = html.escape(
+        str(report.get("selected_dense_arm") or report.get("selected_dense") or "seçim yok")
+    )
     diagnostics = _diagnostics(arms)
     return f"""<!doctype html>
 <html lang=\"tr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
@@ -87,7 +89,7 @@ details {{ margin-top:20px }} summary {{ cursor:pointer; color:var(--cyan); font
 <div class=\"warning\">DEVELOPMENT ONLY — HOLDOUT REQUIRED. Bu sonuç üretim seçimi değildir.</div>
 <section class=\"grid\"><article class=\"card\"><p class=\"eyebrow\">seçilen dense kol</p><p class=\"choice\">{selected}</p></article>
 <article class=\"card\"><p class=\"eyebrow\">okuma kuralı</p><p class=\"muted\">Paraphrase R@50 birincil karar metriğidir. Havuzlar ilk-görülme sırasıyla birleşir; skor füzyonu yoktur.</p></article></section>
-<section class=\"card\" style=\"margin-top:18px\"><p class=\"eyebrow\">kol karşılaştırması</p><table><thead><tr><th>Kol</th><th>Havuz kapsaması</th><th>Paraphrase R@50</th><th>İz</th></tr></thead><tbody>{rows}</tbody></table></section>
+<section class=\"card\" style=\"margin-top:18px\"><p class=\"eyebrow\">kol karşılaştırması</p><table><thead><tr><th>Kol</th><th>Havuz kapsaması</th><th>Paraphrase coverage (R@50)</th><th>İz</th></tr></thead><tbody>{rows}</tbody></table></section>
 <details class=\"card\"><summary>Soru bazlı aday izleri</summary><table><thead><tr><th>Kol</th><th>Soru</th><th>Dilim</th><th>Aday havuzu</th></tr></thead><tbody>{diagnostics}</tbody></table></details>
 </main></body></html>"""
 
