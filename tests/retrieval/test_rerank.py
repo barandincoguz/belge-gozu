@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from belge_gozu.retrieval.rerank import compare_rerankings
+from belge_gozu.retrieval.rerank import TransformerPageReranker, compare_rerankings
 
 
 class FixedReranker:
@@ -47,3 +47,8 @@ def test_comparison_rejects_wrong_length_and_non_finite_scores():
         compare_rerankings(*args, BadReranker(np.array([0.1])))
     with pytest.raises(ValueError, match="sonlu"):
         compare_rerankings(*args, BadReranker(np.array([0.1, np.nan])))
+
+
+def test_transformer_reranker_rejects_invalid_batch_size_before_loading_model():
+    with pytest.raises(ValueError, match="batch_size"):
+        TransformerPageReranker(batch_size=0)

@@ -2,15 +2,73 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
+
+BGE_RERANKER_REPO = "BAAI/bge-reranker-v2-m3"
+BGE_RERANKER_REVISION = "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
 
 
 class PageReranker(Protocol):
     """Sorgu-belge çiftlerine hizalı ham relevance skorları üretir."""
 
     def score(self, query: str, documents: list[str]) -> np.ndarray: ...
+
+
+class TransformerPageReranker:
+    """Sabit bir Hugging Face cross-encoder ile sayfa çiftlerini skorlar."""
+
+    def __init__(
+        self,
+        *,
+        repo: str = BGE_RERANKER_REPO,
+        revision: str = BGE_RERANKER_REVISION,
+        device: str | None = None,
+        max_length: int = 512,
+        batch_size: int = 8,
+    ) -> None:
+        if batch_size < 1:
+            raise ValueError("batch_size en az 1 olmalı")
+        if max_length < 1:
+            raise ValueError("max_length en az 1 olmalı")
+
+        import torch
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        self.repo = repo
+        self.revision = revision
+        self.max_length = max_length
+        self.batch_size = batch_size
+        self._torch = torch
+        self._device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
+        self._tokenizer: Any = AutoTokenizer.from_pretrained(repo, revision=revision)
+        self._model: Any = AutoModelForSequenceClassification.from_pretrained(
+            repo, revision=revision
+        ).to(self._device)
+        self._model.eval()
+
+    def score(self, query: str, documents: list[str]) -> np.ndarray:
+        if not documents:
+            return np.empty(0, dtype=np.float64)
+
+        batches: list[np.ndarray] = []
+        with self._torch.inference_mode():
+            for start in range(0, len(documents), self.batch_size):
+                batch = documents[start : start + self.batch_size]
+                encoded = self._tokenizer(
+                    [(query, document) for document in batch],
+                    padding=True,
+                    truncation=True,
+                    max_length=self.max_length,
+                    return_tensors="pt",
+                )
+                inputs = {name: value.to(self._device) for name, value in encoded.items()}
+                logits = self._model(**inputs).logits.squeeze(-1)
+                if logits.ndim != 1 or logits.shape[0] != len(batch):
+                    raise ValueError("transformer reranker beklenmeyen logit şekli döndürdü")
+                batches.append(logits.detach().cpu().numpy())
+        return np.concatenate(batches).astype(np.float64, copy=False)
 
 
 @dataclass(frozen=True)
