@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from belge_gozu.retrieval.dense import release_transformer_memory
+from belge_gozu.retrieval.dense import model_load_kwargs, release_transformer_memory
 
 EXPANDER_REPO = "Qwen/Qwen3-8B"
 EXPANDER_REVISION = "b968826d9c46dd6066d109eabc6255188de91218"
@@ -135,7 +135,9 @@ class LocalQueryExpander:
                 EXPANDER_REPO, revision=EXPANDER_REVISION
             )
             model = AutoModelForCausalLM.from_pretrained(
-                EXPANDER_REPO, revision=EXPANDER_REVISION
+                EXPANDER_REPO,
+                revision=EXPANDER_REVISION,
+                **model_load_kwargs(self._device, self._torch),
             )
         assert tokenizer is not None and model is not None
         self._tokenizer = tokenizer

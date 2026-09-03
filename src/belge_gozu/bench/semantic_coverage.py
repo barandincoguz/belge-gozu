@@ -17,11 +17,20 @@ class CandidateChannel(Protocol):
 
 
 class CoverageQuestion(Protocol):
-    question_id: str
-    question: str
-    answerable: bool
-    gold_page_ids: list[str]
-    slice: str
+    @property
+    def question_id(self) -> str: ...
+
+    @property
+    def question(self) -> str: ...
+
+    @property
+    def answerable(self) -> bool: ...
+
+    @property
+    def gold_page_ids(self) -> list[str]: ...
+
+    @property
+    def slice(self) -> str: ...
 
 
 def _summary(

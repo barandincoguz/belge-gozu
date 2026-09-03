@@ -50,6 +50,10 @@ def release_transformer_memory(torch_module: Any) -> None:
         torch_module.mps.empty_cache()
 
 
+def model_load_kwargs(device: str, torch_module: Any) -> dict[str, Any]:
+    return {"torch_dtype": torch_module.float16} if device == "mps" else {}
+
+
 def format_query(spec: DenseModelSpec, question: str) -> str:
     """Qwen3'ün instruction-aware retrieval girdi biçimi."""
     return f"Instruct: {spec.instruction}\nQuery:{question}"
@@ -103,7 +107,9 @@ class TransformerDenseEncoder:
             tokenizer = AutoTokenizer.from_pretrained(
                 spec.repo, revision=spec.revision, padding_side="left"
             )
-            model = AutoModel.from_pretrained(spec.repo, revision=spec.revision)
+            model = AutoModel.from_pretrained(
+                spec.repo, revision=spec.revision, **model_load_kwargs(self._device, self._torch)
+            )
         assert tokenizer is not None and model is not None
         self._tokenizer = tokenizer
         self._model = model.to(self._device)

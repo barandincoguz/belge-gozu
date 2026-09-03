@@ -9,6 +9,7 @@ from belge_gozu.retrieval.dense import (
     TransformerDenseEncoder,
     format_query,
     last_token_pool,
+    model_load_kwargs,
 )
 
 
@@ -89,6 +90,11 @@ def test_encoder_preflight_exposes_device_oom() -> None:
 
     with pytest.raises(DenseModelOutOfMemory):
         encoder.preflight()
+
+
+def test_mps_dense_loader_uses_float16_weights() -> None:
+    assert model_load_kwargs("mps", torch)["torch_dtype"] is torch.float16
+    assert model_load_kwargs("cpu", torch) == {}
 
 
 class _FakeTokenizer:
