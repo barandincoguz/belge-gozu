@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import time
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, TypedDict
@@ -97,6 +98,23 @@ def _arm_report(rows: ArmRows) -> dict[str, object]:
     return {"overall": _metrics(rows), "per_slice": _metrics_by_slice(rows)}
 
 
+def _pool_coverage(rows: ArmRows) -> dict[str, object]:
+    values = [
+        recall_at_k(gold, pages, len(pages))
+        for gold, pages in zip(rows["relevant"], rows["rankings"], strict=True)
+    ]
+    by_slice: dict[str, list[float]] = defaultdict(list)
+    for slice_name, value in zip(rows["slices"], values, strict=True):
+        by_slice[slice_name].append(value)
+    return {
+        "overall": float(np.mean(values)),
+        "per_slice": {
+            slice_name: float(np.mean(slice_values))
+            for slice_name, slice_values in sorted(by_slice.items())
+        },
+    }
+
+
 def run_comparison(
     *,
     questions: Sequence[Question],
@@ -162,7 +180,10 @@ def run_comparison(
     report = {
         "candidate_limit": candidate_limit,
         "threshold": threshold,
-        "candidate_pool": _arm_report(candidate_rows),
+        "candidate_pool": {
+            **_arm_report(candidate_rows),
+            "coverage": _pool_coverage(candidate_rows),
+        },
         "pinned": _arm_report(pinned_rows),
         "unpinned": {**_arm_report(unpinned_rows), "diagnostics": diagnostics},
         "latency_ms": {

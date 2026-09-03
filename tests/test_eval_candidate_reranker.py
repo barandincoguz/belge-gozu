@@ -61,6 +61,6 @@ def test_run_comparison_reports_both_arms_and_bm25_top1_rank():
 
     assert report["pinned"]["overall"]["recall_at"][5] == 1.0
     assert report["unpinned"]["diagnostics"][0]["bm25_top1_rank_unpinned"] == 3
-    assert report["candidate_pool"]["overall"]["recall_at"][50] >= report["pinned"][
-        "overall"
-    ]["recall_at"][50]
+    assert report["candidate_pool"]["coverage"]["overall"] >= report["pinned"]["overall"][
+        "recall_at"
+    ][50]
