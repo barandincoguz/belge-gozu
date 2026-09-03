@@ -243,7 +243,7 @@ oranını tek taraflı %95 Clopper–Pearson sınırlarıyla yazar. Test yakası
 
 ### Kıyas kümeleri ve künyeleri
 
-- **Canary**: 48 soru (43'ü cevaplanabilir). Yukarıdaki her getirim kararının arkasında bu var.
+- **RetrievalEval**: 48 soru (43'ü cevaplanabilir). Yukarıdaki her getirim kararının arkasında bu var.
 - **Cevaplanamaz küme**: üç sınıfta 330 soru — korpus dışı, anlamsız ve zor olanı: korpustaki
   bir kanun *hakkında* ama sorulan ayrıntı gerçekten metinde yok.
 - Etiketler taslakçı ≠ denetçi rejiminde üretildi. Mekanik etiketler ("çapa kanun 56 belgelik
@@ -253,7 +253,7 @@ oranını tek taraflı %95 Clopper–Pearson sınırlarıyla yazar. Test yakası
 - Bölme hukuk-gruplu: 56 belgenin 22'si yalnız test tarafında. Test yakasında 155 cevaplanamaz
   soru var — sıfır hatanın %95 güvenle ≤%2 iddiasını taşıyabildiği büyüklük.
 
-**Bu sayıların geçtiği her yerde tekrarlanan dürüstlük notu:** canary'nin 48 satırından 3'ü
+**Bu sayıların geçtiği her yerde tekrarlanan dürüstlük notu:** retrieval_eval'nin 48 satırından 3'ü
 insan tarafından doğrulandı; diğer 45'i ve cevaplanamaz kümenin tamamı model çapraz
 kontrolüyle doğrulandı. **Bunlar insan onaylı kıyas kümeleri değildir.**
 
@@ -555,7 +555,7 @@ locked behind `--yes-final-gate`; library defaults remain off.
 
 ### Benchmarks and their provenance
 
-- **Canary**: 48 questions (43 answerable), behind every retrieval decision above.
+- **RetrievalEval**: 48 questions (43 answerable), behind every retrieval decision above.
 - **Unanswerable set**: 330 questions in three classes — out-of-corpus, nonsense, and the
   hard one: *about* a corpus law, but the specific detail genuinely is not in the text.
 - Labels come from a drafter ≠ checker regime. Mechanical labels ("the anchored law is
@@ -566,7 +566,7 @@ locked behind `--yes-final-gate`; library defaults remain off.
   unanswerable questions — the size at which a zero-error result supports a ≤2% claim at
   95% confidence.
 
-**Honesty note, repeated wherever these numbers appear:** 3 of the 48 canary rows were
+**Honesty note, repeated wherever these numbers appear:** 3 of the 48 retrieval_eval rows were
 verified by a human; the other 45 and the whole unanswerable set were verified by model
 cross-check. **These are not human-validated benchmarks.**
 

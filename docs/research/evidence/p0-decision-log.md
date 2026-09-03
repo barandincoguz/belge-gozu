@@ -47,7 +47,7 @@ tests.* çapraz import kullanıyor (R1).
   commit'e girmez.
 - Ruling R6: Görev sırası: 1,2,3,4,5,6,7,8,9,13,15 → 10 (taslak+İNSAN kapısı) →
   11,12 → 14. Neden: T10'un kullanıcı doğrulaması plan gereği bloklayıcı; kod
-  görevleri önce biter, uzun model koşumları (T11) canary onayı beklerken başlar.
+  görevleri önce biter, uzun model koşumları (T11) retrieval_eval onayı beklerken başlar.
 
 ## Görevler
 
@@ -58,7 +58,7 @@ Task 1: complete (commits 59223b7..bb09374, review clean)
 
 Task 2: Ruling R7: batch-vs-single slow testinin ==1.0 iddiası MPS'te kalıcı FAIL üretir
 (ölçüm 0.9990/0.9989). Test, karar sonrası invariant'a dönüştürülür: agreement >= 0.995
-eşiği + karar/ölçüm yorum satırı; gerçek bit-exact kilit T10 canary + batch=1 build'te.
+eşiği + karar/ölçüm yorum satırı; gerçek bit-exact kilit T10 retrieval_eval + batch=1 build'te.
 Yanlışsa maliyeti: 0.995-1.0 arası gerileme yakalanmaz — baseline raporu ham değerleri tutar.
 
 Ruling R8: b38be99 (docs/telemetry, BAŞKA bir Claude oturumunun commit'i — session
@@ -127,7 +127,7 @@ Task 13: complete (commits 6e9864e..0e898c4, review clean; exhaustive_maxsim art
 Task 15: complete (commits 0e898c4..67b01be, review clean)
 Task 15: minor (deferred): Starlette deprecation uyarısı dar filtreyle bastırıldı; kalıcı çözüm bağımlılık güncellemesi (backlog)
 
-Task 10: canary_v1 TASLAK hazır (commit 88e0a1a): 48 soru (43 answerable + 5 unanswerable),
+Task 10: retrieval_eval_v1 TASLAK hazır (commit 88e0a1a): 48 soru (43 answerable + 5 unanswerable),
 dilim dağılımı plan hedefiyle uyumlu, tüm gold sayfalar korpusta doğrulandı, iki hedef sorgu
 (c001/c002) dahil. verification_status=draft — İNSAN KAPISI kullanıcıda.
 Task 11 (Step 1-2): complete (commit cca153d, review Approved).
@@ -175,21 +175,21 @@ yani ölçülen padding satırı sayısı birebir. Yeni indekste 0 all-zero sat�
 model_revision=650243e9... (gerçek sha), mask_policy=drop-padding, quantization=float16.
 A2 build başladı 18:02.
 Ruling R15: `bench run` ve `bench oracle` load_bench'i only_verified=True ile çağırıyor;
-canary taslak (hiç verified yok) ile ValueError veriyor. Karar: her iki komuta
+retrieval_eval taslak (hiç verified yok) ile ValueError veriyor. Karar: her iki komuta
 --only-verified/--all seçeneği eklenir (d1_augmentation deseninde), varsayılan --all +
 aktif modun basılması. Gerekçe: insan kapısı her ölçümü bloke etmemeli; kapı sayıları
 yine yalnız verified set üzerinden alınır. Yanlışsa maliyeti: taslak üstünde koşulan
 ölçümün kapı sayısı sanılması — rapor modu açıkça yazacak.
 
-B1/B2 BASELINE (v0 indeksi, canary TÜMÜ n=43 answerable, CPU, 18:13-18:17):
+B1/B2 BASELINE (v0 indeksi, retrieval_eval TÜMÜ n=43 answerable, CPU, 18:13-18:17):
   two-stage (v0 üretim hattı): Recall@5=0.000  MRR=0.004  nDCG@5=0.000
   exhaustive              : Recall@5=0.070  MRR=0.049  nDCG@5=0.050  CI(0.0-0.163)
-  -> Stage-1 kaldırma kararının sayısal kanıtı: eski hat canary'de HİÇBİR soruyu
+  -> Stage-1 kaldırma kararının sayısal kanıtı: eski hat retrieval_eval'de HİÇBİR soruyu
      top-5'e sokamıyor. Aynı zamanda %7'lik tavan, spec'in "görsel kanal tek başına
      yetmez, hibrit şart (P1)" tezini destekliyor.
   Raporlar: data/bench/results/baseline-v0idx-{exhaustive,twostage}.json
 
-C1/C2 (A1 = cpe-0.3.18 formatı, canary n=43, CPU, 18:18-18:24):
+C1/C2 (A1 = cpe-0.3.18 formatı, retrieval_eval n=43, CPU, 18:18-18:24):
   arm      R@1    R@5    R@20   R@50   R@200
   1-bit    0.023  0.070  0.070  0.174  0.360
   float16  0.070  0.093  0.186  0.209  0.349
@@ -208,7 +208,7 @@ C1/C2 (A1 = cpe-0.3.18 formatı, canary n=43, CPU, 18:18-18:24):
      float16 daha da hızlı ve aynı kaliteli, HF Space disk bütçesine göre yeniden
      değerlendirilebilir (rapora not).
 
-A/B KARARI (canary n=43): train-compat-v1 sorgu formatı + train-compat doküman prompt'u
+A/B KARARI (retrieval_eval n=43): train-compat-v1 sorgu formatı + train-compat doküman prompt'u
 KAZANDI, her metrikte:
   float  R@5 0.093->0.233 (+14.0 puan, 2.5x) | R@20 0.186->0.302 | R@200 0.349->0.535
   1-bit  R@5 0.070->0.116 (+4.7)             | R@20 0.070->0.233 (+16.3)
@@ -256,18 +256,18 @@ B2 EKSİK ABLASYON TAMAMLANDI (2026-08-27 19:53-19:56, kazanan train-compat inde
 
 FINAL REVIEW FIX DALGASI (commit 6a7be48) — 1 Critical + 6 Important + 7 minor kapatıldı.
 KRİTİK BULGU (yeni, makale için): EŞİK (min_score_threshold=60.0) ARTIK AYIRMIYOR.
-  Kazanan (train-compat) indekste canary skor dağılımları:
+  Kazanan (train-compat) indekste retrieval_eval skor dağılımları:
     cevaplanabilir  n=43: min 59.85 / medyan 63.40 / maks 78.50
     cevaplanamaz    n=5 : min 59.65 / medyan 67.88 / maks 71.95
     korpus-disi 3 soru: 66.28 / 71.95 / 67.88  -> HEPSİ eşiğin ÜSTÜNDE
   Dağılımlar örtüşüyor; hiçbir tek eşik ikisini ayırmıyor. Eşiği yükseltmek gerçek
   soruları da reddeder. Yani "halüsinasyon freni" v0'da ölçülmüş 70.6/52.4 ayrımına
   dayanıyordu ve o ölçüm ESKİ format/indeksle yapılmıştı — format değişimi ayrımı yok etti.
-  Kilit: tests/retrieval/test_semantic_canary.py'de xfail(strict=True) olarak sabitlendi;
+  Kilit: tests/retrieval/test_semantic_retrieval_eval.py'de xfail(strict=True) olarak sabitlendi;
   P2 kalibrasyonu doğru davranışı getirdiğinde test KIRMIZIYA döner ve fark edilir.
   Bu, P2'nin (kalibre selective answering) neden zorunlu olduğunun doğrudan kanıtıdır.
 
-DOĞRULAMA TURU (2026-08-29): canary 48/48 verified.
+DOĞRULAMA TURU (2026-08-29): retrieval_eval 48/48 verified.
   3 insan (c307/c308/c314 — sahibi) + 45 bağımsız model çapraz-kontrolü (4 doğrulayıcı,
   sayfa görüntülerini yeniden okudu). Bulunan kusurlar: 5 düzeltme (c001/c002/c108 slice,
   c312 query_style, c203 eksik kanıt alıntısı) + 1 sayfa-aralığı hatası (c213: VUK m.17'nin

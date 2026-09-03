@@ -3,12 +3,12 @@
   "hybrid": {
     "pipeline": "hybrid",
     "long_query_gold_rank_max": 2,
-    "_measured": "2026-08-30, data/index-traincompat-int8 + page_texts.parquet, hibrit (BM25 + doküman-adı yönlendirmesi, pencere 50/exp8), canary c001; önceki: 664 (exhaustive/int8), 1221 (1-bit)"
+    "_measured": "2026-08-30, data/index-traincompat-int8 + page_texts.parquet, hibrit (BM25 + doküman-adı yönlendirmesi, pencere 50/exp8), retrieval_eval c001; önceki: 664 (exhaustive/int8), 1221 (1-bit)"
   },
   "exhaustive": {
     "pipeline": "exhaustive",
     "quantization": "int8",
     "long_query_gold_rank_max": 664,
-    "_measured": "2026-08-29, data/index-traincompat-int8, exhaustive, canary c001; önceki: 1221 (1-bit)"
+    "_measured": "2026-08-29, data/index-traincompat-int8, exhaustive, retrieval_eval c001; önceki: 1221 (1-bit)"
   }
 }

@@ -5,7 +5,7 @@
 > **DURUM GÜNCELLEMESİ (2026-08-29, Ruling R23 — bu plan yazıldıktan SONRA yapılan
 > autoresearch ölçümleri kapsamı değiştirdi; eski metin silinmez, supersession şudur):**
 > Ölçüm kaynağı: `docs/research/findings/2026-08-29-autoresearch-text-channel.md`
-> (canary R@5 görsel-only 0.2326 → BM25+F5+stoplist+pencere-yönlendirme 0.8140).
+> (retrieval_eval R@5 görsel-only 0.2326 → BM25+F5+stoplist+pencere-yönlendirme 0.8140).
 > - **T6 (BM25) + T8 (füzyon) + T1'in metin-çıkarım çekirdeği ÜRETİMLEŞTİRİLDİ** —
 >   ama T8'in eşit-RRF tasarımı ÖLÇÜMLE REDDEDİLDİ (0.674→0.395); yerine BM25-birincil
 >   + doküman-adı pencere-içi (top-20) yönlendirme girdi. Yönlendirme hard-FILTER
@@ -573,7 +573,7 @@ class DenseIndex:
 - [ ] **Step 3: Model seçim koşumu (runbook)** — adaylar: `BAAI/bge-m3` (dense modu),
   `intfloat/multilingual-e5-small`, `intfloat/multilingual-e5-base` + TR-TEB retrieval
   liderlerinden CPU-uygun en çok 2 ek aday (koşum günü TR-TEB tablosundan; kaynak spec
-  §9.2). Run: `uv run python scripts/dense_model_select.py --bench data/bench/canary_v1.jsonl`
+  §9.2). Run: `uv run python scripts/dense_model_select.py --bench data/bench/retrieval_eval_v1.jsonl`
   — her aday için madde-düzeyi indeks kurar, dev soruları üzerinde madde→sayfa
   Recall@{10,50} + sorgu encode süresi + bellek basar. Karar: Recall@50 en yüksek VE
   Space bütçesine sığan model `dense_model` olur; sayılar p1-gate taslağına.
@@ -809,7 +809,7 @@ def build_evidence_pack(question: str, facets: QueryFacets, hits: list[PageHit],
 **Files:**
 - Create: `data/bench/bench_v2.jsonl`, doldurulmuş `data/bench/splits_v1.json`
 
-- [ ] **Step 1 (ajan taslağı):** canary'yi çekirdek alarak ~140 answerable + ~35
+- [ ] **Step 1 (ajan taslağı):** retrieval_eval'yi çekirdek alarak ~140 answerable + ~35
   unanswerable taslak üret (şema P0 T6; `verification_status="draft"`). Dilim hedefleri
   (verified sonrası): `dogrudan-madde` 25, `paraphrase` 25, `madde-numarali` 12,
   `ayni-kanun-hard-negative` 12, `capraz-kanun-terim` 10, `tablo-layout` 12,
@@ -852,7 +852,7 @@ def build_evidence_pack(question: str, facets: QueryFacets, hits: list[PageHit],
   §10 ile.
 - [ ] **Step 3: Final test koşumu (bir kez):** kilitli konfigürasyonla
   `--split test` → G1.1-G1.4 sayıları. Sorgu A top-5 kontrolü:
-  `tests/retrieval/test_semantic_canary.py`'ye `-m slow`
+  `tests/retrieval/test_semantic_retrieval_eval.py`'ye `-m slow`
   `test_long_query_gold_in_top5_hybrid` eklenir (hybrid mod; G1.4 kilidi) ve koşulur.
 - [ ] **Step 4: Kapı raporu + flag kararları:** `p1-gate.md` — master §5 G1.1-G1.7
   satır satır sayılarla; kazanç kanıtlayan flag'ler default açılır (her biri ayrı,

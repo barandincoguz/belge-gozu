@@ -68,7 +68,7 @@ Mimari (iki kapının ayrılması) sağlam; **üç arayüz varsayımı** kırık
    (`retrieval/hybrid.py:232`, `config.py:151` → 10.6). Plan'ın "eski davranış olarak
    kalır" ifadesi güvenli bir geri düşüşü ima ediyor; **ölçüm bunu çürütüyor**:
    cevaplanamaz 5 sorunun **4'ü eşiği geçiyor** (23.52 / 12.96 / 17.86 / 15.54; yalnız
-   anlamsız c006 4.23 altta) — `tests/retrieval/test_semantic_canary.py:202-221`
+   anlamsız c006 4.23 altta) — `tests/retrieval/test_semantic_retrieval_eval.py:202-221`
    `xfail(strict=True)` kilidi + `config.py:144-150`. G2.8 "güvenli fallback" metni bunu
    **açıkça yazmak zorunda**: flag'ler kapalıyken sistem *ölçülmüş biçimde ayırmayan* bir
    kapıya döner, güvenli bir kapıya değil.
@@ -98,7 +98,7 @@ Mimari (iki kapının ayrılması) sağlam; **üç arayüz varsayımı** kırık
 
 Kod yazılabilir; **üretmesi istenen dilim kırılımı bugünkü veriyle üretilemez.**
 Plan `:273-274` üç ayrı unanswerable satır ister: `korpus-disi` / `eksik-kanit` /
-`anlamsiz-ood`. Ölçülen dağılım (`data/bench/canary_v1.jsonl`, n=48):
+`anlamsiz-ood`. Ölçülen dağılım (`data/bench/retrieval_eval_v1.jsonl`, n=48):
 
 | dilim | soru | not |
 |---|---|---|
@@ -200,9 +200,9 @@ birinci-sınıf bir durum olması gerekir.
 Kod bağımsız ve yazılabilir. **Ama planın kendi kuralı bağlayıcı** (`:498-500`): "judge
 çıktısı TEK BAŞINA kapı kararı olamaz; yalnız `human_pairs` ≥ **30** örnekle kalibre
 edilmiş haliyle rapora girer." Bugün insan-doğrulanmış satır sayısı **3**
-(`canary_v1.README.md:11`, c307/c308/c314). Ayrıca `verify_canary.py --review` kuyruğu
+(`retrieval_eval_v1.README.md:11`, c307/c308/c314). Ayrıca `verify_retrieval_eval.py --review` kuyruğu
 çalışmıyor: yalnız `verification_status == "draft"` alıyor ve dağılım `{verified: 48}`
-(`canary_v1.README.md:88-99`, K8). Yani insan çifti **üretilemiyor bile**.
+(`retrieval_eval_v1.README.md:88-99`, K8). Yani insan çifti **üretilemiyor bile**.
 
 ### T11 — Koşullu fine-tuning alt plan kapısı → **VALID**
 
@@ -242,9 +242,9 @@ tetiklenmesi yalnız 1 ve 3'e kalmış.
 
 ### 3.1 Bugünkü durum, sayılarla
 
-- `data/bench/canary_v1.jsonl`: **48 satır = 43 cevaplanabilir + 5 cevaplanamaz.**
+- `data/bench/retrieval_eval_v1.jsonl`: **48 satır = 43 cevaplanabilir + 5 cevaplanamaz.**
 - Cevaplanamazların dilimi: `korpus-disi` **3**, `anlamsiz-ood` **2**, `eksik-kanit` **0**.
-- Doğrulama: **45 model-cross-check + 3 insan** (`canary_v1.README.md:9-13`). Hiçbir sayı
+- Doğrulama: **45 model-cross-check + 3 insan** (`retrieval_eval_v1.README.md:9-13`). Hiçbir sayı
   "insan-doğrulanmış benchmark üzerinde ölçüldü" diye sunulamaz (README §3.1).
 - Split: `splits_v1.json` boş → cevaplanabilirlerin **tamamı dev**.
 - 43 cevaplanabilir soru üzerinde **13 deney iterasyonu** koşuldu (autoresearch round 1-3);
@@ -260,7 +260,7 @@ tetiklenmesi yalnız 1 ve 3'e kalmış.
 *Bu seçeneğin kritik avantajı:* `korpus-disi` etiketi **makinece doğrulanabilir**. Korpusun
 tamamı 56 doc_id'lik bir manifest'tir; manifest'te olmayan bir mevzuata dair soru, tanımı
 gereği korpus-dışıdır — bu etiket için ne sayfa okumak ne model gerekir.
-Bu, `canary_v1.README.md:44-51`'deki "doğrulayan model taslağı yazan modelle aynı aileden,
+Bu, `retrieval_eval_v1.README.md:44-51`'deki "doğrulayan model taslağı yazan modelle aynı aileden,
 **korelasyonlu kör noktalar** mümkün" itirazından **tamamen kaçar**: etiket bir okuma
 kararına değil, bir küme üyeliğine dayanır.
 *Sınır (dürüstlük):* mekanik kontrol "adı geçen mevzuat korpusta yok"u kanıtlar,
@@ -272,7 +272,7 @@ sayfadan biri soruyu cevaplıyor mu?" diye sormak (altın sayfa okuma rejimi de�
 **(b) P1-T12 tarzı benchmark v2 (insan kapılı).** *Geçerlilik:* en yüksek. *Maliyet:*
 öncelik #19 tahmini 3-5 gün, tek geliştirici (`e2e-review.md:295`); üstelik araç bozuk —
 `--review` kuyruğu boş ve `apply_decision` `verification_kind` yazmıyor
-(`canary_v1.README.md:88-99`). **Bugün kullanılamaz; P2'yi bloke eder.**
+(`retrieval_eval_v1.README.md:88-99`). **Bugün kullanılamaz; P2'yi bloke eder.**
 
 **(c) Mevcut 48 üzerinde leave-one-out + dürüst kırılganlık raporu.** *Maliyet:* ~sıfır.
 *Geçerlilik:* G2.1 için **kabul edilemez** — 5 negatif üzerinde LOO, %20'lik adımlarla bir
@@ -286,7 +286,7 @@ G2.3'ün eğrisini "gösterim amaçlı, ölçüm değil" etiketiyle üretmek iç
 tam olarak cevaplanamaz tarafa ihtiyaç duyar. O yüzden **yalnız cevaplanamaz tarafı
 ölçekle**; cevaplanabilir 43 olduğu gibi kalsın ve dürüstçe "dev seti" diye anılsın.
 
-**`data/bench/unans_v1.jsonl` — 300 satır:**
+**`data/bench/abstention_eval_v1.jsonl` — 300 satır:**
 
 | Dilim | n | Doğrulama rejimi | İnsan emeği |
 |---|---|---|---|
@@ -323,8 +323,8 @@ tam dev üzerinde raporlanmalı.
 **Yan kazanç:** `eksik-kanit`'in 40 insan-doğrulanmış satırı, T10'un ≥30 `human_pairs`
 şartını da karşılar — T10 bu adımdan sonra BLOCKED olmaktan çıkar.
 
-**Önkoşul araç düzeltmesi:** `scripts/verify_canary.py`'nin iki bilinen kusuru
-(`canary_v1.README.md:88-99`) düzeltilmeden insan doğrulaması **kaydedilemez** — kuyruk
+**Önkoşul araç düzeltmesi:** `scripts/verify_retrieval_eval.py`'nin iki bilinen kusuru
+(`retrieval_eval_v1.README.md:88-99`) düzeltilmeden insan doğrulaması **kaydedilemez** — kuyruk
 `model-cross-check` satırlarını da kapsamalı, `apply_decision` `verification_kind`'ı
 `"human"` yapmalı.
 
@@ -420,7 +420,7 @@ ayrımı bu niyeti yapısal hale getirir.
 | # | İş | Plan karşılığı | Gerekçe |
 |---|---|---|---|
 | **1** | **T7 aynen** — `bench/calibration_metrics.py` | T7 **VALID** | Tek tam geçerli task; saf numpy, sentetik testler, sıfır kota, sıfır veri. G2.3'ün aletini hemen verir |
-| **2** | **Veri + split (planda YOK, yeni task)** — `unans_v1.jsonl` (300), `splits_v1.json` law-grouped, `--split` bayrağı, canary-kompozisyon regresyon testi (B28/K7), `verify_canary.py --review` iki kusurunun düzeltilmesi | — | **Uzun kutup.** G2.1/G2.3/G2.4 bunsuz anlamsız. 1 ile paralel başlat |
+| **2** | **Veri + split (planda YOK, yeni task)** — `abstention_eval_v1.jsonl` (300), `splits_v1.json` law-grouped, `--split` bayrağı, retrieval_eval-kompozisyon regresyon testi (B28/K7), `verify_retrieval_eval.py --review` iki kusurunun düzeltilmesi | — | **Uzun kutup.** G2.1/G2.3/G2.4 bunsuz anlamsız. 1 ile paralel başlat |
 | **3** | **B14 düzeltmesi** — `gemini.py:55` `contents=[*parts, prompt]` yerine her görüntünün ÖNÜNE `[Sk] <doc>, sayfa <n>` metin parçası; + test | — | **T3/T4'ten ÖNCE olmak zorunda**: aksi halde G2.2 konumsal şansı ölçer (öncelik #18). Saatler |
 | **4** | **Kota doğrulaması** — `gemini-3.6-flash` gerçek limitini ölç, `config.py:155-156` fiyat sabitlerini güncelle (B37) | plan `:26` | Takvimin tamamı bu sayıya bağlı (§4.3) |
 
@@ -433,7 +433,7 @@ ayrımı bu niyeti yapısal hale getirir.
 | **7** | **T2-modified** | İki kapı. `abstain_reason` **mevcut `status` alanına** bağlanır (`main.py:604-608`), paralel kanal icat edilmez. `Answer` alanları korunur. G2.8 metni "flag kapalı → ayırmayan eşik" gerçeğini yazar. `honest_miss` tek `HONEST_MISS_MARKER` + `tr_lower` ile sağlamlaştırılır (S35/D3) — G2.1'in sayacı buna bağlı |
 | **8** | **T4-modified** | `bench answers` + `--split`. Dilim kırılımı adım 2'nin doldurduğu dilimlere göre; `harness.py:260`'ın cevaplanamaz atlaması bu yolda geçerli değil. `selective_metrics` **sınıf başına** raporlanır |
 | **9** | **T5+T6-modified** | `FEATURE_ORDER` yeniden türetilir: `bm25_top1(served)`, `margin_1_2`, `law_match←routed_docs`, `visual_top1`, `len(routed_docs)`, `verifier_support_ratio`. `exact_match`/`article_match` **düşürülür** (kaynak yok), `channel_agreement` dejenere olduğu için ya düşürülür ya "ölçüldü, bilgi taşımıyor" diye raporlanır. `calibration_dir` anahtarı `index_revision` + `retrieval_pipeline` + reçete sürümü |
-| **10** | **T8 → T9-modified → T12-modified** | T9: UI zaten status-güdümlü — **genişlet, yeniden kurma**; `abstain_reason` + claim çipleri + dürüst-ıska yüzeyi + `/feedback` + yeni prom `reason` etiketleri (`prom.py:106` mekanizması hazır). T12: `bench_v2.jsonl` yerine `canary_v1 + unans_v1`, `docs/research/figures/` dizini oluşturulur |
+| **10** | **T8 → T9-modified → T12-modified** | T9: UI zaten status-güdümlü — **genişlet, yeniden kurma**; `abstain_reason` + claim çipleri + dürüst-ıska yüzeyi + `/feedback` + yeni prom `reason` etiketleri (`prom.py:106` mekanizması hazır). T12: `bench_v2.jsonl` yerine `retrieval_eval_v1 + abstention_eval_v1`, `docs/research/figures/` dizini oluşturulur |
 | **11** | **T10** (artık mümkün) → **T11** (doküman) | T10 adım 2'nin 40 insan çiftinden sonra ≥30 şartını karşılar; düşük öncelik. T11'de koşul 2'nin **zaten sağlandığı** (paraphrase %28.6) yazılır |
 
 ### Bugünün ölçümünün DOĞRUDAN ÇELİŞTİĞİ plan ifadeleri
@@ -489,9 +489,9 @@ Dürüst bir `p2-gate.md` şunları **açıkça** yazmak zorundadır:
    sürece geçerlidir (master §4, `:86-87`). Rapor flag varsayılanlarını açıkça yazmalı ve
    G1+G2 raporlanana kadar default-açık entegrasyon yapılmadığını beyan etmelidir.
 5. **Benchmark'ın kendisi.** Tüm P2 sayıları 48 satırın **45'i model-cross-check /
-   3'ü insan** olan bir set (ve önerilen `unans_v1`'in mekanik+model etiketleri) üzerinde
+   3'ü insan** olan bir set (ve önerilen `abstention_eval_v1`'in mekanik+model etiketleri) üzerinde
    ölçülür. Hiçbir P2 rakamı "insan-doğrulanmış benchmark üzerinde ölçüldü" diye
-   sunulamaz (`canary_v1.README.md:38-43`). `verification_kind` başına ayrı sayı
+   sunulamaz (`retrieval_eval_v1.README.md:38-43`). `verification_kind` başına ayrı sayı
    basılmalıdır — `mechanical` / `model-cross-check` / `human` üç ayrı sütun.
 6. **G2.1'in aritmetik dürüstlüğü.** "≤%2" bir nokta tahmini olarak değil, gözlenen oran +
    %95 üst sınır (Clopper-Pearson/rule-of-three) olarak raporlanmalı; n=150 test
@@ -506,7 +506,7 @@ Dürüst bir `p2-gate.md` şunları **açıkça** yazmak zorundadır:
 `retrieval/{core,hybrid,text,types}.py`, `bench/{dataset,harness,metrics,oracle}.py`,
 `telemetry/{schema,recorder,prom,collect,export}.py`, `app/main.py` (status-güdümlü `/ask`,
 `/healthz`, `/metrics`, `/stats`, rate limit), `app/static/index.html` (status-güdümlü UI),
-`data/bench/canary_v1.jsonl` (48), `data/manifest/v0_manifest.csv` (56 doc),
+`data/bench/retrieval_eval_v1.jsonl` (48), `data/manifest/v0_manifest.csv` (56 doc),
 `data/index-traincompat-int8/` (4222 sayfa + `page_texts.parquet`).
 
 **Yok:** `retrieval/evidence.py`, `retrieval/query.py`, `retrieval/rerank.py`,

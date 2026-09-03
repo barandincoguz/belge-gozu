@@ -4,7 +4,7 @@
  "index_manifest": null,
  "config": {
   "pipeline": "two-stage",
-  "bench": "data/bench/canary_v1.jsonl",
+  "bench": "data/bench/retrieval_eval_v1.jsonl",
   "only_verified": false
  },
  "missing_gold_pages": [],

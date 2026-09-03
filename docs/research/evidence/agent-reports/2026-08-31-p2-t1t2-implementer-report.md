@@ -79,7 +79,7 @@ tau = **0.5037**) altı arayüz çipinin hepsini **kapı 1'de çekimsere düşü
 | RG 7/10445 kararname | 0.1795 | abstain |
 | Onbir yaşındaki çocuk | 0.1632 | abstain |
 | Aksansız yazım | 0.3238 | abstain |
-| (karş.) canary c103 | 0.7587 | **geçer** |
+| (karş.) retrieval_eval c103 | 0.7587 | **geçer** |
 
 Bu, `2026-08-30-p2-baslangic.md §4`'teki **%2.2 kapsam** bulgusunun servis tarafındaki
 birebir karşılığıdır: kapı 1 tek başına AÇILAMAZ. Sayı bir arıza değil, ölçüm.
@@ -89,8 +89,8 @@ birebir karşılığıdır: kapı 1 tek başına AÇILAMAZ. Sayı bir arıza de�
 | sonda | soru | kapı 1 | kapı 2 | LLM çağrısı |
 |---|---|---|---|---|
 | 1 | çip: "TMK'ya göre yerleşim yeri…" | p=**0.14389** < tau=**0.50368** → ABSTAIN | koşmadı | **0** |
-| 2 | canary c103 | p=**0.75873** ≥ tau → GEÇER | 6 iddia, 2 doğrulandı (tavan), c2=**supported** | 1 answerer + 2 doğrulayıcı = **3** |
-| 3 | canary c103 (tekrar) | p=0.75873 → GEÇER | c2=belirsiz (**429**) | 1 answerer + 1 doğrulayıcı = **2** |
+| 2 | retrieval_eval c103 | p=**0.75873** ≥ tau → GEÇER | 6 iddia, 2 doğrulandı (tavan), c2=**supported** | 1 answerer + 2 doğrulayıcı = **3** |
+| 3 | retrieval_eval c103 (tekrar) | p=0.75873 → GEÇER | c2=belirsiz (**429**) | 1 answerer + 1 doğrulayıcı = **2** |
 | 4 | `:7860` çip (bayrak KAPALI) | — | — | 1 answerer (**429** → degraded) = **1** |
 | | | | **TOPLAM** | **6 / 6** |
 
@@ -222,7 +222,7 @@ Yön eleştirisi haklı ama bugünkü seçeneklerin ikisi de daha kötü; döng�
 
 ## Canlı bütçe-tavanı sondası (port 7862, bayraklar AÇIK, `BG_VERIFIER_MAX_LLM_CALLS=3`)
 
-Soru: canary c103. Sonuç `status="abstained"`, `detail.gate2`:
+Soru: retrieval_eval c103. Sonuç `status="abstained"`, `detail.gate2`:
 
 ```
 demoted=true  n_claims=6  n_verified=6  n_supported=3  truncated=false

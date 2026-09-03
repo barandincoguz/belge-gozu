@@ -27,8 +27,8 @@ Slice = Literal[
 # devredilmiş bir usul, kanunun yazmadığı bir tutar, mülga bir hüküm) korpus
 # metninde YOKTUR. `korpus-disi`den farkı, konunun korpusta bulunmasıdır; bu
 # yüzden retrieval ilgili belgeyi getirir ve model "kanıt var" sanabilir —
-# kalibrasyonun en zor durumu. `unans_v1.jsonl` bu sınıfı doldurur.
-UnansReason = Literal["korpus-disi", "eksik-kanit", "anlamsiz", "belirsiz"]
+# kalibrasyonun en zor durumu. `abstention_eval_v1.jsonl` bu sınıfı doldurur.
+AbstentionEvalReason = Literal["korpus-disi", "eksik-kanit", "anlamsiz", "belirsiz"]
 
 # `ajan-taslak`: model ajanının yazdığı, İNSAN ONAYI ALMAMIŞ satır. Mevcut
 # `ajan-taslak-insan-onayli` ile karıştırılmasın diye ayrı bir değerdir —
@@ -73,11 +73,11 @@ class BenchQuestion(BaseModel):
     source_type: SourceType
     requires_visual: bool
     requires_multi_hop: bool
-    unanswerable_reason: UnansReason | None
+    unanswerable_reason: AbstentionEvalReason | None
     verified_by: str
     verification_status: Literal["draft", "verified", "rejected"]
     # insan doğrulama notu (ör. "h yanlış sayfa"); geriye dönük uyumlu (varsayılan "")
-    # — scripts/verify_canary.py --review tarafından yazılır.
+    # — scripts/verify_retrieval_eval.py --review tarafından yazılır.
     verification_note: str = ""
     # Doğrulamayı KİMİN yaptığı değil, NE TÜR bir doğrulama olduğu: insan
     # doğrulaması ile model çapraz-doğrulaması ayrı şeylerdir ve kapı
@@ -90,7 +90,7 @@ class BenchQuestion(BaseModel):
     # "mechanical:manifest-absence" ÜÇÜNCÜ ve en zayıf türdür: hiç kimse (insan
     # ya da model) sorunun cevabını aramamıştır; yalnızca bir betik, sorunun
     # dayandığı kanunun korpus manifestinde BULUNMADIĞINI göstermiştir
-    # (scripts/validate_unans.py). Bu, "cevaplanamaz" iddiasını kanıtlamaz —
+    # (scripts/validate_abstention_eval.py). Bu, "cevaplanamaz" iddiasını kanıtlamaz —
     # yalnız "dayanak belge korpusta yok" iddiasını kanıtlar; artık risk,
     # korpustaki BAŞKA bir kanunun aynı soruyu cevaplayabilmesidir. Bu yüzden
     # ayrı bir değer: `verified` sayısı türlere ayrılmadan okunursa mekanik

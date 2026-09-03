@@ -1,6 +1,6 @@
 """Autoresearch sabit harness (DONUK — bkz. research/program.md).
 
-Tek birincil metrik: canary-answerable (43) üzerinde R@5.
+Tek birincil metrik: retrieval_eval-answerable (43) üzerinde R@5.
 Guardrail: R@1, R@20, MRR, requires_visual alt-küme R@5.
 Vaka analizleri (chip1/chip2): gold sırası raporlanır, metriğe girmez.
 
@@ -58,20 +58,20 @@ def main() -> None:
         assert len(set(ranking)) == len(ranking) <= len(page_ids), f"{q['qid']}: geçersiz sıralama"
         rows.append({**q, "rank": gold_rank(ranking, q["gold"])})
 
-    canary = [r for r in rows if r["role"] == "canary"]
+    retrieval_eval = [r for r in rows if r["role"] == "retrieval_eval"]
     cases = [r for r in rows if r["role"] == "case_study"]
-    n = len(canary)
+    n = len(retrieval_eval)
 
     def r_at(k: int, subset=None) -> float:
-        xs = subset if subset is not None else canary
+        xs = subset if subset is not None else retrieval_eval
         return round(sum(r["rank"] <= k for r in xs) / max(1, len(xs)), 4)
 
-    vis = [r for r in canary if r["requires_visual"]]
+    vis = [r for r in retrieval_eval if r["requires_visual"]]
     metrics = {
         "R@1": r_at(1),
         "R@5": r_at(5),
         "R@20": r_at(20),
-        "MRR": round(float(np.mean([1.0 / r["rank"] for r in canary])), 4),
+        "MRR": round(float(np.mean([1.0 / r["rank"] for r in retrieval_eval])), 4),
         "visual_R@5": r_at(5, vis),
         "n": n,
         "n_visual": len(vis),

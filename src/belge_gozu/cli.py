@@ -558,7 +558,7 @@ def _load_bench_mode(
     """Bench JSONL'i doğrulama düzeyine göre yükler ve seçimi açıklar.
 
     `select_bench` saf JSONL okur — model/indekse dokunmaz, bu yüzden birim
-    testte gerçek encoder olmadan doğrudan test edilebilir. R15: canary_v1
+    testte gerçek encoder olmadan doğrudan test edilebilir. R15: retrieval_eval_v1
     insan doğrulaması tamamlanana kadar taslak dahil TÜMÜ (--all) varsayılan
     olmalı, aksi halde `bench run`/`bench oracle` hiç koşamaz."""
     from belge_gozu.bench.dataset import select_bench
@@ -580,7 +580,7 @@ def _load_bench_mode(
 
 @bench_app.command("run")
 def bench_run(
-    bench: Path = typer.Option(Path("data/bench/canary_v1.jsonl")),  # noqa: B008
+    bench: Path = typer.Option(Path("data/bench/retrieval_eval_v1.jsonl")),  # noqa: B008
     pipeline: Pipeline = typer.Option(DEFAULT_PIPELINE, "--pipeline"),  # noqa: B008
     only_verified: bool = typer.Option(False, "--only-verified/--all"),  # noqa: B008
     min_verification: VerificationLevel | None = typer.Option(  # noqa: B008
@@ -860,8 +860,8 @@ def bench_oracle(
 # calibrate — P2 T5+T6
 # --------------------------------------------------------------------------
 
-DEFAULT_CANARY = Path("data/bench/canary_v1.jsonl")
-DEFAULT_UNANS = Path("data/bench/unans_v1.jsonl")
+DEFAULT_RETRIEVAL_EVAL = Path("data/bench/retrieval_eval_v1.jsonl")
+DEFAULT_ABSTENTION_EVAL = Path("data/bench/abstention_eval_v1.jsonl")
 DEFAULT_SPLITS = Path("data/bench/splits_v1.json")
 DEFAULT_CALIBRATION_REPORT = Path("data/bench/results/p2-calibration-dev-v1.json")
 
@@ -898,7 +898,7 @@ def _gate_test_split(split: Split, yes_final_gate: bool) -> None:
         )
 
 
-def _calibration_setup(s: Settings, canary: Path, unans: Path, splits_path: Path):
+def _calibration_setup(s: Settings, retrieval_eval: Path, abstention_eval: Path, splits_path: Path):
     """Metin kanalı + etiketli satırlar + veri künyesi (MODEL/AĞ YOK, saf CPU).
 
     Görsel indeks YÜKLENMEZ: yalnız `page_ids.json` okunur ve BM25 metin
@@ -929,7 +929,7 @@ def _calibration_setup(s: Settings, canary: Path, unans: Path, splits_path: Path
     splits = load_splits(splits_path)
     rows = []
     data_files = []
-    for label, path in (("canary", canary), ("unans", unans)):
+    for label, path in (("retrieval_eval", retrieval_eval), ("abstention_eval", abstention_eval)):
         raw = load_rows(path, only_verified=True)
         rows.extend(build_rows(raw, splits, bm25, doc_names, source=label))
         data_files.append(
@@ -976,15 +976,15 @@ def _echo_rc_head(curve: list[dict], limit: int = 8) -> None:
 @calibrate_app.command("fit")
 def calibrate_fit(
     split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
-    canary: Path = typer.Option(DEFAULT_CANARY, "--canary"),  # noqa: B008
-    unans: Path = typer.Option(DEFAULT_UNANS, "--unans"),  # noqa: B008
+    retrieval_eval: Path = typer.Option(DEFAULT_RETRIEVAL_EVAL, "--retrieval-eval"),  # noqa: B008
+    abstention_eval: Path = typer.Option(DEFAULT_ABSTENTION_EVAL, "--abstention-eval"),  # noqa: B008
     splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
     max_risk: float = typer.Option(0.05, "--max-risk"),  # noqa: B008
     alpha: float = typer.Option(0.05, "--alpha"),  # noqa: B008
     calibration_dir_opt: Path | None = typer.Option(None, "--calibration-dir"),  # noqa: B008
     out: Path = typer.Option(DEFAULT_CALIBRATION_REPORT, "--out"),  # noqa: B008
     # Künyeye serbest metin not. Bench verisi AKTİF TASLAKTA olduğu için gerekli:
-    # `--unans` bir dosya YOLU alır, ama koşumun kimliği o yolun O ANKİ İÇERİĞİDİR
+    # `--abstention-eval` bir dosya YOLU alır, ama koşumun kimliği o yolun O ANKİ İÇERİĞİDİR
     # (künyedeki sha256). Dosya sonradan değişince yol tek başına yanıltıcı olur;
     # not, hangi sürüme sabitlendiğini (ör. bir commit) insan diliyle yazar.
     note: str = typer.Option("", "--note"),  # noqa: B008
@@ -1011,7 +1011,9 @@ def calibrate_fit(
             f"kanalından okunur); BG_RETRIEVAL_PIPELINE={s.retrieval_pipeline}"
         )
 
-    _, _, rows, revision, kunye = _calibration_setup(s, canary, unans, splits_path)
+    _, _, rows, revision, kunye = _calibration_setup(
+        s, retrieval_eval, abstention_eval, splits_path
+    )
     subset = [r for r in rows if r.split == split.value]
     if not subset:
         raise typer.BadParameter(f"{split.value} bölmesinde hiç soru yok")
@@ -1121,8 +1123,8 @@ def calibrate_fit(
 @calibrate_app.command("eval")
 def calibrate_eval(
     split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
-    canary: Path = typer.Option(DEFAULT_CANARY, "--canary"),  # noqa: B008
-    unans: Path = typer.Option(DEFAULT_UNANS, "--unans"),  # noqa: B008
+    retrieval_eval: Path = typer.Option(DEFAULT_RETRIEVAL_EVAL, "--retrieval-eval"),  # noqa: B008
+    abstention_eval: Path = typer.Option(DEFAULT_ABSTENTION_EVAL, "--abstention-eval"),  # noqa: B008
     splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
     calibration_dir_opt: Path | None = typer.Option(None, "--calibration-dir"),  # noqa: B008
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
@@ -1138,7 +1140,7 @@ def calibrate_eval(
 
     _gate_test_split(split, yes_final_gate)
     s = _settings()
-    _, _, rows, revision, _ = _calibration_setup(s, canary, unans, splits_path)
+    _, _, rows, revision, _ = _calibration_setup(s, retrieval_eval, abstention_eval, splits_path)
     subset = [r for r in rows if r.split == split.value]
     if not subset:
         raise typer.BadParameter(f"{split.value} bölmesinde hiç soru yok")
@@ -1480,9 +1482,9 @@ def _answer_eval_command(
 @bench_app.command("answers")
 def bench_answers(
     bench: list[Path] = typer.Option(  # noqa: B008
-        [DEFAULT_CANARY, DEFAULT_UNANS],
+        [DEFAULT_RETRIEVAL_EVAL, DEFAULT_ABSTENTION_EVAL],
         "--bench",
-        help="Birden çok kez verilebilir; varsayılan canary + unanswerable kümesidir.",
+        help="Birden çok kez verilebilir; varsayılan retrieval_eval + unanswerable kümesidir.",
     ),
     split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
     max_llm_attempts: int = typer.Option(..., "--max-llm-attempts", "--max-llm-calls"),  # noqa: B008
@@ -1516,7 +1518,7 @@ def bench_answers(
 
 @verify_app.command("run")
 def verify_run(
-    bench: Path = typer.Option(DEFAULT_CANARY, "--bench"),  # noqa: B008
+    bench: Path = typer.Option(DEFAULT_RETRIEVAL_EVAL, "--bench"),  # noqa: B008
     split: Split = typer.Option(Split.dev, "--split"),  # noqa: B008
     max_llm_calls: int = typer.Option(..., "--max-llm-attempts", "--max-llm-calls"),  # noqa: B008
     limit: int = typer.Option(0, "--limit"),  # noqa: B008

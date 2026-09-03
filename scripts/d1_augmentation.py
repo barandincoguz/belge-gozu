@@ -118,8 +118,8 @@ def main() -> int:
     ap.add_argument(
         "--bench",
         type=Path,
-        default=REPO_ROOT / "data" / "bench" / "canary_v1.jsonl",
-        help="bench JSONL dosyası (varsayılan: data/bench/canary_v1.jsonl)",
+        default=REPO_ROOT / "data" / "bench" / "retrieval_eval_v1.jsonl",
+        help="bench JSONL dosyası (varsayılan: data/bench/retrieval_eval_v1.jsonl)",
     )
     verify_group = ap.add_mutually_exclusive_group()
     verify_group.add_argument(

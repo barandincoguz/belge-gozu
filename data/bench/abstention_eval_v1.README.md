@@ -1,4 +1,4 @@
-# `unans_v1.jsonl` — köken ve doğrulama künyesi
+# `abstention_eval_v1.jsonl` — köken ve doğrulama künyesi
 
 **Bu set insan-doğrulanmış DEĞİLDİR. 300 satırın 0'ı insan onayından geçmiştir.**
 Sorular bir model ajanı tarafından yazıldı; hiçbiri bir insan tarafından
@@ -7,8 +7,8 @@ okunup onaylanmadı. Bu yüzden 300 satırın tamamı
 değerinden bilerek ayrı bir değer, aksi halde onaysız satırlar künyede
 onaylı gibi sayılırdı.
 
-`canary_v1.jsonl` için yazılan dürüstlük rejimi burada da geçerlidir
-(bkz. `canary_v1.README.md`): `verification_status: "verified"` gören biri
+`retrieval_eval_v1.jsonl` için yazılan dürüstlük rejimi burada da geçerlidir
+(bkz. `retrieval_eval_v1.README.md`): `verification_status: "verified"` gören biri
 bunu insan onayı sanmasın diye, ne tür bir doğrulamadan geçtiği
 `verification_kind` alanında ayrıca kayıtlıdır.
 
@@ -16,7 +16,7 @@ Künye, **2026-08-30 çapraz-kontrol turundan sonraki** hâliyle (bkz. §3):
 
 | Dilim | Satır | `verification_status` | `verification_kind` | `verified_by` |
 |---|---|---|---|---|
-| `korpus-disi` | 200 | 195 `verified` / 5 `rejected` | `mechanical:manifest-absence` (+40'ı çapraz-kontrollü) | `script:validate_unans` |
+| `korpus-disi` | 200 | 195 `verified` / 5 `rejected` | `mechanical:manifest-absence` (+40'ı çapraz-kontrollü) | `script:validate_abstention_eval` |
 | `anlamsiz-ood` | 60 | 60 `verified` | `model-cross-check` | `model-cross-check:claude-fable-5-checker` |
 | `eksik-kanit` | 40 | 31 `verified` / 9 `rejected` | `model-cross-check` | `model-cross-check:claude-fable-5-checker` |
 | **toplam** | **300** | 286 verified / **14 rejected** | | |
@@ -30,7 +30,7 @@ zaten dışlıyor). Silinmemelerinin nedeni, reddedilme gerekçelerinin
 
 Kalibre edilmiş seçici cevaplama (bir soruya cevap vermek yerine
 "bilmiyorum" demeyi öğrenmek) ölçülebilmesi için cevaplanamaz veri ister.
-Canary'de yalnız 5 cevaplanamaz soru vardı — bu sayıyla ölçülen bir hata
+RetrievalEval'de yalnız 5 cevaplanamaz soru vardı — bu sayıyla ölçülen bir hata
 oranının güven aralığı işe yaramayacak kadar geniştir.
 
 Hedef sayı aritmetikten gelir: test kümesinde **n=150** cevaplanamaz soruda
@@ -49,7 +49,7 @@ Her soru, korpusta **bulunmayan** gerçek bir Türk kanununa çapalanmıştır
 
 **Mekanik etiketin İDDİA ETTİĞİ tam olarak şudur:** sorunun dayandığı kanun,
 korpus manifestinde (`data/state.json` ∩ `data/manifest/v0_manifest.csv`,
-56 belge / 50 kanun) **yoktur**. `scripts/validate_unans.py` bunu her koşumda
+56 belge / 50 kanun) **yoktur**. `scripts/validate_abstention_eval.py` bunu her koşumda
 yeniden türeterek sınar — betik ezberden kanun listesi taşımaz.
 
 **İDDİA ETMEDİĞİ şey:** sorunun cevaplanamaz olduğu. Hiç kimse (insan ya da
@@ -122,8 +122,8 @@ inference) çiftleri olarak kullanılmak üzere saklanmaktadır.
 ## 3. Çapraz-kontrol (2026-08-30) — bağımsız denetleyici turu
 
 Setin taslak dilimlerini **yazan turdan farklı** bir model turu (drafter ≠
-checker; canary'nin model-çapraz-kontrol turuyla aynı rejim, bkz.
-`canary_v1.README.md`) 140 satırı tek tek `page_texts.parquet` üzerinde
+checker; retrieval_eval'nin model-çapraz-kontrol turuyla aynı rejim, bkz.
+`retrieval_eval_v1.README.md`) 140 satırı tek tek `page_texts.parquet` üzerinde
 denetledi. Denetleyicinin tek kanıt aracı korpus metniydi: ağ yok, Gemini yok,
 ezber yok; her `rejected` kararı bir `page_id` + birebir alıntıyla satırın
 `verification_note` alanında duruyor.
@@ -225,13 +225,13 @@ korpustan cevaplanamaz olduğu için tutuldu.
 ### 3.6 Bu turun sonuçları — iki tanesi can sıkıcı
 
 **(a) Test kümesindeki cevaplanamaz sayısı n=150 asgarisinin ALTINA düştü.**
-14 reddin 7'si test yakasına düşüyor. Yeni bileşim (canary dahil,
+14 reddin 7'si test yakasına düşüyor. Yeni bileşim (retrieval_eval dahil,
 `rejected` hariç):
 
-| | cevaplanamaz | canary cevaplanabilir |
+| | cevaplanamaz | retrieval_eval cevaplanabilir |
 |---|---|---|
-| **dev** | 147 (101 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 canary) | 26 |
-| **test** | **144** (94 korpus-dışı + 31 anlamsız + 16 eksik-kanıt + 3 canary) | **17** |
+| **dev** | 147 (101 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 retrieval_eval) | 26 |
+| **test** | **144** (94 korpus-dışı + 31 anlamsız + 16 eksik-kanıt + 3 retrieval_eval) | **17** |
 
 n=144'te 0 hata için Clopper-Pearson %95 üst sınırı **%2.06**'dır; §1'in
 istediği %2.0 eşiği artık **karşılanmıyor** (gereken asgari n = 149). Yani
@@ -239,13 +239,13 @@ G2.1 kapısı ya 5+ yeni cevaplanamaz test sorusuyla beslenmeli ya da eşik
 gerekçesi yeniden yazılmalıdır. Bu, çapraz-kontrolün *yarattığı* bir sorun
 değil; zaten var olan ve şimdi görünür hâle gelen bir sorundur.
 
-**(b) `scripts/validate_unans.py` şu an KIRMIZI (105 ihlal) — ve bu beklenen
+**(b) `scripts/validate_abstention_eval.py` şu an KIRMIZI (105 ihlal) — ve bu beklenen
 bir kırmızı.** Betiğin 7 numaralı kontrolü dilim başına doğrulama künyesini
 sabit kodluyor:
 
 ```python
 VERIF_EXPECT = {
-    "korpus-disi": ("verified", "script:validate_unans", "mechanical:manifest-absence"),
+    "korpus-disi": ("verified", "script:validate_abstention_eval", "mechanical:manifest-absence"),
     "anlamsiz-ood": ("draft", "", "model-cross-check"),  # <- çapraz-kontrol ÖNCESİ
     "eksik-kanit": ("draft", "", "model-cross-check"),  # <- çapraz-kontrol ÖNCESİ
 }
@@ -288,10 +288,10 @@ güncellemek ve `rejected` satırları künye kontrolünden muaf tutmaktır.
 - Doğal Türkçe, bir vatandaşın ya da avukatın gerçekten soracağı biçimde.
 - `query_style` çeşitlemesi: 79 `dogal` / 86 `hukuki` / 35 `madde-referansli`
   (korpus-dışı dilimde). `madde-referansli` sorular gerçekten bir madde
-  numarası anar — canary incelemesinde yakalanan etiket hatası tekrarlanmasın
+  numarası anar — retrieval_eval incelemesinde yakalanan etiket hatası tekrarlanmasın
   diye.
 - Zorluk dağılımı: 49 kolay / 161 orta / 90 zor.
-- Tekrar yok: set içinde ve **canary'ye karşı** normalize edilmiş token kümesi
+- Tekrar yok: set içinde ve **retrieval_eval'ye karşı** normalize edilmiş token kümesi
   örtüşmesi (Jaccard ≥ 0.8) ile taranır. Doğrulayıcı bir kez gerçek bir tekrar
   yakaladı (u108/u109 aynı metne düşmüştü) ve satır yeniden yazıldı.
 
@@ -303,9 +303,9 @@ yakaya düşer; aksi halde test ölçümü dev'de görülmüş bir kanunu geri o
 
 - `seed`: `belge-gozu-splits-v1`, 22 test belgesi / 34 dev belgesi.
 - 4 belge test'e **sabitlenmiştir** (`k6098`, `k5237`, `k6698`, `rg1935a`);
-  toplamları tam 17 canary cevaplanabilir soru eder, yani hedeflenen
+  toplamları tam 17 retrieval_eval cevaplanabilir soru eder, yani hedeflenen
   26 dev / 17 test bölünmesini tek seçimle verir.
-- Kalan 18 yer, canary sorusu OLMAYAN belgeler arasından
+- Kalan 18 yer, retrieval_eval sorusu OLMAYAN belgeler arasından
   `sha256(seed|doc_id)` artan sırayla doldurulur; ≥2 RG tarama belgesi
   garantilidir (fiilî: `rg1935a`, `rg1945a`).
 - Cevaplanamaz atama kuralı `belge_gozu.bench.dataset.assign_split` içinde saf
@@ -316,10 +316,10 @@ yakaya düşer; aksi halde test ölçümü dev'de görülmüş bir kanunu geri o
 
 Ortaya çıkan bileşim:
 
-| | cevaplanamaz | canary cevaplanabilir |
+| | cevaplanamaz | retrieval_eval cevaplanabilir |
 |---|---|---|
-| **dev** | 154 (103 korpus-dışı + 29 anlamsız + 20 eksik-kanıt + 2 canary) | 26 |
-| **test** | **151** (97 korpus-dışı + 31 anlamsız + 20 eksik-kanıt + 3 canary) | **17** |
+| **dev** | 154 (103 korpus-dışı + 29 anlamsız + 20 eksik-kanıt + 2 retrieval_eval) | 26 |
+| **test** | **151** (97 korpus-dışı + 31 anlamsız + 20 eksik-kanıt + 3 retrieval_eval) | **17** |
 
 Bu tablo çapraz-kontrol ÖNCESİ hâldir. 14 satır `rejected` olduktan sonra
 test'teki cevaplanamaz sayısı **144**'e düşer ve §1'deki n=150 asgarisi artık
@@ -328,7 +328,7 @@ KARŞILANMAZ — bkz. §3.6(a).
 ## 6. Doğrulamayı yeniden koşmak
 
 ```bash
-uv run python scripts/validate_unans.py
+uv run python scripts/validate_abstention_eval.py
 ```
 
 Betik korpus kümesini repodan yeniden türetir, 300 satırın tamamını şemadan
@@ -346,12 +346,12 @@ Yükleme kontrolü:
 
 ```bash
 uv run python -c "from belge_gozu.bench.dataset import load_bench; \
-  print(len(load_bench('data/bench/unans_v1.jsonl', only_verified=False)))"   # 300
+  print(len(load_bench('data/bench/abstention_eval_v1.jsonl', only_verified=False)))"   # 300
 uv run python -c "from belge_gozu.bench.dataset import load_bench; \
-  print(len(load_bench('data/bench/unans_v1.jsonl')))"                        # 286 (rejected hariç)
+  print(len(load_bench('data/bench/abstention_eval_v1.jsonl')))"                        # 286 (rejected hariç)
 ```
 
-Saf mantığın testleri: `tests/test_validate_unans.py` (her kontrol için kasıtlı
+Saf mantığın testleri: `tests/test_validate_abstention_eval.py` (her kontrol için kasıtlı
 bozuk bir satır da geçirilir — "TEMİZ" çıktısının bir şey kanıtlaması için) ve
 `tests/bench/test_dataset.py` (sözlük genişlemeleri + `assign_split`).
 
@@ -371,7 +371,7 @@ bozuk bir satır da geçirilir — "TEMİZ" çıktısının bir şey kanıtlamas
    soru kaldı; G2.1'in %2.0 eşiği için en az 149 gerekiyor (§3.6a). Ya 5+ yeni
    test-yakası cevaplanamaz soru üretilmeli ya da eşik gerekçesi
    yeniden yazılmalı.
-5. **YENİ — doğrulayıcı künye beklentisi:** `scripts/validate_unans.py`
+5. **YENİ — doğrulayıcı künye beklentisi:** `scripts/validate_abstention_eval.py`
    içindeki `VERIF_EXPECT` çapraz-kontrol öncesi duruma sabitlenmiş; 105
    ihlalin tamamı bundan kaynaklanıyor (§3.6b). Betiğin sahibi güncellemeli.
 6. **Tümü:** bu set üzerinde ölçülen hiçbir rakam "insan-doğrulanmış benchmark
@@ -398,9 +398,9 @@ Türk kanununa çapalı. Dilim 200 → **230**, dosya 300 → **330** satır.
 
 Yeni bileşim (`rejected` hariç, doğrulayıcının bastığı satır):
 
-| | cevaplanamaz | canary cevaplanabilir | rejected |
+| | cevaplanamaz | retrieval_eval cevaplanabilir | rejected |
 |---|---|---|---|
-| dev | 159 (113 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 canary) | 26 | 7 |
+| dev | 159 (113 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 retrieval_eval) | 26 | 7 |
 | **test** | **162** (112 + 31 + 16 + 3) | 17 | 7 |
 
 Test yakası 144 → **162**: G2.1'in 149 asgarisi karşılandı, ≥155 tampon hedefi
@@ -442,7 +442,7 @@ belgede, hangi bağlamda). Uygulanan kurallar:
 ### 8.3 Künye ve statü
 
 30 satırın tamamı dilimin mevcut rejimini taşır:
-`source_type="ajan-taslak"`, `verified_by="script:validate_unans"`,
+`source_type="ajan-taslak"`, `verified_by="script:validate_abstention_eval"`,
 `verification_status="verified"`,
 `verification_kind="mechanical:manifest-absence"`.
 
@@ -455,7 +455,7 @@ belgede, hangi bağlamda). Uygulanan kurallar:
 
 ### 8.4 Açık kapı: doğrulayıcı dilim sayısı sabiti
 
-`scripts/validate_unans.py` **şu an tek ihlalle kırmızı**:
+`scripts/validate_abstention_eval.py` **şu an tek ihlalle kırmızı**:
 
 ```
 İHLAL: 1
@@ -493,7 +493,7 @@ tolere edilip belgelenmesini** karara bağladı. Bu tur o kararın icrasıdır.
 
 **Kapsam (mekanik olarak hesaplandı, tahmin değil):** `slice=="korpus-disi"`
 **ve** `assign_split(satır, splits_v1)=="test"` **ve**
-`verified_by=="script:validate_unans"` (yani checker-1'in künyesini henüz
+`verified_by=="script:validate_abstention_eval"` (yani checker-1'in künyesini henüz
 taşımayan, salt mekanik etiketli satırlar) → **112 satır**, 75 ayrık çapa
 kanunu. Bunun 94'ü eski `u001–u200` partisinden, 18'i `u301–u330` yedek
 partisindendir. `anlamsiz-ood` ve `eksik-kanit` test satırları checker-1
@@ -585,14 +585,14 @@ sınırlar — ve doğrulayıcının izinli kümesini genişletmeye gerek kalmı
 Turları bu bölümün tarihi ayırır; `uygun` satırların notu ` +checker2`
 soneki taşır, red notları `[checker2 reddi]` ile biter.
 
-`uv run python scripts/validate_unans.py` → **TEMİZ**. §8.4'teki
+`uv run python scripts/validate_abstention_eval.py` → **TEMİZ**. §8.4'teki
 `SLICE_EXPECT` açığı bu tur öncesinde kapatılmıştır (sabit 230'dur).
 
 ### 9.6 Doğrulama sonrası bileşim
 
-| | cevaplanamaz (`rejected` hariç) | canary cevaplanabilir | `rejected` |
+| | cevaplanamaz (`rejected` hariç) | retrieval_eval cevaplanabilir | `rejected` |
 |---|---|---|---|
-| dev | 159 (113 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 canary) | 26 | 7 |
+| dev | 159 (113 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 retrieval_eval) | 26 | 7 |
 | **test** | **155** (105 + 31 + 16 + 3) | 17 | 14 |
 
 n=155'te 0 hata → Clopper-Pearson tek-yanlı %95 üst sınırı **%1.914** < %2.0

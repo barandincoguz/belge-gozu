@@ -26,7 +26,7 @@ iki-kapı mimarisi veriyle desteklendi. (Bu tabanın kendisi de sonra düzeltild
 ## 2. Faz-0: güvenlik + ölçüm tesisatı (3851c2c → d89cee7; review→fix→re-review ALL RESOLVED)
 
 Gemini timeout/tek-retry/hata taksonomisi (bütçe aşımına deneme binmez — dürüst kapsam:
-sert duvar iptal ister, belgeli); BM25 **qtf tavanı=2** (R30 — canary bayt-birebir 37/43,
+sert duvar iptal ister, belgeli); BM25 **qtf tavanı=2** (R30 — retrieval_eval bayt-birebir 37/43,
 saldırı 667.5→16.69 = tam 2.00×); olay hijyeni (`pipeline` her satırda + `score_scale` +
 `honest_miss` yalnız answered'da 0/1 [R32] + `error_type` + 422/429 `rejected` satırları +
 `bg_rejected_total`); dürüst-ıska birinci-sınıf (tek-kaynak marker f-string'le prompt'a —
@@ -34,13 +34,13 @@ S35/D3 borcu kapandı; kalıntı: model marker'a uymayabilir, açık borç); UI 
 kilidi + bilinmeyen-durum kartı; [Sk]↔görüntü interleave. /stats ortalamaları rejected-dışı.
 443→ testler. Canlı kota gözlemi: bugün 2× http_429 — kota baskısı gerçek.
 
-## 3. Veri katmanı: unans_v1 (330 satır) + hukuk-gruplu split — G2.1 ölçülebilirliği
+## 3. Veri katmanı: abstention_eval_v1 (330 satır) + hukuk-gruplu split — G2.1 ölçülebilirliği
 
 Taslakçı≠denetçi rejimi, üç tur:
 1. **Taslak (5d3bd83):** 200 korpus-dışı (MEKANİK etiket: çapa kanunu 56-belgelik manifestte
-   yok; `script:validate_unans` künyesi) + 60 anlamsız + 40 eksik-kanıt (grep-yokluk kanıt
+   yok; `script:validate_abstention_eval` künyesi) + 60 anlamsız + 40 eksik-kanıt (grep-yokluk kanıt
    notlu). İnşa korkulukları 2 gerçek hata yakaladı. Split: sha256-tabanlı, hukuk-gruplu
-   (22/56 test; canary 26/17 bölünümü birebir hedefte).
+   (22/56 test; retrieval_eval 26/17 bölünümü birebir hedefte).
 2. **Çapraz-kontrol (ad6e80d):** anlamsız 60/60 uygun; eksik-kanıt 9/40 RED (%22.5 — sınıf
    adına yakışır); korpus-dışı 40-örneklem 5 RED → **mekanik etiket gürültüsü %12.5
    Wilson [%5.5, %26.1]**. İki aritmetik sonuç: test una 151→144 < 149 asgari; ve
@@ -70,7 +70,7 @@ dev false-answer 0/159 (CP üst %1.87) · seçilen tau 0.504 → **kapsam %2.2 (
 cevaplanabilirin %15'i), guarantee="none"** (n=4, CP üst %52.7 — yüksek sesli uyarıyla; R35).
 
 **Yükseltilen bulgu (P2'nin yönünü belirler):** 5-una tabanında ölçülen özellik AUC'leri
-gerçekçi 151+ una tabanında ÇÖKTÜ (.937→.677, .863→.722) — unans_v1 negatifleri sözcüksel
+gerçekçi 151+ una tabanında ÇÖKTÜ (.937→.677, .863→.722) — abstention_eval_v1 negatifleri sözcüksel
 olarak cevaplanabilir-görünümlü sert negatifler. %5 risk bütçesinde retrieval-yanı kapsam
 yalnız %2.2. **Retrieval-yanı güven tek başına işe yarar seçici cevaplama VEREMEZ; ikinci
 kapı (LLM kanıt-doğrulayıcı, T1/T2) yük taşıyıcıdır** — planın iki-kapı tasarımı artık

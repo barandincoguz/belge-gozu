@@ -32,7 +32,7 @@
   "built_at": "2026-08-27T16:09:07.745259+00:00",
   "git_commit": "eb66be5"
  },
- "bench": "/Users/barandincoguz/Desktop/project-delta/data/bench/canary_v1.jsonl",
+ "bench": "/Users/barandincoguz/Desktop/project-delta/data/bench/retrieval_eval_v1.jsonl",
  "arms": {
   "with-aug": {
    "summary": {

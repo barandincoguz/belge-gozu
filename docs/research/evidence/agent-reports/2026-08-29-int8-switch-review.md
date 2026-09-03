@@ -65,7 +65,7 @@ places claim it does; the README hands users the exact config that silently brea
 `src/belge_gozu/index/loader.py:8-11`; guard at `src/belge_gozu/app/main.py:162-167`.
 
 Normalizing all three representations into ~[-1,1] makes them *numerically comparable*,
-not *distributionally identical*. Measured, on the same canary set and the same
+not *distributionally identical*. Measured, on the same retrieval_eval set and the same
 train-compat format:
 
 | representation | top-1 min | median | max | clears 0.58 |
@@ -81,14 +81,14 @@ ablation / disk-budget option (`data/index-traincompat-1bit`, 58 MB) via `BG_IND
 and runs `BG_INDEX_DIR=data/index-traincompat-1bit belge-gozu serve`. The loader happily
 returns a `PackedIndex`, `check_compatibility` passes (it never compares quantization),
 `/healthz` reports `"status":"ok"` with `quantization:"sign-1bit"`, the `>1.5` guard does
-not fire — and **42 of 43 answerable canary questions now fall below the threshold**. The
+not fire — and **42 of 43 answerable retrieval_eval questions now fall below the threshold**. The
 product answers essentially nothing, with no error anywhere. The same applies to the
 `BG_RETRIEVAL_PIPELINE=two-stage` ablation, whose scores now land in the same 1-bit band.
 
 This is the *same* silent-abstain failure mode the commit's own `>1.5` guard was written
 to prevent — the guard only covers the "threshold left far too high" direction, not
-"threshold measured on a different representation". The canary ratchet already solves
-exactly this problem for ranks (`canary_expectations.json` is keyed by `"quantization"`
+"threshold measured on a different representation". The retrieval_eval ratchet already solves
+exactly this problem for ranks (`retrieval_eval_expectations.json` is keyed by `"quantization"`
 and `test_long_query_rank_ratchet` asserts the loaded manifest matches); the threshold
 deserves the same treatment.
 
@@ -181,7 +181,7 @@ override lock real.
 **M5 — `build_retriever` still requires `model_name`/`model_revision` from every caller.**
 `app/main.py:60-68`: both are derivable inside (`s.retriever_model`, `getattr(encoder,
 "model_revision", None)`), and both call sites (`main.py:147-152`,
-`tests/retrieval/test_semantic_canary.py:60-65`) pass the identical two lines — i.e. the
+`tests/retrieval/test_semantic_retrieval_eval.py:60-65`) pass the identical two lines — i.e. the
 duplication the extraction was meant to kill is partly still there. Worse, a caller can pass
 a `model_name` inconsistent with `s`, silently weakening the compat check the function exists
 to run.
@@ -240,9 +240,9 @@ README:77 says int8 is 474 MB; `data/bench/results/latency-by-representation.jso
 | 12 | `bench run` uses loader + generic retriever, two-stage branch guarded | ✅ | `cli.py:431-458` |
 | 13 | `index build` no-`--out` guard extended to quantization | ✅ | `cli.py:163-179`; fresh dir OK (`read_manifest→None`), `--out` still allowed; `test_cli.py:138` |
 | 14 | `Quantization` StrEnum in `index/manifest.py` with `float16`; loader dispatches on it | ✅ | `manifest.py:79-91`, `loader.py:28-33`; `derive --quant float16` rejected (`cli.py:256-261`, `test_cli.py:162`) |
-| 15 | `build_retriever` extracted; canary fixture uses it | ✅ | `main.py:60-122`; `test_semantic_canary.py:44-66` (copy deleted) — M5 is a shape nit only |
+| 15 | `build_retriever` extracted; retrieval_eval fixture uses it | ✅ | `main.py:60-122`; `test_semantic_retrieval_eval.py:44-66` (copy deleted) — M5 is a shape nit only |
 | 16 | `EMBED_DIM`/`INT8_MAX` single-sourced; `_as_u64` shape guard | ✅ (one leak, M1) | `chunking.py:16-25`, `store.py:24-35` + `test_store.py:130` |
-| 17 | `canary_expectations.json` carries `"quantization":"int8"` + ratchet 664; slow test asserts manifest match | ✅ | `canary_expectations.json`, `test_semantic_canary.py:131-139`; 664 equals `c001` gold rank in the artifact; slow suite re-run green |
+| 17 | `retrieval_eval_expectations.json` carries `"quantization":"int8"` + ratchet 664; slow test asserts manifest match | ✅ | `retrieval_eval_expectations.json`, `test_semantic_retrieval_eval.py:131-139`; 664 equals `c001` gold rank in the artifact; slow suite re-run green |
 | 18 | Test updates (exhaustive /128, test_core /(n_q*128), harness equality, loader tests, threshold guard, two-stage-on-int8, healthz exact, config defaults, abstain xfail rewritten and still FAILING) | ✅ | 229 passed / 4 slow passed + **1 xfailed** (no XPASS) reproduced locally; nothing loosened |
 | 19 | README: quickstart int8, quantization paragraph, score scale + 0.58, mermaid neutral, n_tokens 3,759,994, stale-v0 keeps 60.0 | ✅ (with I3) | README:44-47, 61-89, 101-110, 144-152, 199-215, 236-239; n_tokens matches all three manifests; R@5 0.233, R@20 0.233 vs 0.302, 1.08/0.24/0.08 s all match artifacts. Mermaid S2 no longer names a binary algorithm (it does name "the int8 index", which is accurate and matches the IDX node) |
 

@@ -1,17 +1,17 @@
-# P2 veri raporu — `unans_v1` cevaplanamaz benchmark + dev/test bölmesi
+# P2 veri raporu — `abstention_eval_v1` cevaplanamaz benchmark + dev/test bölmesi
 
 Tarih: 2026-08-30 · Dal: `feat/p0-retrieval-correctness`
 
 Üretim: model ajanı taslağı, **insan onayı YOK** (`source_type: ajan-taslak`, 300/300).
 
-Künye ve dürüstlük kuralları: `data/bench/unans_v1.README.md`.
+Künye ve dürüstlük kuralları: `data/bench/abstention_eval_v1.README.md`.
 
 
-## 1. Doğrulayıcı çıktısı (`uv run python scripts/validate_unans.py`)
+## 1. Doğrulayıcı çıktısı (`uv run python scripts/validate_abstention_eval.py`)
 
 ```
 ========================================================================
-unans doğrulama — data/bench/unans_v1.jsonl
+abstention_eval doğrulama — data/bench/abstention_eval_v1.jsonl
 ========================================================================
 korpus: 56 belge, 50 kanun numarası
 satır : 300
@@ -29,13 +29,13 @@ split bileşimi (seed='belge-gozu-splits-v1', test_docs=22, RG=2)
 küme  dilim                     adet
 ------------------------------------
 dev   anlamsiz-ood                29
-dev   canary-cevaplanabilir       26
-dev   canary-cevaplanamaz          2
+dev   retrieval_eval-cevaplanabilir       26
+dev   retrieval_eval-cevaplanamaz          2
 dev   eksik-kanit                 20
 dev   korpus-disi                103
 test  anlamsiz-ood                31
-test  canary-cevaplanabilir       17
-test  canary-cevaplanamaz          3
+test  retrieval_eval-cevaplanabilir       17
+test  retrieval_eval-cevaplanamaz          3
 test  eksik-kanit                 20
 test  korpus-disi                 97
 ------------------------------------
@@ -51,20 +51,20 @@ TEMİZ — tüm kontroller geçti.
 Yükleme kontrolü:
 
 ```
-$ uv run python -c "from belge_gozu.bench.dataset import load_bench; qs=load_bench('data/bench/unans_v1.jsonl', only_verified=False); print(len(qs))"
+$ uv run python -c "from belge_gozu.bench.dataset import load_bench; qs=load_bench('data/bench/abstention_eval_v1.jsonl', only_verified=False); print(len(qs))"
 300
 ```
 
 
 ## 2. Split bileşimi
 
-| küme | korpus-dışı | anlamsız | eksik-kanıt | canary cevaplanamaz | **cevaplanamaz toplam** | **canary cevaplanabilir** |
+| küme | korpus-dışı | anlamsız | eksik-kanıt | retrieval_eval cevaplanamaz | **cevaplanamaz toplam** | **retrieval_eval cevaplanabilir** |
 |---|---|---|---|---|---|---|
 | dev | 103 | 29 | 20 | 2 | **154** | **26** |
 | test | 97 | 31 | 20 | 3 | **151** | **17** |
 
 Hedef ≈150 cevaplanamaz + ≈17 cevaplanabilir → fiilî **151 + 17**. 
-Canary cevaplanabilir bölünmesi hedeflenen **26 dev / 17 test** ile birebir.
+RetrievalEval cevaplanabilir bölünmesi hedeflenen **26 dev / 17 test** ile birebir.
 
 
 22 test belgesi (2 RG taraması dahil): `k1136 k1163 k1512 k2828 k2918 k3194 k4054 k4734 k4735 k5188 k5237 k5411 k5490 k6098 k6102 k6183 k6284 k6331 k634 k6698 rg1935a rg1945a`

@@ -21,11 +21,11 @@ Sayısal hedef: **`paraphrase` R@50 ≥ 0,90** (G1.2 eşiği; taban 0,5714). Ara
 
 ## Birincil metrik (TEK)
 
-**`paraphrase` dilimi R@50**, `data/bench/canary_v2.jsonl` üzerinde,
+**`paraphrase` dilimi R@50**, `data/bench/retrieval_eval_v2.jsonl` üzerinde,
 `--min-verification human` altkümesinde (n=21, tamamı insan-doğrulanmış).
 
 Dilim seçildi, genel sayı değil: genel R@5 bir **dilim karışımı** özelliğidir ve
-setler arası karşılaştırmaya uygun değildir (bkz. `data/bench/canary_v2.README.md`
+setler arası karşılaştırmaya uygun değildir (bkz. `data/bench/retrieval_eval_v2.README.md`
 §4). Hedef dilimin kendi içindeki sayı karşılaştırılabilir olandır.
 
 Guardrail'ler (karar metriği DEĞİL; kesin gerileme bir deneyi veto edebilir):
@@ -156,7 +156,7 @@ bir veritabanı değil **önbellek**.
 (28 ms vs 87 ms), üstelik nicemleme hatası sıfır. int8 görsel kanalda doğru
 karardı çünkü orada 1,9 GB fp32 bağlayıcı kısıttı; metin kanalı ölçeğinde o kısıt
 yok, yani int8'i miras almak 3× gecikme + recall kaybı demek olurdu. 1-bit de
-yasak (repo zaten ölçmüş: canary top-1 int8 0,6250 vs 1-bit 0,4953).
+yasak (repo zaten ölçmüş: retrieval_eval top-1 int8 0,6250 vs 1-bit 0,4953).
 
 **pylate: HAYIR.** Kurulumu torch 2.13.0 → 2.11.0 ve transformers 5.15.1 → 5.3.0
 **düşürüyor** (pylate 1.6.0 `transformers<=5.3.0` ve `sentence-transformers==5.3.0`

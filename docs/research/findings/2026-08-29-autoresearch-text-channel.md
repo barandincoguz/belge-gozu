@@ -6,7 +6,7 @@
   canlı demoda "verilen sayfalarda bulamadım" alıyor.
 - **Yöntem:** Karpathy autoresearch metodolojisi (`github.com/karpathy/autoresearch`) —
   proje skill'i `.claude/skills/autoresearch/SKILL.md`, program `research/program.md`.
-  Tek metrik (canary-answerable n=43 R@5), tek değiştirilebilir dosya
+  Tek metrik (retrieval_eval-answerable n=43 R@5), tek değiştirilebilir dosya
   (`research/retrieve.py`), donuk harness (`evaluate.py`), tut/geri-al, git=hafıza.
 - **Artefaktlar:** `research/journal.md` (deney kayıtları), `research/results.jsonl`
   (künyeli sayılar), `data/bench/results/showcase-queries-diagnosis.json` (teşhis),
@@ -49,7 +49,7 @@ ilk taslağındaki 0.116 eski 1-bit üretimin sayısıydı (int8 geçişi tek ba
 ## 3. Kazanan reçete (exp7, `research/retrieve.py` @ HEAD)
 
 PDF metin katmanı üzerinde **BM25** (k1=1.5, b=0.75) + `tr_lower` + `\w+`/≥2 harf +
-**sabit Türkçe işlev-kelime listesi** (canary'ye ayarsız; "zaman"/"iş" gibi içerik-riskli
+**sabit Türkçe işlev-kelime listesi** (retrieval_eval'ye ayarsız; "zaman"/"iş" gibi içerik-riskli
 kelimeler bilinçli dışarıda) + **F5 ön-ek kırpması** (Türkçe eklemeli; Can vd. Turkish IR) +
 **doküman-adı pencere-içi yönlendirmesi**: her dokümanın adı kendi 1. sayfa başlık
 satırından türetilir (elle tablo yok → sızıntı yok), adın jenerik-dışı TÜM token'ları
@@ -82,7 +82,7 @@ Notlar: c202 görselin eski tekil kazanımıydı (metin-only reçetede kayboldu 
 tavanının maliyeti, bilinçli); c214 madde-numaralı sorgu ("madde 7") — madde-numarası
 kanalı denenmedi (aday: pencere-içi "Madde N" başlık eşleşmesi); c206 (KVKK kısaltması
 ad-yönlendirmesine yakalanmıyor) + c209 (Anayasa, ad token'ı kısmi) yönlendirme
-kapsamı dışı. Sınırlar: canary 45/48 model-cross-check (insan-doğrulanmış sayılmaz);
+kapsamı dışı. Sınırlar: retrieval_eval 45/48 model-cross-check (insan-doğrulanmış sayılmaz);
 dogrudan-madde dilimi sözcüksel örtüşmeyle BM25 lehine; sayılar araştırma
 harness'ından — üretim entegrasyonu ölçümü P1'de yeniden yapılır.
 

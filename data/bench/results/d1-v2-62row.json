@@ -33,7 +33,7 @@
  },
  "config": {
   "pipeline": "hybrid",
-  "bench": "data/bench/canary_v2.jsonl",
+  "bench": "data/bench/retrieval_eval_v2.jsonl",
   "verification": {
    "only_verified": false,
    "min_verification": null,

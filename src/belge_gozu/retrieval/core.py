@@ -98,7 +98,7 @@ class ExhaustiveRetriever:
     taşındı).
 
     Ortak bant = KARŞILAŞTIRILABİLİRLİK, kalibrasyon taşınabilirliği DEĞİL:
-    temsiller aynı ölçeğe girer ama aynı DAĞILIMA girmez (ölçüm: canary
+    temsiller aynı ölçeğe girer ama aynı DAĞILIMA girmez (ölçüm: retrieval_eval
     top-1 medyanı int8 0.6250 vs 1-bit 0.4953). Bu yüzden tek bir
     `min_score_threshold` yalnız üzerinde taşındığı temsilde geçerlidir —
     ayrıntı config.py'deki eşik yorumunda.

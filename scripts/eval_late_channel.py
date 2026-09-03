@@ -62,7 +62,7 @@ def main() -> int:
     bm25, doc_names = load_text_channel(s.index_dir, page_ids)  # DONMUŞ, sayfa üzerinde
 
     channels = [load_channel(REPO_ROOT / p, chunk_pages) for p in ARMS]
-    bench = (REPO_ROOT / "data/bench/canary_v2.jsonl").read_text().splitlines()
+    bench = (REPO_ROOT / "data/bench/retrieval_eval_v2.jsonl").read_text().splitlines()
     rows = [json.loads(x) for x in bench if x.strip()]
     human = [
         r for r in rows if r["answerable"] and r.get("verification_kind") == "human"

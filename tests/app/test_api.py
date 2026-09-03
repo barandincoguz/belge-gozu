@@ -134,9 +134,9 @@ def test_healthz_owns_retrieval_labels(tiny_corpus):
 
 
 def test_healthz_reports_late_candidate_channel(tiny_corpus):
-    retrieval = make_client(tiny_corpus, late_channel_enabled=False).get("/healthz").json()[
-        "retrieval"
-    ]
+    retrieval = (
+        make_client(tiny_corpus, late_channel_enabled=False).get("/healthz").json()["retrieval"]
+    )
     assert retrieval["late_channel"] == "disabled"
 
 
@@ -702,7 +702,10 @@ def test_ui_shows_six_example_chips_and_both_channels(tiny_corpus):
 
 def test_ui_uses_server_owned_retrieval_truth_and_no_match_state(tiny_corpus):
     html = make_client(tiny_corpus).get("/").text
-    assert "Altı örneğin dördü canary setinden; ikisi vitrin için seçilmiş sorgulardır." in html
+    assert (
+        "Altı örneğin dördü retrieval_eval setinden; ikisi vitrin için seçilmiş sorgulardır."
+        in html
+    )
     assert "let THRESHOLD = 10.6" not in html
     assert "const pacing" not in html
     assert "const SCAN_LABEL" not in html
@@ -1079,16 +1082,16 @@ def test_ui_survives_a_response_without_hits(tiny_corpus):
     assert "renderChart(data.hits)" not in html
 
 
-def test_ui_never_claims_the_canary_is_human_verified(tiny_corpus):
-    """DÜRÜSTLÜK KİLİDİ: canary'nin 48 satırının yalnız 3'ü insan doğrulamalı,
+def test_ui_never_claims_the_retrieval_eval_is_human_verified(tiny_corpus):
+    """DÜRÜSTLÜK KİLİDİ: retrieval_eval'nin 48 satırının yalnız 3'ü insan doğrulamalı,
     45'i model-çapraz-kontrol. Arayüz bir dönem künyede "43 soruluk
-    insan-doğrulamalı canary" yazıyordu (2026-08-31 plan/spec denetimi) —
+    insan-doğrulamalı retrieval_eval" yazıyordu (2026-08-31 plan/spec denetimi) —
     yayınlanan tek gerçek-dışı iddia buydu ve projenin bütün değer önerisi
     ölçüm dürüstlüğü olduğu için en pahalı hata sınıfı. README zaten doğruydu;
     kilit arayüz tarafında eksikti."""
     c = make_client(tiny_corpus)
     html = c.get("/").text
-    assert "insan-doğrulamalı canary" not in html
-    assert "insan doğrulamalı canary" not in html
+    assert "insan-doğrulamalı retrieval_eval" not in html
+    assert "insan doğrulamalı retrieval_eval" not in html
     # ve künye gerçeği AÇIKÇA söylüyor
     assert "3'ü insan" in html and "45'i model-çapraz-kontrol" in html

@@ -725,7 +725,7 @@ def test_bench_answers_writes_answer_metrics_and_provenance(tmp_path: Path, monk
             "\n"
             + json.dumps(
                 _bench_row(
-                    question_id="q-unans",
+                    question_id="q-no-answer",
                     question="Fransa'da asgari ücret nedir?",
                     answerable=False,
                     gold_doc_ids=[],
@@ -767,7 +767,7 @@ def test_bench_answers_writes_answer_metrics_and_provenance(tmp_path: Path, monk
     assert report["calibrator_key"] is None or isinstance(report["calibrator_key"], str)
     assert report["dataset"]["bench"]["sha256"]
     assert report["dataset"]["splits"]["sha256"]
-    assert [row["question_id"] for row in report["records"]] == ["q1", "q2", "q-unans"]
+    assert [row["question_id"] for row in report["records"]] == ["q1", "q2", "q-no-answer"]
     assert len(client.prompts) == 2
 
 

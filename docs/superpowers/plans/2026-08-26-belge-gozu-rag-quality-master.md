@@ -17,7 +17,7 @@
 
 ```
 P0 (retrieval correctness + ölçüm altyapısı)
- ├─ üretir: bench veri modeli + canary set + harness + oracle'lar
+ ├─ üretir: bench veri modeli + retrieval_eval set + harness + oracle'lar
  ├─ üretir: IndexManifest + fail-fast + maskeli encoder + format kararı (A1/A2/A3)
  ├─ üretir: ExhaustiveBinaryRetriever (üretim yolu), kuantizasyon kararı (C2)
  └─ KAPI G0 ──geçmeden──X──> P1 default entegrasyonu, P2 kalibrasyonu BAŞLAYAMAZ
@@ -101,18 +101,18 @@ bozarsa ilgili flag kapatılır, fix ayrı commit'le gelir.
 | Kapı | Ölçüt | Eşik | Ölçüm aracı |
 |---|---|---|---|
 | G0.1 | `k4721:4` corpus coverage (indekste, meta'da, checksum'da) | kanıtlı | `bench run` coverage bölümü |
-| G0.2 | Sorgu A + B kalıcı regression setinde | evet | `tests/retrieval/test_semantic_canary.py` (slow) |
+| G0.2 | Sorgu A + B kalıcı regression setinde | evet | `tests/retrieval/test_semantic_retrieval_eval.py` (slow) |
 | G0.3 | Üretim candidate generator gold Recall@candidate | ≥ %98 (exhaustive yol: %100 tanım gereği; Stage-1 varyantı ancak bu eşikle girebilir) | harness candidate_survival |
 | G0.4 | Exhaustive binary + native float oracle her koşumda karşılaştırılabilir | evet | `bench oracle` + EvalReport oracle-gap |
 | G0.5 | İndeks/processor uyumsuzluğu fail-fast | test kanıtlı | `tests/index/test_manifest.py`, `tests/app/test_compat.py` |
 | G0.6 | Padding satırları skorlanmıyor (yeni indekste 0 all-zero satır) | 0 satır | `bench run` index-audit + birim test |
 | G0.7 | Kuantizasyon kaybı sayılandırıldı (C1/C2 tablosu) | rapor var | p0-gate.md tablosu |
-| G0.8 | Sorgu B (`Yerleşim yeri nedir?`) üretim hattında top-5 | evet | semantic canary testi |
+| G0.8 | Sorgu B (`Yerleşim yeri nedir?`) üretim hattında top-5 | evet | semantic retrieval_eval testi |
 | G0.9 | Baseline raporu (mevcut mimari) üretildi | commit'li | `docs/research/findings/` |
 | G1.1 | Candidate-union Recall@50 (overall, verified full bench) | ≥ %95 | harness |
 | G1.2 | Kritik dilimlerde Recall@50 (`dogrudan-madde`, `paraphrase`, `madde-numarali`, `ayni-kanun-hard-negative`) | ≥ %90 her biri | harness per-slice |
 | G1.3 | Reranker kazancı Recall@5 / MRR / nDCG@5, bootstrap CI ile | CI alt sınırı > 0 | harness + bootstrap_ci |
-| G1.4 | Sorgu A dayanak sayfası final top-5 | evet (zorunlu regression) | semantic canary testi |
+| G1.4 | Sorgu A dayanak sayfası final top-5 | evet (zorunlu regression) | semantic retrieval_eval testi |
 | G1.5 | Hybrid vs visual-only delta + latency/memory maliyeti raporlu | rapor var | p1-gate.md |
 | G1.6 | Kazanç göstermeyen katman default kapalı | denetim | p1-gate.md flag tablosu |
 | G1.7 | HF Space bütçeleri: index boyutu + peak RAM + p50/p95 ölçülü | rapor var; p95 hedefi raporda gerekçeli | p1-gate.md |
@@ -127,7 +127,7 @@ bozarsa ilgili flag kapatılır, fix ayrı commit'le gelir.
 
 ## 6. Deneylerin çalıştırılma sırası
 
-1. **P0-baseline:** mevcut indeks + mevcut format, canary set → B1/B2 (Stage-1 açık/kapalı,
+1. **P0-baseline:** mevcut indeks + mevcut format, retrieval_eval set → B1/B2 (Stage-1 açık/kapalı,
    aday sayısı taraması) + coverage. Çıktı: baseline EvalReport (G0.9).
 2. **P0-format:** f16 master embedding'lerle A1 (mevcut format) reindex → C1 float oracle;
    A2 (train-compat) reindex → A1-vs-A2; A3 (ST MultiVectorEncoder) sorgu/belge çapraz
@@ -147,7 +147,7 @@ raporlarında, faz başına bir kez kullanılır.
 
 ## 7. Benchmark ve index versioning
 
-- Benchmark dosyaları: `data/bench/canary_v1.jsonl` (P0), `data/bench/bench_v2.jsonl`
+- Benchmark dosyaları: `data/bench/retrieval_eval_v1.jsonl` (P0), `data/bench/bench_v2.jsonl`
   (P1), `data/bench/splits_v1.json` (law-grouped). Şema/dilim değişikliği → yeni sürüm
   dosyası; eski dosya silinmez. Sonuçlar `data/bench/results/<run_id>.json`; `run_id` =
   `<tarih>-<git-kisa-sha>-<index-format>-<quant>`.
@@ -168,12 +168,12 @@ raporlarında, faz başına bir kez kullanılır.
 | T6 VLM reranker (pointwise 0-10, top-20) | **Değiştirildi** | P1 T10: risk analizi + text cross-encoder birincil; recall-gate önkoşul (top-20'de gold yoksa rerank faydasız — Plan 2'nin ana kusuru) |
 | T7 LocalVLM answerer | **Ertelendi** | Retrieval correctness öncesi vitrin özelliği (ilke 23); P2 sonrası backlog |
 | T8 1475 sayılı Kanun korpus eki | **Ertelendi** | Korpus P0-P1 boyunca checksum'la donduruldu (benchmark bütünlüğü + A/B'lerde değişken izolasyonu). P1 kapısından sonra korpus rev v0.2 olarak, coverage ölçümüyle birlikte eklenir |
-| T9 Benchmark taslak + kullanıcı doğrulama | **Kısmen korunur** | P0 Task 10 (canary) + P1 Task 12 (full): ajan taslağı serbest ama final'e yalnız insan onayıyla; şema zenginleşti; leakage kuralları eklendi |
+| T9 Benchmark taslak + kullanıcı doğrulama | **Kısmen korunur** | P0 Task 10 (retrieval_eval) + P1 Task 12 (full): ajan taslağı serbest ama final'e yalnız insan onayıyla; şema zenginleşti; leakage kuralları eklendi |
 | T10 Kalibrasyon + ablasyon + tablolar | **Bölündü** | Retrieval ablasyonları P0/P1'e; threshold kalibrasyonu P2'ye (ilke 21: mimari sabitlenmeden kalibrasyon yok — Plan 2 bunu ihlal ediyordu) |
 
 Plan 2'nin ayrıca eleştirilen noktaları: Stage-1 oracle-recall ölçümünün hiç olmaması
 (P0'ın merkezi), model/processor contract + index manifest eksikliği (P0 T1-T4),
-gerçek-model semantic canary testlerinin yokluğu (P0 T10), pointwise VLM'in aday başına
+gerçek-model semantic retrieval_eval testlerinin yokluğu (P0 T10), pointwise VLM'in aday başına
 API maliyeti/skor güvenilirliği (P1 T10 risk analizi).
 
 ## 9. Risk register
@@ -187,7 +187,7 @@ API maliyeti/skor güvenilirliği (P1 T10 risk analizi).
 | HF Space: 2 vCPU'da exhaustive binary ~1.2 s (M4) → 3-6 s tahmini | Orta | UX gecikmesi | P1 G1.7 bütçe ölçümü; gerekirse int8 SIMD/chunk ayarı veya PLAID-tarzı centroid aday üretimi (Recall ≥ %98 kapısıyla) |
 | Cross-encoder CPU'da yavaş | Orta | p95 hedefi | Aday sayısı/model boyutu ablasyonu; madde-metni kısaltma; rerank flag'i |
 | Dense model bellek + indeks boyutu Space'i zorlar | Orta | Deploy | Madde-düzeyi embedding (sayfa değil) ~2-4k vektör; küçük model adayları; G1.7 |
-| Benchmark insan-doğrulama darboğazı | Yüksek | Takvim | Canary 30-50 ile P0 ilerler; full set P1 sonuna kadar paralel doğrulanır; doğrulanmamış soru kapı kararına giremez |
+| Benchmark insan-doğrulama darboğazı | Yüksek | Takvim | RetrievalEval 30-50 ile P0 ilerler; full set P1 sonuna kadar paralel doğrulanır; doğrulanmamış soru kapı kararına giremez |
 | Gemini kota (≈20 çağrı/gün) P2 verifier'ı sıkar | Yüksek | P2 deney hızı | Verifier çağrıları önbellekli + toplu koşumlar güne bölünür; claim segmentation deterministik ön-parçalama ile çağrı sayısı düşürülür; bütçe her runbook'ta açık |
 | LLM-judge güvenilirliği | Orta | P2 metrik geçerliliği | ARES-PPI yaklaşımı: yalnız insan-doğrulamalı subset ile kalibre edilmiş yardımcı |
 | Tek geliştirici + uzun plan seti | Yüksek | Sürüklenme | Her task bağımsız commit + kapı raporları; fazlar kendi başına değerli çıktı bırakır |
@@ -211,10 +211,10 @@ P0 tamamlandı; kapı raporu `docs/research/findings/2026-08-27-p0-gate.md` (KO�
 | # | Devredilen iş | Ölçülmüş gerekçe | Ruling |
 |---|---|---|---|
 | D1 | **int8 indeksin üretim yoluna bağlanması** (P1'in İLK işi olmalı) | int8, float16 ile her k'da birebir aynı; 1-bit'in R@20 kaybı 7.0 puan VE 1-bit 4.5× daha yavaş (1.08 s vs 0.24 s). Üretim hâlâ 1-bit çünkü `ExhaustiveBinaryRetriever` yalnız `PackedIndex` tüketiyor. | R16 |
-| D2 | **Eşik/abstain kalibrasyonu** — P2'nin konusu ama P1'in kanal seçimini de etkiler | Eşik 60.0 ARTIK AYIRMIYOR: cevaplanamaz sorular 59.65-71.95, cevaplanabilirler 59.85-78.50 — dağılımlar örtüşüyor. `tests/retrieval/test_semantic_canary.py`'de xfail(strict=True) ile kilitli. | — |
+| D2 | **Eşik/abstain kalibrasyonu** — P2'nin konusu ama P1'in kanal seçimini de etkiler | Eşik 60.0 ARTIK AYIRMIYOR: cevaplanamaz sorular 59.65-71.95, cevaplanabilirler 59.85-78.50 — dağılımlar örtüşüyor. `tests/retrieval/test_semantic_retrieval_eval.py`'de xfail(strict=True) ile kilitli. | — |
 | D3 | **Uzun sorgu (c001) hâlâ 1221. sırada** — G1.4'ün hedefi | Format düzeltmesi 3127→1221 getirdi ama top-5 için hibrit metin kanalı şart. | — |
 | D4 | `FloatIndex`'in `bench/` paketinden `index/`e taşınması (layering) | `index/quantize.py` hâlâ `bench.oracle`'dan import ediyor; `chunk_bounds`/`git_commit` taşındı, bu kaldı. | — |
-| D5 | Benchmark insan doğrulaması (canary 48 satır hâlâ `draft`) | Bütün kapı sayıları bu nedenle geçicidir; mekanizma kapıları (G0.1/G0.4/G0.5/G0.6) etkilenmez, recall tabanlı olanlar yeniden hesaplanmalı. | — |
+| D5 | Benchmark insan doğrulaması (retrieval_eval 48 satır hâlâ `draft`) | Bütün kapı sayıları bu nedenle geçicidir; mekanizma kapıları (G0.1/G0.4/G0.5/G0.6) etkilenmez, recall tabanlı olanlar yeniden hesaplanmalı. | — |
 | D6 | colpali-engine ↔ Sentence Transformers arası ~%0.8 sign farkı | CPU/fp32'de de sürüyor (dtype değil implementasyon kaynaklı); mean cosine ≥ 0.9995. Binary indeksin referans-sadakati açık soru. | — |
 
 **Güncelleme (2026-08-29, commit `b790f6c`):** D1 ve D4 KAPANDI — üretim int8'e geçti
@@ -223,13 +223,13 @@ P0 tamamlandı; kapı raporu `docs/research/findings/2026-08-27-p0-gate.md` (KO�
 MEKANİK ölçek taşımasıyla geçirildi (kalibrasyon değil; binary@60 çalışma noktası birebir),
 int8'de de ayırmıyor (answerable medyan 0.6250 / unanswerable 0.6550 — örtüşme temsilden
 bağımsız), xfail kilidi int8 sayılarıyla duruyor. D3 güncellendi: uzun sorgu int8'de 1221→**664**
-(cırcır `canary_expectations.json` quantization anahtarıyla 664'e çekildi); top-5 için hibrit
+(cırcır `retrieval_eval_expectations.json` quantization anahtarıyla 664'e çekildi); top-5 için hibrit
 kanal gereksinimi değişmedi. D5 güncellendi: 48/48 satır doğrulandı (3 insan + 45
-model-cross-check — insan-doğrulanmış SAYILMAZ, künye `canary_v1.README.md`). Eşlik eden
+model-cross-check — insan-doğrulanmış SAYILMAZ, künye `retrieval_eval_v1.README.md`). Eşlik eden
 bağlaşım denetimi: `docs/research/findings/2026-08-29-config-coupling-audit.md`.
 
 **Güncelleme 2 (2026-08-29 akşam):** Autoresearch döngüsü (Karpathy metodolojisi,
-`research/`) metin kanalını ÖLÇTÜ: BM25+F5+stoplist+pencere-yönlendirme reçetesi canary
+`research/`) metin kanalını ÖLÇTÜ: BM25+F5+stoplist+pencere-yönlendirme reçetesi retrieval_eval
 R@5 0.2326→**0.8140**; eşit-RRF ölçümle reddedildi (0.395); görselin @5 benzersiz katkısı
 F5 sonrası 0 soru. Bulgular: `docs/research/findings/2026-08-29-autoresearch-text-channel.md`.
 Ruling R23: P1 kapsamı "ölçülmüş reçetenin üretimleştirilmesi" olarak daraltıldı

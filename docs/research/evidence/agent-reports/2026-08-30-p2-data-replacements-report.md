@@ -1,12 +1,12 @@
-# P2 veri — `unans_v1.jsonl` yedek parti raporu (u301–u330)
+# P2 veri — `abstention_eval_v1.jsonl` yedek parti raporu (u301–u330)
 
 **Tarih:** 2026-08-30 · **Rol:** taslak yazan ajan (drafter) ·
 **Kanıt:** yalnız `data/research/page_texts.parquet` (4222 sayfa / 56 belge).
 Ağ yok, Gemini yok, alt-ajan yok.
 
-Dokunulan dosyalar: `data/bench/unans_v1.jsonl` (30 satır eklendi),
-`data/bench/unans_v1.README.md` (§8 eklendi).
-`scripts/validate_unans.py` bilerek DEĞİŞTİRİLMEDİ (bkz. §4).
+Dokunulan dosyalar: `data/bench/abstention_eval_v1.jsonl` (30 satır eklendi),
+`data/bench/abstention_eval_v1.README.md` (§8 eklendi).
+`scripts/validate_abstention_eval.py` bilerek DEĞİŞTİRİLMEDİ (bkz. §4).
 
 ---
 
@@ -221,7 +221,7 @@ regex ile tarandı. Uygulanan kurallar:
 
 ## 4. Doğrulayıcı: tek ihlal, tek satırlık sabit
 
-`uv run python scripts/validate_unans.py` şu an **tek ihlalle kırmızı**:
+`uv run python scripts/validate_abstention_eval.py` şu an **tek ihlalle kırmızı**:
 
 ```
 İHLAL: 1
@@ -243,7 +243,7 @@ bilerek DEĞİŞTİRİLMEDİ (`scripts/` paralel bir ajanın dosyası; brief de
 ve betik `TEMİZ` basar. Yani şema, kimlik (`u301..u330` sıra kontrolü satır
 numarasından türediği için sorunsuz), cevaplanamazlık değişmezleri, çapa
 yokluğu (numara + ad-token), soru-çapa anma, doğrulama künyesi, yakın-tekrar
-(0 çift; mevcut 300 + canary'ye karşı) ve split türetimi kontrollerinin
+(0 çift; mevcut 300 + retrieval_eval'ye karşı) ve split türetimi kontrollerinin
 **tamamı bu 30 satır için temiz geçiyor.**
 
 Sahibinin yapması gereken tek satır:
@@ -256,7 +256,7 @@ Yükleme kontrolü zaten geçiyor:
 
 ```
 uv run python -c "from belge_gozu.bench.dataset import load_bench; \
-  print(len(load_bench('data/bench/unans_v1.jsonl', only_verified=False)))"   # 330
+  print(len(load_bench('data/bench/abstention_eval_v1.jsonl', only_verified=False)))"   # 330
 ```
 
 ---

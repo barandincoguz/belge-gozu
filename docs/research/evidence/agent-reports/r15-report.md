@@ -2,7 +2,7 @@
 
 ## Problem
 `bench run` and `bench oracle` in `src/belge_gozu/cli.py` called `load_bench(bench)`,
-which defaults to `only_verified=True`. `data/bench/canary_v1.jsonl` (48 rows) is
+which defaults to `only_verified=True`. `data/bench/retrieval_eval_v1.jsonl` (48 rows) is
 currently all `verification_status="draft"` (human verification pending), so both
 commands raised `ValueError` and no measurement could run at all.
 

@@ -150,7 +150,7 @@ class AskService:
 
     DÜRÜST SINIR (p2-reality-audit T2/1): bayraklar kapalıyken geri düşülen
     eşik GÜVENLİ bir kapı DEĞİLDİR — ölçümde cevaplanamaz 5 sorunun 4'ü onu
-    geçiyor (`tests/retrieval/test_semantic_canary.py` xfail(strict) kilidi).
+    geçiyor (`tests/retrieval/test_semantic_retrieval_eval.py` xfail(strict) kilidi).
     Yani "flag kapalı = eski davranış" cümlesi bir güvence değil, bir
     değişmezlik beyanıdır.
     """

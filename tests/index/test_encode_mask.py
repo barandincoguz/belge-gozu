@@ -93,7 +93,7 @@ def test_batch_vs_single_sign_determinism():
 
     ==1.0 MPS'te tutmadı (ölçüm: 0.9990/0.9989, 2026-08-26); karar: index
     build batch_size=1 (cli.py). Bu eşik yalnız kaba gerilemeleri (ör.
-    maskeleme bozulması) yakalar; bit-exact kilit T10 canary testlerinde."""
+    maskeleme bozulması) yakalar; bit-exact kilit T10 retrieval_eval testlerinde."""
     from pathlib import Path
 
     from PIL import Image
@@ -101,7 +101,7 @@ def test_batch_vs_single_sign_determinism():
     from belge_gozu.index.encode import ColSmolEncoder
 
     # Veri yolları CWD'ye değil repo köküne göre çözülür ve eksikse atlanır
-    # (fresh clone / veri indirilmemiş) — test_semantic_canary.py'deki desen.
+    # (fresh clone / veri indirilmemiş) — test_semantic_retrieval_eval.py'deki desen.
     root = Path(__file__).resolve().parents[2] / "data"
     # k6098:134 v0 indeksinde padding satırı olan sayfalardan biri (bulgu 20)
     paths = ["images/k6098/0134.webp", "images/k4721/0004.webp", "images/rg1965a/0001.webp"]

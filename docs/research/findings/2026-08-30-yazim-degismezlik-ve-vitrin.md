@@ -15,8 +15,8 @@ katlanmış uzayda, F5 sonra): sistem artık **iki yazım koşulunda da birebir 
 
 | Koşul | Önce (exp8) | Sonra (exp12, üretim) |
 |---|---|---|
-| Aksanlı canary R@5 | 0.8372 | **0.8605 (37/43)** |
-| AKSANSIZ canary R@5 | 0.5814 | **0.8605 (37/43)** |
+| Aksanlı retrieval_eval R@5 | 0.8372 | **0.8605 (37/43)** |
+| AKSANSIZ retrieval_eval R@5 | 0.5814 | **0.8605 (37/43)** |
 
 R@20 0.9302, visual 8/8, chip'ler 2/2 aynen. Bedel: aksanlı MRR 0.655→0.632 (katlama
 çakışmaları; düşenler sunulan top-5 İÇİNDE kalır) — program R26 istisnasıyla kabul;
@@ -53,7 +53,7 @@ fractional 0.8488** (`data/bench/results/20260830-1611-6d5b345-hybrid.json`).
 - **Durum-güdümlü arayüz:** mühür yalnız `status=abstained`; `degraded` için ayrı bant
   ("yanıt servisi geçici kapalı — arama sonuçları geçerli"; canlıda geçici bir Gemini
   503 bu yolu kendiliğinden doğruladı); 422/ağ hataları dostane Türkçe mesaj.
-- **6 chip vitrini** (canary'den canlı-doğrulamalı, kategori etiketli): c001 uzun-TMK
+- **6 chip vitrini** (retrieval_eval'den canlı-doğrulamalı, kategori etiketli): c001 uzun-TMK
   (rank 2) · İş K izin (2) · c302 tablo-layout (1) · c307 tarihî-tarama (2) ·
   c110 paraphrase (3) · aksansız varyant (2) — sistemin genişliği tek bakışta.
 - Kanal şeffaflığı (BM25 + görsel mini gösterge), "nasıl çalışır" hibrit anlatımı

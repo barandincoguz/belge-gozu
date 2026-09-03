@@ -57,7 +57,7 @@ yeniden üretildi.
 * `retrieval/text.py` modül docstring'i — exp12 satırı + exp13 (DISCARDED) satırı +
   yazım-değişmezlik paragrafı.
 * `retrieval/hybrid.py` docstring — `0.2326 -> 0.8372 -> 0.8605`.
-* slow canary docstring'leri — kısa sorgu (rank 1 / 10.71, katlama sonrası aynı), cırcır
+* slow retrieval_eval docstring'leri — kısa sorgu (rank 1 / 10.71, katlama sonrası aynı), cırcır
   (hâlâ 2/4222), xfail gerekçesi (23.52/12.96/17.86/15.54, bant `(10.5265, 10.7115]`).
 * README — aşağıda.
 
@@ -153,7 +153,7 @@ gösterilmiyorlar; renk burada dekorasyon değil, ölçek ayrımının taşıyı
 4. **"Nasıl çalışır"** — ilk yüklemede GÖRÜNÜR yeni bölüm: üç sütun
    (`metin kanalı · sıralar` / `yönlendirme · yeniden sıralar` / `görsel kanal · sıralamaz`
    — numara yok, çünkü görsel kanal aslında sırada değil; etiketler bunu söylüyor) +
-   künye satırı (R@5 0.8605 · R@20 0.9302 · 43 soruluk canary · 4.222 sayfa / 50 kanun ·
+   künye satırı (R@5 0.8605 · R@20 0.9302 · 43 soruluk retrieval_eval · 4.222 sayfa / 50 kanun ·
    aksanlı=aksansız) + kırmızı `uyarı:` satırı (kalibre değil, eşik çalışma noktası,
    kalan 6 soru sözcüksel tavan).
 5. **Meta + a11y + mobil** — Türkçe `<title>` + description + `og:title`/`og:description`
@@ -193,11 +193,11 @@ All checks passed!
 ```
 $ uv run pytest -m slow -v
 tests/index/test_encode_mask.py::test_batch_vs_single_sign_determinism PASSED
-tests/retrieval/test_semantic_canary.py::test_canary_gold_pages_covered PASSED
-tests/retrieval/test_semantic_canary.py::test_short_query_gold_in_top5 PASSED
-tests/retrieval/test_semantic_canary.py::test_long_query_rank_ratchet PASSED
-tests/retrieval/test_semantic_canary.py::test_accentless_query_ranks_identically PASSED
-tests/retrieval/test_semantic_canary.py::test_out_of_corpus_canary_scores_below_threshold XFAIL
+tests/retrieval/test_semantic_retrieval_eval.py::test_retrieval_eval_gold_pages_covered PASSED
+tests/retrieval/test_semantic_retrieval_eval.py::test_short_query_gold_in_top5 PASSED
+tests/retrieval/test_semantic_retrieval_eval.py::test_long_query_rank_ratchet PASSED
+tests/retrieval/test_semantic_retrieval_eval.py::test_accentless_query_ranks_identically PASSED
+tests/retrieval/test_semantic_retrieval_eval.py::test_out_of_corpus_retrieval_eval_scores_below_threshold XFAIL
 
 ================ 5 passed, 327 deselected, 1 xfailed in 21.08s =================
 ```
@@ -247,7 +247,7 @@ status dallanması: data.status + status === "abstained"/"degraded"/"answered" (
 | # | Etiket | qid | Soru | Gold | Canlı `/search` sırası | `/ask` |
 |---|---|---|---|---|---|---|
 | 1 | doğrudan madde | **c001** | Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır? | `k4721:4` | **2** | ✅ atıf `k4721:4` |
-| 2 | madde · çizelge | (vitrin chip 2, canary'de yok) | İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır? | `k4857:28` | **2** | ✅ atıf `k4857:28` |
+| 2 | madde · çizelge | (vitrin chip 2, retrieval_eval'de yok) | İş Kanunu'na göre yıllık ücretli izin süresi ne kadardır? | `k4857:28` | **2** | ✅ atıf `k4857:28` |
 | 3 | tablo · tarife | **c302** | 492 sayılı Kanun (9) sayılı tarife, B sınıfı sürücü belgesi harcı kanunla getirilen miktar nedir? | `k492:69` | **1** | ✅ atıf `k492:69` |
 | 4 | tarihî tarama | **c307** | 10 Kasım 1975 tarihli Resmî Gazete'de yayımlanan 7/10445 sayılı Kararname hangi konudadır? | `rg1975a:1` | **2** | ✅ atıf `rg1975a:33, rg1975a:1` |
 | 5 | kanun adı geçmiyor | **c110** | Onbir yaşındaki bir çocuk suç sayılan bir eylemde bulunursa hakkında ceza davası açılabilir mi? | `k5237:8` | **3** | ✅ atıf `k5237:8` |

@@ -1,4 +1,4 @@
-# Canary taslak satırı şeması (JSONL — her satır tek JSON nesnesi)
+# RetrievalEval taslak satırı şeması (JSONL — her satır tek JSON nesnesi)
 
 Zorunlu 17 alan (hepsi her satırda bulunmalı):
 

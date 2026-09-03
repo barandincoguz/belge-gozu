@@ -44,9 +44,9 @@ daha taşınabilir model seçilir.
 
 ## Veri ve sızıntı sınırı
 
-- Cevaplanabilir sınıf: `data/bench/canary_v2.jsonl` içindeki
+- Cevaplanabilir sınıf: `data/bench/retrieval_eval_v2.jsonl` içindeki
   `verification_kind == "human"` ve `answerable == true` satırları.
-- Cevaplanamaz sınıf: `data/bench/unans_v1.jsonl` içindeki
+- Cevaplanamaz sınıf: `data/bench/abstention_eval_v1.jsonl` içindeki
   `verification_status == "verified"` satırları. Bu setin büyük kısmı insan
   onaylı değildir; rapor bunu istatistiksel güvenceyle karıştırmayacak.
 - Etiket: `1` yalnız soru cevaplanabilir ve altın sayfalardan en az biri üretim

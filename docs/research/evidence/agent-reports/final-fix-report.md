@@ -22,7 +22,7 @@ yönlendirildi), model yalnız okuma amaçlı yüklendi, `git add -A` kullanılm
 | MINOR b | `test_dataset.py` totolojik assert | **fixed** | `sha256("ood1") % 2 == 0` → `"dev"` (somut değer) |
 | MINOR c | `batch_size = 1` gerekçesiz | **fixed** | MPS sign uyuşması 0.9990/0.9989 ölçümü yorumda |
 | MINOR d | slow encode testinde veri guard'ı yok | **fixed** | Repo köküne göre yol + `pytest.skip` |
-| MINOR e | CWD'ye bağlı veri yolları | **fixed** | `parents[N]` ile repo kökü; canary dosyaları artık collection anında okunmuyor |
+| MINOR e | CWD'ye bağlı veri yolları | **fixed** | `parents[N]` ile repo kökü; retrieval_eval dosyaları artık collection anında okunmuyor |
 | MINOR f | `tests/app/__init__.py` eksik | **fixed** | Eklendi |
 | MINOR g | `d1_augmentation.py` docstring örneği | **fixed** | `--index data/index-traincompat-1bit` |
 
@@ -74,7 +74,7 @@ dönük re-export). Sessizce atlanmadı, bilinçli olarak bir sonraki tura bıra
 
 ### IMPORTANT 6 — abstain kilidi: test yazıldı, **iddia ölçümle çürüdü**
 
-İstenen test yazıldı (canary'nin `korpus-disi` satırları, üretim yolu, top-1 skor <
+İstenen test yazıldı (retrieval_eval'nin `korpus-disi` satırları, üretim yolu, top-1 skor <
 eşik). **Ölçüm iddiayı doğrulamadı** — üç korpus-dışı sorunun üçü de eşiği geçiyor:
 
 | soru | dilim | top-1 skor | eşik 60.0 |
@@ -83,7 +83,7 @@ eşik). **Ölçüm iddiayı doğrulamadı** — üç korpus-dışı sorunun üç
 | c004 | korpus-disi | 71.95 | **geçiyor** |
 | c005 | korpus-disi | 67.88 | **geçiyor** |
 
-Tüm canary üzerinde dağılımlar (2026-08-27, `data/index-traincompat-1bit`, exhaustive):
+Tüm retrieval_eval üzerinde dağılımlar (2026-08-27, `data/index-traincompat-1bit`, exhaustive):
 
 | küme | n | min | medyan | maks | eşiğin altında |
 |---|---|---|---|---|---|
@@ -104,7 +104,7 @@ ne de sessizce "düzelmiş" sayılabilir. `config.py` yorumu ve README'nin
 
 > Not: README'nin "Example queries" tablosundaki iki "Clean abstain" satırı eski
 > indeks/format altında ölçülmüştü ve bugünkü pipeline'da muhtemelen artık geçerli
-> değil (aynı sorulardan biri canary'de 73.17 ile top-5'e giriyor). Bu tabloyu uçtan
+> değil (aynı sorulardan biri retrieval_eval'de 73.17 ile top-5'e giriyor). Bu tabloyu uçtan
 > uca yeniden ölçmek bu turun kapsamı dışındaydı — bir sonraki tur için işaretlendi.
 
 ## Doğrulama çıktıları
@@ -124,10 +124,10 @@ All checks passed!
 
 ```
 tests/index/test_encode_mask.py::test_batch_vs_single_sign_determinism PASSED [ 20%]
-tests/retrieval/test_semantic_canary.py::test_canary_gold_pages_covered PASSED [ 40%]
-tests/retrieval/test_semantic_canary.py::test_short_query_gold_in_top5 PASSED [ 60%]
-tests/retrieval/test_semantic_canary.py::test_long_query_rank_ratchet PASSED [ 80%]
-tests/retrieval/test_semantic_canary.py::test_out_of_corpus_canary_scores_below_threshold XFAIL [100%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_retrieval_eval_gold_pages_covered PASSED [ 40%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_short_query_gold_in_top5 PASSED [ 60%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_long_query_rank_ratchet PASSED [ 80%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_out_of_corpus_retrieval_eval_scores_below_threshold XFAIL [100%]
 
 ================ 4 passed, 165 deselected, 1 xfailed in 25.44s =================
 ```
@@ -195,5 +195,5 @@ data/index-traincompat-int8   n=4222  packed ile birebir esit=True
 `tests/`: `conftest.py`, `test_cli.py`, `app/__init__.py` (yeni), `app/test_api.py`,
 `app/test_compat.py`, `bench/test_dataset.py`, `corpus/test_manifest.py`,
 `index/test_manifest.py`, `index/test_encode_mask.py`,
-`retrieval/test_semantic_canary.py` ·
+`retrieval/test_semantic_retrieval_eval.py` ·
 kök: `README.md`, `scripts/d1_augmentation.py`

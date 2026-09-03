@@ -71,9 +71,9 @@
       "k6698",
       "rg1935a"
     ],
-    "pinned_rationale": "canary'de cevaplanabilir sorusu OLAN 13 belgeden bu 4'ü test'e sabitlendi; toplamları tam 17 cevaplanabilir soru eder (43'ün ~%40'ı), yani hedeflenen 26 dev / 17 test bölünmesini tek bir seçimle verir. Geri kalan 9 canary belgesi dev'de kalır.",
-    "fill_rule": "Kalan 18 yer, canary'de cevaplanabilir sorusu OLMAYAN 43 belge arasından sha256(seed|doc_id) artan sırayla doldurulur (canary belgeleri doldurmaya kapalıdır; aksi halde test'e giren her ek canary belgesi 26/17 hedefini kaydırırdı). Önce >=2 RG tarama belgesi garantisi için en düşük hash'li serbest RG belgesi alınır (rg1935a zaten sabitli), ardından RG olmayanlardan sırayla.",
-    "reproduce": "uv run python scripts/validate_unans.py — test_docs'u bu kuralla yeniden türetir ve dosyadakiyle karşılaştırır."
+    "pinned_rationale": "retrieval_eval'de cevaplanabilir sorusu OLAN 13 belgeden bu 4'ü test'e sabitlendi; toplamları tam 17 cevaplanabilir soru eder (43'ün ~%40'ı), yani hedeflenen 26 dev / 17 test bölünmesini tek bir seçimle verir. Geri kalan 9 retrieval_eval belgesi dev'de kalır.",
+    "fill_rule": "Kalan 18 yer, retrieval_eval'de cevaplanabilir sorusu OLMAYAN 43 belge arasından sha256(seed|doc_id) artan sırayla doldurulur (retrieval_eval belgeleri doldurmaya kapalıdır; aksi halde test'e giren her ek retrieval_eval belgesi 26/17 hedefini kaydırırdı). Önce >=2 RG tarama belgesi garantisi için en düşük hash'li serbest RG belgesi alınır (rg1935a zaten sabitli), ardından RG olmayanlardan sırayla.",
+    "reproduce": "uv run python scripts/validate_abstention_eval.py — test_docs'u bu kuralla yeniden türetir ve dosyadakiyle karşılaştırır."
   },
   "unanswerable_rule": {
     "implementation": "belge_gozu.bench.dataset.assign_split(question, splits)",
@@ -82,7 +82,7 @@
     "eksik-kanit": "_subject_doc test_docs içindeyse test, değilse dev. Konu korpustaki bir belge olduğu için cevaplanabilir sorularla AYNI hukuk-gruplu bölmeyi paylaşmak zorundadır; aksi halde dev'de okunan bir kanunun 'kanıtı yok' sorusu test'e sızardı.",
     "cevaplanabilir": "gold_doc_ids[0] test_docs içindeyse test, değilse dev."
   },
-  "canary_answerable_split": {
+  "retrieval_eval_answerable_split": {
     "dev": 26,
     "test": 17
   }

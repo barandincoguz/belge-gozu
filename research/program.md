@@ -9,16 +9,16 @@ Vitrin sorgularının sınıfını düzeltmek: kanun adı içeren uzun/hukuki T�
 sorgularda gold sayfa top-5'e girmiyor (teşhis: doküman kimliği yakalanıyor —
 TMK sorgusunda kapak sayfası rank 1 — ama madde içeriği sayfası kayboluyor;
 `data/bench/results/showcase-queries-diagnosis.json`). Sayısal hedef:
-**canary R@5 ≥ 0.30** (taban 0.116'nın ~2.5 katı) — P1 hibrit hedefiyle uyumlu.
+**retrieval_eval R@5 ≥ 0.30** (taban 0.116'nın ~2.5 katı) — P1 hibrit hedefiyle uyumlu.
 
 ## Birincil metrik (TEK)
 
-**R@5** — doğrulanmış canary'nin 43 cevaplanabilir sorusunda, gold sayfalardan
+**R@5** — doğrulanmış retrieval_eval'nin 43 cevaplanabilir sorusunda, gold sayfalardan
 en az birinin ilk 5'e girdiği soru oranı. Harness: `research/evaluate.py`
-(DONUK). Kaynak veri: `data/bench/canary_v1.jsonl` (48 satır; 43 answerable).
+(DONUK). Kaynak veri: `data/bench/retrieval_eval_v1.jsonl` (48 satır; 43 answerable).
 
 Guardrail'ler (karar metriği DEĞİL; kesin gerileme bir deneyi veto edebilir):
-- R@1, R@20, MRR (canary aynı küme)
+- R@1, R@20, MRR (retrieval_eval aynı küme)
 - `requires_visual=true` alt-kümesinde R@5 (metin kanalı görsel soruları bozmasın)
 - Vaka analizleri: chip1 (TMK uzun, gold k4721:4) ve chip2 (İş K. izin, gold
   k4857:28) gold sırası — raporlanır, karara girmez (2 soruya overfit yasak).
@@ -53,7 +53,7 @@ HİÇBİR dosyaya dokunulmaz. `prepare.py`, `evaluate.py`, `program.md` ve
    türetilmiş temsiller (tokenizasyon, n-gram) serbest.
 3. Füzyonda önce RRF (ilke 24); öğrenilmiş ağırlık/reranker bu döngünün dışı.
 4. Eşik/abstain'e dokunulmaz (P2); LLM çağrısı yok (retrieval-only döngü).
-5. Canary soruları/gold'ları değiştirilemez (ölçüm aracı deney nesnesi olamaz).
+5. RetrievalEval soruları/gold'ları değiştirilemez (ölçüm aracı deney nesnesi olamaz).
 6. Deney başına bütçe: tek `evaluate.py` koşusu (saniyeler). Model yeniden
    yükleme gerektiren fikirler (yeni sorgu formatı vb.) bu döngünün DIŞI — P1'e not düşülür.
 
@@ -100,7 +100,7 @@ Edge-case sondajı gerçek-hayat kritik vakayı doğruladı: aksansız yazılan 
 ("Is Kanunu'na gore yillik ucretli izin suresi") gold'u tamamen kaybediyor.
 Çerçeve eki:
 
-- **İkinci koşul:** her deney iki koşulda ölçülür — (1) standart canary (aksanlı;
+- **İkinci koşul:** her deney iki koşulda ölçülür — (1) standart retrieval_eval (aksanlı;
   resmî evaluate.py) ve (2) AKSANSIZ türev (sorgular ASCII'ye katlanmış; analiz
   script'i — harness donuk kalır, sorular/gold'lar değişmez, yalnız yazım katlanır).
 - **Round-3 karar kuralı (şeffaf ek):** KEPT ⇔ aksanlı R@5 GERİLEMEZ VE aksansız

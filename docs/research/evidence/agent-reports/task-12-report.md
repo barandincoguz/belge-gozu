@@ -173,7 +173,7 @@ So on this synthetic Gaussian fixture, int8 deviates from true float MaxSim by
 well under 1% relative / ~0.06 absolute — an order of magnitude inside the
 brief's asserted tolerances. This is a sanity signal only; it is **not** a
 substitute for the real C1/C2 ablation (Step 5), which needs the actual
-production embedding distribution and the canary bench's Recall@20 metric to
+production embedding distribution and the retrieval_eval bench's Recall@20 metric to
 make the P0-gate decision.
 
 ## Self-review
@@ -212,7 +212,7 @@ make the P0-gate decision.
    exercise `corpus_checksum` recomputation or the `meta.parquet` copy step).
 2. **int8 deviation numbers above are synthetic**, not representative of the
    real ColSmol-500M embedding distribution/scale. The actual P0-gate
-   decision in Step 5 needs a real canary run with Recall@20 — this report's
+   decision in Step 5 needs a real retrieval_eval run with Recall@20 — this report's
    numbers are only a sanity check that the implementation is numerically
    correct, not evidence for the C1/C2 decision itself.
 3. `np.clip(..., -127, 127)` in `Int8Index.derive` is defensive (guards

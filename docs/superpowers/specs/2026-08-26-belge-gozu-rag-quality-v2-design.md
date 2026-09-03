@@ -162,7 +162,7 @@ held-out hukuk benchmark'ına göre). Aday havuzu ve karşılaştırma planı §
 Ayrıntılar plan dosyalarında; buradaki kapılar bağlayıcıdır.
 
 - **P0 — Retrieval correctness ve ölçülebilirlik.** Benchmark veri modeli + 30-50
-  soruluk human-verified canary set + stage-bazlı teşhis harness'ı + exhaustive/native
+  soruluk human-verified retrieval_eval set + stage-bazlı teşhis harness'ı + exhaustive/native
   oracle'lar + Stage-1'in kaldırılması + processor format A/B yeniden indeksleme +
   padding/mask düzeltmesi + index manifest + fail-fast + kuantizasyon ablasyonu +
   README/UI dürüstlük düzeltmeleri + kalite telemetri şeması.
@@ -191,7 +191,7 @@ geçmeden P2 **başlamaz**.
 
 ### 5.1 Ölçek ve aşamalama
 
-- **Canary v1 (P0):** 30-50 soru, tamamı insan-doğrulamalı; iki hedef sorgu dahil.
+- **RetrievalEval v1 (P0):** 30-50 soru, tamamı insan-doğrulamalı; iki hedef sorgu dahil.
 - **Final (P1 sonu):** ~120 cevaplanabilir + ~30 cevaplanamaz/OOD.
 - Agent/LLM taslakları doğrudan final'e girmez: `verification_status="draft"` →
   insan onayı → `"verified"`. `verified_by` alanı zorunlu.
@@ -335,7 +335,7 @@ karar. Koşum sırası ve karar kuralları master plan §6'da.
   şablonu; ARES'in PPI'ı — birkaç yüz insan etiketiyle LLM-judge düzeltmesi →
   otomatik evaluator'lar yalnız insan-doğrulamalı subset ile kalibre edilmiş yardımcı.
 - **UAEval4RAG (ACL 2025):** 6 kategorili unanswerable taksonomisi + acceptable/
-  unanswered ratio metrikleri; prompt tasarımı tek başına abstention kalitesini ~%80
+  abstention_evalwered ratio metrikleri; prompt tasarımı tek başına abstention kalitesini ~%80
   oynatabiliyor.
 - **SearchFireSafety (ACL 2026):** statü-merkezli QA'da hiyerarşi-farkındalı retrieval
   ölçülmüş kazanç; **domain-adapted modeller eksik kanıtta daha çok halüsinasyon** →

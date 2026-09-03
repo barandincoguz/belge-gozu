@@ -65,14 +65,14 @@
   },
   "data_files": [
    {
-    "name": "canary",
-    "path": "data/bench/canary_v1.jsonl",
+    "name": "retrieval_eval",
+    "path": "data/bench/retrieval_eval_v1.jsonl",
     "sha256": "1676bb46f8943a3cfffb935a0908a2c5861afa0bfd9041a85829eb5ef6ee5a6e",
     "n_verified": 48
    },
    {
-    "name": "unans",
-    "path": "data/calibration/_pins/unans_v1@d1087fb.jsonl",
+    "name": "abstention_eval",
+    "path": "data/calibration/_pins/abstention_eval_v1@d1087fb.jsonl",
     "sha256": "2955d59e48e005e71a89a630efd0bcd5d3e07806df7d190891bcd6e8d32940ff",
     "n_verified": 286
    }
@@ -118,7 +118,7 @@
   "only_verified": true,
   "label_definition": "safe_to_answer=1 <=> answerable=True VE gold sayfa BM25+yönlendirme top-5'inde; cevaplanamaz TÜM sorular ve getirimi ıskalayan cevaplanabilir sorular 0 (LLM kullanılmadı)",
   "split": "dev",
-  "note": "unans girdisi commit d1087fb'ye SABİTLENDİ (controller pin'i). Kaynak: data/bench/unans_v1.jsonl @ d1087fb — sha256 2955d59e...2940ff, 300 satır / 286 verified. Bu görev sırasında paralel taslakçı dosyayı 330 satıra çıkardı ve db6e7bd'de commit'ledi; koşumun tekrarlanabilir olması için içerik d1087fb'ye sabitlendi. YENİDEN ÜRETME: git show d1087fb:data/bench/unans_v1.jsonl > 'data/calibration/_pins/unans_v1@d1087fb.jsonl' (dizin gitignore'da). canary_v1.jsonl çalışma ağacından okundu, koşum boyunca değişmedi. NOT: unans_v1 v1.1'e (330 satır, u301-u330 partisi) ulaştığı için bu fit YENİDEN KOŞULMALIDIR."
+  "note": "abstention_eval girdisi commit d1087fb'ye SABİTLENDİ (controller pin'i). Kaynak: data/bench/abstention_eval_v1.jsonl @ d1087fb — sha256 2955d59e...2940ff, 300 satır / 286 verified. Bu görev sırasında paralel taslakçı dosyayı 330 satıra çıkardı ve db6e7bd'de commit'ledi; koşumun tekrarlanabilir olması için içerik d1087fb'ye sabitlendi. YENİDEN ÜRETME: git show d1087fb:data/bench/abstention_eval_v1.jsonl > 'data/calibration/_pins/abstention_eval_v1@d1087fb.jsonl' (dizin gitignore'da). retrieval_eval_v1.jsonl çalışma ağacından okundu, koşum boyunca değişmedi. NOT: abstention_eval_v1 v1.1'e (330 satır, u301-u330 partisi) ulaştığı için bu fit YENİDEN KOŞULMALIDIR."
  },
  "calibrator": {
   "feature_names": [

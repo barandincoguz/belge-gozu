@@ -1,4 +1,4 @@
-"""`scripts/validate_unans.py` saf mantığı — dosya/parquet I/O olmadan.
+"""`scripts/validate_abstention_eval.py` saf mantığı — dosya/parquet I/O olmadan.
 
 Doğrulayıcının değeri, hatalı bir satırı GERÇEKTEN yakalamasındadır; bu yüzden
 testler yalnız temiz girdiyi değil, her kontrol için kasıtlı bozuk bir satırı da
@@ -15,11 +15,11 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
-    "validate_unans", REPO / "scripts" / "validate_unans.py"
+    "validate_abstention_eval", REPO / "scripts" / "validate_abstention_eval.py"
 )
 assert _spec and _spec.loader
 vu = importlib.util.module_from_spec(_spec)
-sys.modules["validate_unans"] = vu
+sys.modules["validate_abstention_eval"] = vu
 _spec.loader.exec_module(vu)
 
 
@@ -50,7 +50,7 @@ def base_row(**over) -> dict:
         "requires_visual": False,
         "requires_multi_hop": False,
         "unanswerable_reason": "korpus-disi",
-        "verified_by": "script:validate_unans",
+        "verified_by": "script:validate_abstention_eval",
         "verification_status": "verified",
         "verification_note": "not",
         "verification_kind": "mechanical:manifest-absence",
@@ -198,7 +198,7 @@ def test_anlamsiz_slice_must_not_be_self_verified():
         slice="anlamsiz-ood",
         unanswerable_reason="anlamsiz",
         verification_status="verified",
-        verified_by="script:validate_unans",
+        verified_by="script:validate_abstention_eval",
         verification_kind="mechanical:manifest-absence",
     )
     bad.pop("_anchor_law")
@@ -237,11 +237,11 @@ def test_near_dupes_ignores_distinct_questions():
     assert vu.find_near_dupes(rows, []) == []
 
 
-def test_near_dupes_checks_against_canary():
+def test_near_dupes_checks_against_retrieval_eval():
     rows = [{"question_id": "u001", "question": "Yerleşim yeri nedir?"}]
-    canary = [{"question_id": "c002", "question": "Yerleşim yeri nedir?"}]
-    hits = vu.find_near_dupes(rows, canary)
-    assert hits and hits[0][1] == "canary:c002"
+    retrieval_eval = [{"question_id": "c002", "question": "Yerleşim yeri nedir?"}]
+    hits = vu.find_near_dupes(rows, retrieval_eval)
+    assert hits and hits[0][1] == "retrieval_eval:c002"
 
 
 # -------------------------------------------------------------- split türetimi
@@ -261,7 +261,7 @@ def test_derive_test_docs_is_deterministic_and_sized():
         seed="s",
         pinned=["k6098"],
         size=3,
-        canary_docs={"k6098"},
+        retrieval_eval_docs={"k6098"},
     )
     first = vu.derive_test_docs(**kw)
     assert first == vu.derive_test_docs(**kw)
@@ -274,8 +274,8 @@ def test_derive_test_docs_guarantees_two_rg_docs():
     assert sum(1 for d in out if DOC_TYPES[d] == "rg_tarihi") >= 2
 
 
-def test_derive_test_docs_excludes_unpinned_canary_docs():
-    """Sabitlenmemiş canary belgesi doldurmaya kapalıdır (26/17 hedefi korunur)."""
+def test_derive_test_docs_excludes_unpinned_retrieval_eval_docs():
+    """Sabitlenmemiş retrieval_eval belgesi doldurmaya kapalıdır (26/17 hedefi korunur)."""
     out = vu.derive_test_docs(CORPUS_IDS, DOC_TYPES, "s", ["k6098"], 3, {"k6098", "k4857"})
     assert "k4857" not in out
 

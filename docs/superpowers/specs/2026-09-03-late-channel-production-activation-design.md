@@ -4,7 +4,7 @@ Tarih: 2026-09-03
 
 ## Amaç
 
-İnsan doğrulamalı canary ölçümünde en iyi sonucu veren sayfa-BM25 + iki
+İnsan doğrulamalı retrieval_eval ölçümünde en iyi sonucu veren sayfa-BM25 + iki
 chunk-ColBERT aday birleşimini varsayılan hibrit üretim yoluna bağlamak:
 R@5 `0,6277 -> 0,7766`, R@50 `0,8085 -> 0,9362`, paraphrase R@50
 `0,5714 -> 0,8571`.

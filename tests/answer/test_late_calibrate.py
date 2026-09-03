@@ -47,7 +47,7 @@ def _row(qid: str, label: int, **feature_updates) -> LateCalibrationRow:
         gold_in_topk=bool(label),
         unanswerable_reason=None if label else "korpus-disi",
         slice="paraphrase" if label else "korpus-disi",
-        source="canary" if label else "unans",
+        source="retrieval_eval" if label else "abstention_eval",
         features=features,
         diagnostics={"mogan_raw_top1": 16.0, "mogan_query_tokens": 20.0},
     )

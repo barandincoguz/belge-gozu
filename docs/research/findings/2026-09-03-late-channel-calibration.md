@@ -34,9 +34,9 @@ tutar; artefaktlar mount edilip bayrak açılmadan container yolu değişmez.
 
 ## Protokol
 
-- Cevaplanabilir kaynak: `canary_v2`, yalnız `answerable=true` ve
+- Cevaplanabilir kaynak: `retrieval_eval_v2`, yalnız `answerable=true` ve
   `verification_kind=human`.
-- Cevaplanamaz kaynak: `unans_v1`, yalnız `verification_status=verified`.
+- Cevaplanamaz kaynak: `abstention_eval_v1`, yalnız `verification_status=verified`.
 - Etiket `safe_to_answer=1`: soru cevaplanabilir ve altın sayfalardan en az biri
   iki ColBERT kanalının BM25 sayfa sırasına ardışık örüldüğü üretim top-5'inde.
 - Dış split: dondurulmuş `splits_v1`, hukuk gruplu.
@@ -47,7 +47,7 @@ tutar; artefaktlar mount edilip bayrak açılmadan container yolu değişmez.
 - Eşik: iç calibration yakasında seçici risk `<=0,05` altında en yüksek kapsama.
 - Test: artefakt değişmeden, `--yes-final-gate` ile bir kez koşuldu.
 
-`unans_v1` hakkındaki sınır önemlidir: bu set büyük ölçüde model
+`abstention_eval_v1` hakkındaki sınır önemlidir: bu set büyük ölçüde model
 çapraz-kontrollü veya manifest-yokluğu ile mekanik doğrulanmıştır; insan
 doğrulaması değildir. Aşağıdaki istatistiksel aralık etiketlerin bağımsız insan
 doğruluğunu kanıtlamaz.

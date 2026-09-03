@@ -1,4 +1,4 @@
-# P2 data review — commit 5d3bd83 (`unans_v1` cevaplanamaz benchmark)
+# P2 data review — commit 5d3bd83 (`abstention_eval_v1` cevaplanamaz benchmark)
 
 Scope: code + schema + split correctness only. Question/label quality is out of
 scope (separate checker agent). Read-only review; ran pytest/lint/python for
@@ -21,13 +21,13 @@ informational notes below; none block merge.
 
 ### LOW
 
-**L1 — `scripts/validate_unans.py:325`: unhandled crash on out-of-repo `--bench` path.**
+**L1 — `scripts/validate_abstention_eval.py:325`: unhandled crash on out-of-repo `--bench` path.**
 ```python
-print(f"unans doğrulama — {bench_path.relative_to(REPO)}")
+print(f"abstention_eval doğrulama — {bench_path.relative_to(REPO)}")
 ```
 `Path.relative_to` raises `ValueError` if `bench_path` isn't under `REPO`. Repro:
 copied the jsonl to a scratch dir outside the repo and ran
-`--bench <scratch>/broken_unans.jsonl` → unhandled traceback instead of a clean
+`--bench <scratch>/broken_abstention_eval.jsonl` → unhandled traceback instead of a clean
 error. Confirmed this still exits `1` (Python's default uncaught-exception
 behavior), so the exit-code *contract* holds — it's an ugly failure mode, not a
 false pass. Default invocation and every documented usage (README §5, the
@@ -38,15 +38,15 @@ practice. One-line fix if desired: use `os.path.relpath` or wrap in try/except.
 `tests/bench/test_dataset.py` always calls these with `tmp_path / "x.jsonl"`
 (a `Path`), never a bare string, so the `Path | str` fix itself has no dedicated
 unit test. The fix is real and works — I verified manually:
-`load_bench('data/bench/unans_v1.jsonl', only_verified=False)` → 300,
+`load_bench('data/bench/abstention_eval_v1.jsonl', only_verified=False)` → 300,
 default (`only_verified=True`) → 200 — and it's exercised by the exact command
-documented in `unans_v1.README.md` §5. Not blocking, just a coverage gap.
+documented in `abstention_eval_v1.README.md` §5. Not blocking, just a coverage gap.
 
 **L3 — `assign_split` has no production consumer yet (forward-looking note, not a defect).**
-Grepped `src/` and `scripts/`: only `scripts/validate_unans.py` calls
+Grepped `src/` and `scripts/`: only `scripts/validate_abstention_eval.py` calls
 `assign_split`. `src/belge_gozu/bench/harness.py` and `cli.py` don't reference it
-or `unans` at all. Expected for a data-only commit. Flagging so whoever wires
-`unans_v1` into the real dev/test metrics harness uses `assign_split`
+or `abstention_eval` at all. Expected for a data-only commit. Flagging so whoever wires
+`abstention_eval_v1` into the real dev/test metrics harness uses `assign_split`
 (law-grouped) rather than the older `question_split` — the latter falls back to
 plain qid-hashing for any row without `gold_doc_ids`, which would silently lose
 the law-grouping guarantee against corpus leakage for `korpus-disi`/`eksik-kanit`.
@@ -57,13 +57,13 @@ the law-grouping guarantee against corpus leakage for `korpus-disi`/`eksik-kanit
 Fully reconciled, not a regression: checked out parent commit `d89cee7` into an
 isolated `git worktree` and ran `-m "not slow" -q` there → **443 passed**
 (baseline). This commit adds exactly **46** new tests: 31 in the new
-`tests/test_validate_unans.py` + 15 new in `tests/bench/test_dataset.py`
+`tests/test_validate_abstention_eval.py` + 15 new in `tests/bench/test_dataset.py`
 (collect-only: 33 now vs. 18 before). 443 + 46 = 489 exactly. No test was
 removed, skipped, or xfailed. The brief's "494" was off by one against reality;
 worktree removed after the check, repo left clean.
 
 **I2 — `eksik-kanit` verification_note grep-counts are self-reported, not machine-checked.**
-`validate_unans.py` never opens `data/research/page_texts.parquet` to verify the
+`validate_abstention_eval.py` never opens `data/research/page_texts.parquet` to verify the
 grep counts quoted in `verification_note` (e.g. `'kasko sigortası değeri'=0`) —
 it only checks that the note is non-empty and that `_subject_doc` is a real
 corpus id. This is a real gap in mechanical coverage, but it is **honestly
@@ -77,9 +77,9 @@ Disclosed limitation, not a hidden one — no action needed.
 
 1. **Determinism (the named CRITICAL risk).** `_hash50`, `assign_split`,
    `derive_test_docs` (`src/belge_gozu/bench/dataset.py:164-166, 175-219`;
-   `scripts/validate_unans.py:271-298`) use `hashlib.sha256(key.encode()).hexdigest()`
+   `scripts/validate_abstention_eval.py:271-298`) use `hashlib.sha256(key.encode()).hexdigest()`
    exclusively. Grepped for bare `hash(` — zero hits outside `hashlib.`. Ran
-   `scripts/validate_unans.py` twice in fresh processes with
+   `scripts/validate_abstention_eval.py` twice in fresh processes with
    `PYTHONHASHSEED=1` and `PYTHONHASHSEED=99999`: **byte-identical output**,
    both exit 0. The feared "process-salted str hash → non-reproducible split"
    failure mode does not occur — confirmed, not just inspected.
@@ -88,10 +88,10 @@ Disclosed limitation, not a hidden one — no action needed.
    code match confirmed (korpus-disi → `sha256("anchor:<law>")`; eksik-kanit →
    subject-doc lookup in `test_docs`; answerable → `gold_doc_ids[0]` lookup;
    everything else → `sha256("qid:<id>")`). Independently recomputed by loading
-   `unans_v1.jsonl` + `canary_v1.jsonl` raw and calling `assign_split` directly
-   (bypassing `validate_unans.py`'s own `derive_test_docs`): got
+   `abstention_eval_v1.jsonl` + `retrieval_eval_v1.jsonl` raw and calling `assign_split` directly
+   (bypassing `validate_abstention_eval.py`'s own `derive_test_docs`): got
    **dev=154 unanswerable/26 answerable, test=151/17** — exact match to the
-   report and to `splits_v1.json`'s `canary_answerable_split`.
+   report and to `splits_v1.json`'s `retrieval_eval_answerable_split`.
 
 3. **`Path | str` fix** (`dataset.py:114-116, 143-144`). Ran the exact
    README-documented command; got 300 (`only_verified=False`) and 200
@@ -101,7 +101,7 @@ Disclosed limitation, not a hidden one — no action needed.
    directly: 56 doc ids, sets match exactly, 50 `k<number>` law docs + 6 `rg*`
    docs. Matches the validator's reported "56 belge, 50 kanun numarası."
 
-5. **Validator run.** `uv run python scripts/validate_unans.py` → output
+5. **Validator run.** `uv run python scripts/validate_abstention_eval.py` → output
    byte-for-byte identical to the implementer's report §1, `TEMİZ`, exit 0.
 
 6. **Exit-code=1 path, for real.** Injected a genuine violation (anchored a
@@ -116,7 +116,7 @@ Disclosed limitation, not a hidden one — no action needed.
    validator's internal check). RG docs in `test_docs`: exactly
    `{rg1935a, rg1945a}` = 2. `seed` field present, `"belge-gozu-splits-v1"`.
 
-8. **Pinned-doc math.** Independently tallied `canary_v1.jsonl`'s answerable
+8. **Pinned-doc math.** Independently tallied `retrieval_eval_v1.jsonl`'s answerable
    rows by primary gold doc: 13 distinct docs; the 4 pinned
    (`k6098, k5237, k6698, rg1935a`) sum to **exactly 17**; the other 9 sum to
    **exactly 26**. Matches `pinned_rationale` and the README's 26/17 target
@@ -151,7 +151,7 @@ Disclosed limitation, not a hidden one — no action needed.
     are accurate, not oversold, and match exactly what the code does/doesn't
     check.
 
-12. **Tests + lint.** `tests/bench -q` → 82 passed. `tests/test_validate_unans.py -q`
+12. **Tests + lint.** `tests/bench -q` → 82 passed. `tests/test_validate_abstention_eval.py -q`
     → 31 passed (every one of the validator's 9 check categories has at least
     one deliberately-broken-input test — "TEMİZ" is a meaningful signal).
     `-m "not slow" -q` → 489 passed, 6 deselected (see I1). `make lint` → ruff

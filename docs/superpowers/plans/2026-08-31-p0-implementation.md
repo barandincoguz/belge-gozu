@@ -316,7 +316,7 @@ Compute `no_match = not hits or hits[0].score < s.min_score_threshold`, matching
 
 Assert that the HTML:
 
-- says four example chips come from canary and two are showcase queries;
+- says four example chips come from retrieval_eval and two are showcase queries;
 - contains no `let THRESHOLD = 10.6`, no `const pacing`, and no client-side pipeline label table;
 - reads threshold/ranking labels from `/healthz`;
 - branches on `data.no_match` and renders `Eşleşme bulunamadı`;
@@ -569,7 +569,7 @@ Run: `uv run ruff format --check .`
 
 Run: `uv run pyright`
 
-Run: `uv run python scripts/validate_unans.py`
+Run: `uv run python scripts/validate_abstention_eval.py`
 
 Run: `docker build -t belge-gozu:p0 .`
 

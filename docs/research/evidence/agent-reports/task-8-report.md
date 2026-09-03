@@ -28,7 +28,7 @@
 ### `src/belge_gozu/cli.py`
 - Added `bench_app = typer.Typer()`, `app.add_typer(bench_app, name="bench")`.
 - Added `bench run` command:
-  - Options: `--bench` (default `data/bench/canary_v1.jsonl`), `--pipeline` (`exhaustive`|`two-stage`, default `exhaustive`), `--out` (optional; defaults to `data/bench/results/<run_id>.json`).
+  - Options: `--bench` (default `data/bench/retrieval_eval_v1.jsonl`), `--pipeline` (`exhaustive`|`two-stage`, default `exhaustive`), `--out` (optional; defaults to `data/bench/results/<run_id>.json`).
   - `run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{_git_commit()}-{pipeline}"` (imports `_git_commit` from the harness module).
   - Loads real index via `PackedIndex.load(s.index_dir)` + `pd.read_parquet(s.index_dir / "meta.parquet")` (same pattern as `app/main.py`'s `create_app`).
   - Lazily imports `ColSmolEncoder` inside the command body (never imported at module import time, so CI/lint/tests never trigger the `ml` extra).

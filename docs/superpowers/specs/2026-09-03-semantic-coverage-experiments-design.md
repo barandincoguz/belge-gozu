@@ -10,7 +10,7 @@ iki offline kolu ardışık test etmek:
 1. Çok dilli dense sayfa kanalı.
 2. Dense kanalı üzerinde deterministik yerel sorgu genişletme.
 
-Birincil metrik, insan-doğrulanmış cevaplanabilir `canary_v2`de havuzun TAMAMI
+Birincil metrik, insan-doğrulanmış cevaplanabilir `retrieval_eval_v2`de havuzun TAMAMI
 üzerindeki fractional R@50 kapsamasıdır. Paraphrase R@50 ayrı zorunlu kırılım
 olarak raporlanır. Bu veri daha önce görülmüştür; sonuçlar yalnız teşhis ve
 tasarım seçimi içindir, üretim kararı değildir.
@@ -22,7 +22,7 @@ tasarım seçimi içindir, üretim kararı değildir.
   değişmeyecek.
 - Dense ve genişletme kolları önce sadece bench/CLI yolunda yaşar; production
   bayrağı veya varsayılanı eklenmez.
-- Sayısal skor füzyonu, RRF ve canary sonucuna göre elle kural ekleme yoktur.
+- Sayısal skor füzyonu, RRF ve retrieval_eval sonucuna göre elle kural ekleme yoktur.
 - Yeni insan-doğrulanmış, hukuk-grubu-ayrık holdout olmadan hiçbir sonuç
   üretime sevk edilmez.
 

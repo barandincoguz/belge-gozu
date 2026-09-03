@@ -239,8 +239,8 @@ def evaluate_late_calibration(
     n_safe = int(np.sum(safe))
     safe_accepted = int(np.sum(answered & safe))
     answerable = np.array([row.answerable for row in rows], dtype=bool)
-    unans_rate, n_unans, n_unans_errors, unans_upper = false_answer_rate_on_unanswerable(
-        probs, answerable, tau
+    unanswerable_rate, n_unanswerable, n_unanswerable_errors, unanswerable_upper = (
+        false_answer_rate_on_unanswerable(probs, answerable, tau)
     )
 
     return {
@@ -262,10 +262,10 @@ def evaluate_late_calibration(
             "accepted": safe_accepted,
         },
         "false_answer_on_unanswerable": {
-            "rate": unans_rate,
-            "n": n_unans,
-            "errors": n_unans_errors,
-            "upper_bound_95": unans_upper,
+            "rate": unanswerable_rate,
+            "n": n_unanswerable,
+            "errors": n_unanswerable_errors,
+            "upper_bound_95": unanswerable_upper,
             "method": "clopper_pearson",
         },
         "per_question": [
@@ -283,9 +283,7 @@ def evaluate_late_calibration(
                 "prob": float(prob),
                 "answered_at_tau": bool(is_answered),
                 "features": {key: float(value) for key, value in row.features.items()},
-                "diagnostics": {
-                    key: float(value) for key, value in row.diagnostics.items()
-                },
+                "diagnostics": {key: float(value) for key, value in row.diagnostics.items()},
             }
             for row, prob, is_answered in zip(rows, probs.tolist(), answered.tolist(), strict=True)
         ],
@@ -324,24 +322,19 @@ def fit_late_calibration(
         },
     )
     artifact.kunye["fit_metrics"] = evaluate_late_calibration(artifact, fit_rows)
-    artifact.kunye["calibration_metrics"] = evaluate_late_calibration(
-        artifact, calibration_rows
-    )
+    artifact.kunye["calibration_metrics"] = evaluate_late_calibration(artifact, calibration_rows)
     return artifact
 
 
-def enablement_verdict(
-    metrics: Mapping[str, Any], *, identity_matches: bool
-) -> dict[str, Any]:
+def enablement_verdict(metrics: Mapping[str, Any], *, identity_matches: bool) -> dict[str, Any]:
     """Kilitli test metriklerini ürün bayrağının beş koşuluna çevirir."""
     risk = metrics.get("risk_at_tau")
     safe_rate = float(metrics["safe_answerable_accept"]["rate"])
-    unans = metrics["false_answer_on_unanswerable"]
+    unanswerable = metrics["false_answer_on_unanswerable"]
     checks = {
         "selective_risk_point_lte_0_05": risk is not None and float(risk) <= 0.05,
-        "unanswerable_false_accept_point_lte_0_02": float(unans["rate"]) <= 0.02,
-        "unanswerable_false_accept_cp95_lte_0_05": float(unans["upper_bound_95"])
-        <= 0.05,
+        "unanswerable_false_accept_point_lte_0_02": float(unanswerable["rate"]) <= 0.02,
+        "unanswerable_false_accept_cp95_lte_0_05": float(unanswerable["upper_bound_95"]) <= 0.05,
         "safe_answerable_accept_rate_gte_0_80": safe_rate >= 0.80,
         "identity_matches": bool(identity_matches),
     }

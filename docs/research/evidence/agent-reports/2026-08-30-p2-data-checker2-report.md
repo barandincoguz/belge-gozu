@@ -6,9 +6,9 @@ bilerek yeniden kullanıldı — §6) ·
 **Kanıt:** yalnız `data/research/page_texts.parquet` (4222 sayfa / 56 belge).
 Ağ yok, Gemini yok, alt-ajan yok.
 
-Dokunulan dosyalar: `data/bench/unans_v1.jsonl`,
-`data/bench/unans_v1.README.md` (§9 eklendi).
-`scripts/validate_unans.py` DEĞİŞTİRİLMEDİ — gerekmedi (§6).
+Dokunulan dosyalar: `data/bench/abstention_eval_v1.jsonl`,
+`data/bench/abstention_eval_v1.README.md` (§9 eklendi).
+`scripts/validate_abstention_eval.py` DEĞİŞTİRİLMEDİ — gerekmedi (§6).
 
 ---
 
@@ -33,7 +33,7 @@ splits = load_splits("data/bench/splits_v1.json")
 scope = [r for r in rows
          if r["slice"] == "korpus-disi"
          and assign_split(r, splits) == "test"
-         and r["verified_by"] == "script:validate_unans"]
+         and r["verified_by"] == "script:validate_abstention_eval"]
 ```
 
 **Kapsam listesi sayısı: `112`** (75 ayrık çapa kanunu).
@@ -46,7 +46,7 @@ scope = [r for r in rows
 
 Filtre neden `verified_by`? Çünkü checker-1 `korpus-disi` diliminde yalnız
 **reddettiği** satırların künyesini değiştirdi; "uygun" dediği 14 test
-satırı `script:validate_unans` olarak kaldı. Bu 14 satır da kapsama girdi ve
+satırı `script:validate_abstention_eval` olarak kaldı. Bu 14 satır da kapsama girdi ve
 yeniden denetlendi — §5'teki garanti *tüm* test satırlarının denetçi künyesi
 taşımasını gerektiriyor. (Yeniden denetimde hiçbiri farklı sonuç vermedi.)
 
@@ -247,13 +247,13 @@ tanınmış" değildir; sorulan istisnalar (imalatçıya kurumlar vergisi, perso
 
 ## 6. Doğrulayıcı: künye izinli çıktı, betik değişmedi
 
-`scripts/validate_unans.py`'nin `VERIF_EXPECT["korpus-disi"]` kümesi zaten
+`scripts/validate_abstention_eval.py`'nin `VERIF_EXPECT["korpus-disi"]` kümesi zaten
 şunları içeriyordu:
 
 ```python
 _CHECKER = "model-cross-check:claude-fable-5-checker"
 "korpus-disi": {
-    ("verified", "script:validate_unans", "mechanical:manifest-absence"),
+    ("verified", "script:validate_abstention_eval", "mechanical:manifest-absence"),
     ("verified", _CHECKER, "mechanical:manifest-absence"),   # ← uygun kararları
     ("rejected", _CHECKER, "model-cross-check"),             # ← red kararları
 }
@@ -274,7 +274,7 @@ kapsıyor.
 
 ```
 ========================================================================
-unans doğrulama — data/bench/unans_v1.jsonl
+abstention_eval doğrulama — data/bench/abstention_eval_v1.jsonl
 ========================================================================
 korpus: 56 belge, 50 kanun numarası
 satır : 330
@@ -292,13 +292,13 @@ split bileşimi (seed='belge-gozu-splits-v1', test_docs=22, RG=2)
 küme  dilim                     adet
 ------------------------------------
 dev   anlamsiz-ood                29
-dev   canary-cevaplanabilir       26
-dev   canary-cevaplanamaz          2
+dev   retrieval_eval-cevaplanabilir       26
+dev   retrieval_eval-cevaplanamaz          2
 dev   eksik-kanit                 15
 dev   korpus-disi                113
 test  anlamsiz-ood                31
-test  canary-cevaplanabilir       17
-test  canary-cevaplanamaz          3
+test  retrieval_eval-cevaplanabilir       17
+test  retrieval_eval-cevaplanamaz          3
 test  eksik-kanit                 16
 test  korpus-disi                105
 ------------------------------------
@@ -313,7 +313,7 @@ TEMİZ — tüm kontroller geçti.
 ## 7. G2.1 ölçülebilirliği
 
 **Doğrulama sonrası test yakası cevaplanamaz sayısı: `155`** (105 korpus-dışı
-+ 31 anlamsız + 16 eksik-kanıt + 3 canary cevaplanamaz; `rejected` hariç).
++ 31 anlamsız + 16 eksik-kanıt + 3 retrieval_eval cevaplanamaz; `rejected` hariç).
 
 | eşik | değer |
 |---|---|

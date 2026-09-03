@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     top_k: int = 5
     # P2 geç-etkileşim aday kanalları. BM25 sayfa sıralaması birincil kalır;
     # bu kanallar yalnız aday örme ile top-k'ya çeşitlilik ekler. İki indeks
-    # birlikte ölçülen en iyi konfigürasyondur (canary_v2 insan n=47):
+    # birlikte ölçülen en iyi konfigürasyondur (retrieval_eval_v2 insan n=47):
     # R@5 0.6277 -> 0.7766, paraphrase R@50 0.5714 -> 0.8571.
     late_channel_enabled: bool = True
     late_mogan_index_dir: Path = Path("data/index-colbert-mogan-f16")
@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     # hybrid (VARSAYILAN, P1): sıralamayı PDF metin katmanı üzerindeki BM25 +
     # doküman-adı pencere-içi yönlendirmesi belirler; görsel MaxSim kanalı
     # koşmaya devam eder ama sıralamaya girmez (telemetri + P2 kalibrasyon
-    # verisi). Ölçüm (canary answerable n=43, autoresearch exp7 -> exp8 ->
+    # verisi). Ölçüm (retrieval_eval answerable n=43, autoresearch exp7 -> exp8 ->
     # exp12): R@5 0.2326 -> 0.8140 -> 0.8372 -> 0.8605 (ikili tanım; 37/43),
     # R@20 0.302 -> 0.9302, vitrin sorgularının gold sıraları 664->2 ve 137->2
     # — findings 2026-08-29-autoresearch-text-channel.md + research/journal.md
@@ -142,7 +142,7 @@ class Settings(BaseSettings):
     #
     # 10.6, T14'ün 0.58'i gibi, bir öncekinin ÇALIŞMA NOKTASINI SAYICA yeniden
     # üretir. Ölçüm — hepsi SERVİS EDİLEN top-1 üzerinde, yani `AskService`in
-    # eşikle karşılaştırdığı gerçek skor üzerinde (canary, BM25 ölçeği).
+    # eşikle karşılaştırdığı gerçek skor üzerinde (retrieval_eval, BM25 ölçeği).
     #
     # ASCİİ AKSAN KATLAMASINDAN SONRA YENİDEN ÖLÇÜLDÜ (exp12; katlama IDF/df
     # dağılımını değiştirdiği için eşik bandı da yeniden ölçülmek ZORUNDAYDI):
@@ -176,8 +176,8 @@ class Settings(BaseSettings):
     # yukarıdaki iki dağılım hâlâ iç içe (cevaplanabilir alt sınır 10.53,
     # cevaplanamaz üst sınır 23.53 — üç korpus-dışı soru eşiğin ÜSTÜNDE).
     # Eşiği yükseltmek de çözüm değil: cevaplanabilir dağılımın alt yarısı
-    # birlikte abstain'e düşer. Bu durum tests/retrieval/test_semantic_canary.py::
-    # test_out_of_corpus_canary_scores_below_threshold ile xfail(strict) olarak
+    # birlikte abstain'e düşer. Bu durum tests/retrieval/test_semantic_retrieval_eval.py::
+    # test_out_of_corpus_retrieval_eval_scores_below_threshold ile xfail(strict) olarak
     # kilitlidir. Gerçek kalibrasyon P2'nin işi.
     min_score_threshold: float = 10.6
     request_delay_s: float = 1.0

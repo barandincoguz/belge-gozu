@@ -23,8 +23,8 @@ hesaplatıldı; `data/calibration/**/calibrator.json` künyeleri okundu.
 | Üretim hattı | `retrieval_pipeline="hybrid"` (BM25 metin kanalı sıralar; görsel kanal koşar ama sıralamaz), `index_dir=data/index-traincompat-int8` |
 | Test/lint | 666 test yeşil, 6 slow deselect; ruff + pyright temiz |
 | Yayın | **GitHub'da değil (0 remote)**, HF Space **hiç oluşturulmadı** (PRO gerekiyor), Docker imajı **hiç build/deploy doğrulanmadı** |
-| Benchmark | canary 48 (3 insan + 45 model-cross-check) + unans_v1 330; **bench_v2 (120+30) YOK** |
-| Dürüstlük | README + kapı raporları + veri README'leri örnek düzeyde dürüst (3/48 insan sınırını üç ayrı yerde tekrarlıyor). **İSTİSNA: canlı UI `index.html:454` "43 soruluk insan-doğrulamalı canary" diyor — YANLIŞ** ve iç incelemede KRİTİK işaretlenmiş olmasına rağmen düzeltilmemiş |
+| Benchmark | retrieval_eval 48 (3 insan + 45 model-cross-check) + abstention_eval_v1 330; **bench_v2 (120+30) YOK** |
+| Dürüstlük | README + kapı raporları + veri README'leri örnek düzeyde dürüst (3/48 insan sınırını üç ayrı yerde tekrarlıyor). **İSTİSNA: canlı UI `index.html:454` "43 soruluk insan-doğrulamalı retrieval_eval" diyor — YANLIŞ** ve iç incelemede KRİTİK işaretlenmiş olmasına rağmen düzeltilmemiş |
 
 ---
 
@@ -37,8 +37,8 @@ hesaplatıldı; `data/calibration/**/calibrator.json` künyeleri okundu.
 
 | Kapı | Ölçüt | Hüküm | Kanıt (bugün doğrulandı) |
 |---|---|---|---|
-| G0.1 | `k4721:4` korpus kapsamı | **PASS** | `data/index-traincompat-int8/manifest.json` → `corpus_checksum=133444d8c235fb45…`, `n_pages=4222`; p0-gate §3 üç ayrı doğrulama; `tests/retrieval/test_semantic_canary.py::test_canary_gold_pages_covered` |
-| G0.2 | Sorgu A + B kalıcı regression setinde | **PASS** | `tests/retrieval/test_semantic_canary.py` (6 slow test); `tests/retrieval/canary_expectations.json` cırcır: `hybrid.long_query_gold_rank_max=2`, `exhaustive=664` |
+| G0.1 | `k4721:4` korpus kapsamı | **PASS** | `data/index-traincompat-int8/manifest.json` → `corpus_checksum=133444d8c235fb45…`, `n_pages=4222`; p0-gate §3 üç ayrı doğrulama; `tests/retrieval/test_semantic_retrieval_eval.py::test_retrieval_eval_gold_pages_covered` |
+| G0.2 | Sorgu A + B kalıcı regression setinde | **PASS** | `tests/retrieval/test_semantic_retrieval_eval.py` (6 slow test); `tests/retrieval/retrieval_eval_expectations.json` cırcır: `hybrid.long_query_gold_rank_max=2`, `exhaustive=664` |
 | G0.3 | Candidate generator gold Recall@candidate ≥ %98 | **PASS (tanım gereği)** | Exhaustive yol eleme yapmaz; Stage-1 ölçüldü ve **reddedildi** (c=200'de survival %9,3 — p0-gate Ek/B2) |
 | G0.4 | Exhaustive binary + native float oracle karşılaştırılabilir | **PASS (araç sapması notlu)** | `bench oracle` (cli.py:606) üç kol; **ancak `EvalReport`'ta `oracle_gap` alanı YOK** — `harness.py:43-52` alanları: run_id, git_commit, index_manifest, config, missing_gold_pages, overall, per_slice, per_doc, diagnostics. Sapma p0-gate §4/3'te kayıtlı, **bugün hâlâ açık** |
 | G0.5 | İndeks/processor uyumsuzluğu fail-fast | **PASS** | `index/compat.py` + `app/main.py:270-333` (6 eksen); `tests/app/test_compat.py` |
@@ -54,7 +54,7 @@ hesaplatıldı; `data/calibration/**/calibrator.json` künyeleri okundu.
 | 3 | `EvalReport.oracle_gap` alanı | **HÂLÂ AÇIK** — `bench/harness.py:43-52`'de yok |
 | 4 | compat `model_name`/`mask_policy`/`corpus_checksum` dallarının birim testi | ajan raporu; bu denetimde tek tek doğrulanmadı |
 | 8 | Gecikme ölçümlerinin ham artefaktı | **KAPANDI** — `data/bench/results/latency-by-representation.json` mevcut |
-| — | Canary insan doğrulaması | **HÂLÂ AÇIK** — 3/48 insan (bkz. §6) |
+| — | RetrievalEval insan doğrulaması | **HÂLÂ AÇIK** — 3/48 insan (bkz. §6) |
 
 ### 1.2 G1 — rapor YOK; kriterlerin bir kısmı fiilen ÖLÇÜLDÜ ama adjudike EDİLMEDİ
 
@@ -64,14 +64,14 @@ hesaplatıldı; `data/calibration/**/calibrator.json` künyeleri okundu.
 
 R23 sonrası G1 satırlarının gerçek durumu — **sayılar bu denetimde
 `data/bench/results/20260830-1611-6d5b345-hybrid.json`'dan yeniden hesaplandı**
-(canary, n=43 answerable, `only_verified=true`, pipeline=hybrid, int8):
+(retrieval_eval, n=43 answerable, `only_verified=true`, pipeline=hybrid, int8):
 
 | Kapı | Ölçüt (master §5) | Bugünkü hüküm | Ölçülen sayı / gerekçe |
 |---|---|---|---|
-| **G1.1** | Candidate-union Recall@50 ≥ %95 (verified full bench) | **ÖLÇÜLDÜ → FAIL** (ama resmî değil) | **R@50 = 0,9302** (< 0,95). İki katmanlı çekince: (a) "candidate-union" diye bir şey yok — tek kanal (BM25) sıralıyor, yani ölçülen sayı union değil **tek-kanal** recall'ü; (b) full bench (`bench_v2`) yok, ölçüm canary n=43'te. **Not:** aynı metrik ASCII-katlama ÖNCESİ **0,9535** idi (`20260829-2115-3a031ca-hybrid.json`) — yani exp12 R@5'i 0,8256→0,8488'e çıkarırken R@50'yi 0,9535→0,9302'ye düşürdü. Bu takas hiçbir yerde adjudike edilmemiş. |
+| **G1.1** | Candidate-union Recall@50 ≥ %95 (verified full bench) | **ÖLÇÜLDÜ → FAIL** (ama resmî değil) | **R@50 = 0,9302** (< 0,95). İki katmanlı çekince: (a) "candidate-union" diye bir şey yok — tek kanal (BM25) sıralıyor, yani ölçülen sayı union değil **tek-kanal** recall'ü; (b) full bench (`bench_v2`) yok, ölçüm retrieval_eval n=43'te. **Not:** aynı metrik ASCII-katlama ÖNCESİ **0,9535** idi (`20260829-2115-3a031ca-hybrid.json`) — yani exp12 R@5'i 0,8256→0,8488'e çıkarırken R@50'yi 0,9535→0,9302'ye düşürdü. Bu takas hiçbir yerde adjudike edilmemiş. |
 | **G1.2** | Kritik 4 dilimde Recall@50 ≥ %90 | **ÖLÇÜLDÜ → 3/4 PASS, 1 FAIL** | `dogrudan-madde` 1,0000 (n=13) · `madde-numarali` 1,0000 (n=6) · `ayni-kanun-hard-negative` 1,0000 (n=5) · **`paraphrase` 0,5714 (n=7) → FAIL**. Paraphrase R@5 yalnız 0,2857, MRR 0,104 — sözcüksel tavan (dense kanal yokluğunun doğrudan bedeli). |
 | **G1.3** | Reranker kazancı, bootstrap CI alt sınırı > 0 | **ANLAMSIZ / ÖLÇÜLMEDİ** | Reranker yok (`retrieval/rerank.py` YOK, `config.py`'de `rerank_enabled` YOK). Ön koşul (R@20 = 0,9302) sağlanıyor, yani reranker havuzu recall-kapısını **geçer** — kapı ölçülebilir hale geldi ama katman yazılmadı. |
-| **G1.4** | Sorgu A dayanak sayfası final top-5 (zorunlu regression) | **FİİLEN KARŞILANDI, RAPORA YAZILMADI** | `tests/retrieval/canary_expectations.json` → `hybrid.long_query_gold_rank_max = 2` (ölçüm 2026-08-30, üretim indeksi + hibrit). Yani rank 2 ≤ 5. P0 devrindeki D3 (1221 → 664 → **2**) böylece kapandı. |
+| **G1.4** | Sorgu A dayanak sayfası final top-5 (zorunlu regression) | **FİİLEN KARŞILANDI, RAPORA YAZILMADI** | `tests/retrieval/retrieval_eval_expectations.json` → `hybrid.long_query_gold_rank_max = 2` (ölçüm 2026-08-30, üretim indeksi + hibrit). Yani rank 2 ≤ 5. P0 devrindeki D3 (1221 → 664 → **2**) böylece kapandı. |
 | **G1.5** | Hybrid vs visual-only delta + latency/memory raporlu | **KISMEN ÖLÇÜLDÜ, RAPOR YOK** | Delta ölçülü: visual-only (exhaustive/1-bit) R@5 **0,1163** vs hibrit **0,8488** (`verified-production-exhaustive.json` vs `20260830-1611-…-hybrid.json`); gecikme: görsel kanal ~0,24 sn/sorgu (int8, CPU), BM25 ms mertebesi (`retrieval/hybrid.py:20-21`); `latency-by-representation.json` artefaktı var. Bir p1-gate raporunda toplanmadı. |
 | **G1.6** | Kazanç göstermeyen katman default kapalı | **FİİLEN UYULDU** | RRF üç biçimde ölçüldü ve **reddedildi** (0,674→0,395 küresel; 0,8372→0,5349 pencere-içi; `research/journal.md` #2/#6/#10) → üretime hiç girmedi. Görsel kanal koşuyor ama **sıralamaya girmiyor** (`retrieval/hybrid.py:249-266`). |
 | **G1.7** | HF Space bütçeleri (indeks boyutu + peak RAM + p50/p95) | **ÖLÇÜLMEDİ** | Space hiç oluşturulmadı; cold-start / peak RAM ölçümü yok. |
@@ -114,7 +114,7 @@ kayda geçmiş — `docs/research/findings/2026-08-30-p2-baslangic.md:6`.
 | T7 | Metrikler | **TAMAM** | `src/belge_gozu/bench/metrics.py` (37) — recall@k / mrr / ndcg / bootstrap_ci; `tests/bench/test_metrics.py` |
 | T8 | Teşhis harness'ı + `bench run` | **TAMAM (bir eksik)** | `src/belge_gozu/bench/harness.py` (308); `cli.py:533`. **Eksik:** `EvalReport.oracle_gap` alanı hiç eklenmedi |
 | T9 | Float oracle | **TAMAM (taşındı)** | `src/belge_gozu/bench/oracle.py` (38) + `index/float_store.py` (101) — D4 katman ihlali kapandı |
-| T10 | Canary set v1 + semantic canary testleri | **KISMİ** | `data/bench/canary_v1.jsonl` (48) + 6 slow test var; **insan doğrulama kapısı (Step 2) hâlâ açık** — 3/48 insan |
+| T10 | RetrievalEval set v1 + semantic retrieval_eval testleri | **KISMİ** | `data/bench/retrieval_eval_v1.jsonl` (48) + 6 slow test var; **insan doğrulama kapısı (Step 2) hâlâ açık** — 3/48 insan |
 | T11 | Processor format A/B + karar | **TAMAM** | A1/A2/A3 koşuldu; karar `train-compat-v1` (`config.py:98`), `data/bench/results/a{1,2}-*.json` |
 | T12 | Kuantizasyon ablasyonu C1/C2 | **TAMAM (+ üretime alındı)** | `index/quantize.py` (128); int8 üretimde (`config.py:60`) |
 | T13 | Kalite telemetrisi genişletmesi | **TAMAM** | `telemetry/schema.py`, `prom.py`; `docs/research/metrics-catalog.md` güncel (bg_verifier_verdicts, bg_llm_key_rotations dahil) |
@@ -138,7 +138,7 @@ kayda geçmiş — `docs/research/findings/2026-08-30-p2-baslangic.md:6`.
 | T9 | Kanal-düzeyi teşhis + recall gate | **KISMİ** (planın kendi notu) | `bench/harness.py:103-171` `HybridDiagnosticAdapter` — 2 kanal (plan 5 istiyordu). **G1.1'in "candidate-union"u bugünkü mimaride hesaplanamıyor** (tek kanal sıralıyor) |
 | T10 | Cross-encoder reranker | **YAPILMADI** (backlog) | `retrieval/rerank.py` YOK; `config.py`'de `rerank_enabled`/`rerank_model`/`rerank_pool` YOK |
 | T11 | Evidence pack + komşu sayfa | **YAPILMADI** (backlog) | `retrieval/evidence.py` YOK → P2 T1/T2 bunu `list[PageHit]` + `page_texts` ile yeniden tasarlamak zorunda kaldı |
-| T12 | Tam benchmark v2 (120+30, insan kapılı) | **YAPILMADI** (backlog) | `data/bench/bench_v2.jsonl` YOK. `splits_v1.json` **var ama P2'nin unans işinden geldi**, P1 T12'den değil |
+| T12 | Tam benchmark v2 (120+30, insan kapılı) | **YAPILMADI** (backlog) | `data/bench/bench_v2.jsonl` YOK. `splits_v1.json` **var ama P2'nin abstention_eval işinden geldi**, P1 T12'den değil |
 | T13 | HF Space bütçeleri + ablasyonlar + kapı raporu | **YAPILMADI** | `p1-gate.md` YOK; F1/E1/F2/F3/G1 matrisi koşulmadı |
 
 **P1 sayım: TAMAM 1 (T6) · KISMİ 2 (T1, T9) · SÜPERSEDE 1 (T8) · YAPILMADI 9.**
@@ -158,7 +158,7 @@ ama `recipe_fingerprint` üzerinden kalibrasyon anahtarına giriyor.
 | T1 | Claim segmentasyonu + verifier | **TAMAM** (bayrak-kapalı) | `answer/verify.py` (992); `tests/answer/test_verify.py` (35 test); iki tur inceleme → 15/15 RESOLVED. Sapma: `EvidencePack` yok → `list[PageHit]`+`page_texts`; verdict sözlüğü `supported/unsupported/belirsiz` (plan: supported/refuted/insufficient); `VerifiedAnswer` sınıfı kodda **yok** |
 | T2 | İki kapı (retrieval ↔ evidence) | **KISMİ** | `answer/base.py:174-245`; `tests/answer/test_gate.py` (19). Sapma: `decide_verdicts()` **hiç yazılmadı** (3-yollu present/retry/abstain yerine ikili demote); `Answer`'da `abstain_reason` alanı yok |
 | T3 | Auto-citation kaldırma + citation metrikleri | **KISMİ** | Kaldırma **TAM** (`answer/gemini.py:660-665` + test). Metrikler **YOK** — `bench/answer_eval.py` yok, `citation_precision` yok |
-| T4 | Answerable/unanswerable koşum harness'ı | **YAPILMADI** | `bench answers` CLI alt komutu yok; `run_answer_eval`/`AnswerEvalReport` yok. (Tüketeceği veri `unans_v1.jsonl` hazır) |
+| T4 | Answerable/unanswerable koşum harness'ı | **YAPILMADI** | `bench answers` CLI alt komutu yok; `run_answer_eval`/`AnswerEvalReport` yok. (Tüketeceği veri `abstention_eval_v1.jsonl` hazır) |
 | T5 | Güven özellikleri | **TAMAM** (özellik kümesi yeniden tanımlandı) | `answer/calibrate.py:74-183`; `tests/answer/test_calibrate.py` (49). Plan'ın 7 özelliği yerine ampirik 5 özellik (`served_top1, bm25_margin, matched_terms_top1, matched_frac, routed`) — çünkü reranker/facet/madde katmanı yok |
 | T6 | Kalibratör + versiyonlu threshold | **KISMİ** | `answer/calibrate.py:229-540`; artefakt `data/calibration/…7b56eeeb7327/calibrator.json`. Sapma: **isotonic/Platt yok** (yalnız logistic, sklearn'siz full-batch GD); `CostMatrix` yok → `max_risk` bütçesi |
 | T7 | Kalibrasyon metrikleri + risk-coverage | **TAMAM** | `bench/calibration_metrics.py` (328) — brier/ece/auroc/risk_coverage/conformal + Wilson/Clopper-Pearson; `tests/bench/test_calibration_metrics.py` (38) |
@@ -179,7 +179,7 @@ kuruldu. Master §3'ün tip sözlüğünden `VerifiedAnswer`, `ClaimVerdict`, `C
 `evidence_verifier_enabled` → `gate_verifier`, `selective_answering_enabled` →
 `gate_calibrated` (ikisi de `False`).
 
-**Numaralı görev olmayan ama büyük emek:** `data/bench/unans_v1.jsonl` (330 satır
+**Numaralı görev olmayan ama büyük emek:** `data/bench/abstention_eval_v1.jsonl` (330 satır
 cevaplanamaz benchmark) taslak → çapraz-kontrol → checker-2 → yedek parti turlarıyla
 üretildi; test yakasında 155 satırla Clopper-Pearson üst sınırı %1,914 < %2 (G2.1'in
 ölçülebilirlik ön koşulu). **Henüz bir T4 harness'ı ya da T12 koşumu tarafından
@@ -244,20 +244,20 @@ RESOLVED turları).
 
 | # | Kalem | Hüküm | Kanıt (bugünkü kod) |
 |---|---|---|---|
-| 1 | **Y1** BM25 sorgu-terimi tekrarı skoru şişiriyor (667 vs eşik 10,6) | **KAPANMIŞ** | `retrieval/text.py:109` `QTF_CAP = 2`; `scores()` `:290-294` `qw = min(qtf, QTF_CAP)`. exp14/R30: saldırı sorgusu 667,5 → 16,7; canary R@5 değişmedi |
+| 1 | **Y1** BM25 sorgu-terimi tekrarı skoru şişiriyor (667 vs eşik 10,6) | **KAPANMIŞ** | `retrieval/text.py:109` `QTF_CAP = 2`; `scores()` `:290-294` `qw = min(qtf, QTF_CAP)`. exp14/R30: saldırı sorgusu 667,5 → 16,7; retrieval_eval R@5 değişmedi |
 | 2 | **Y2** O(sorgu_token × 4222) doğrusal tarama; inverted index yok | **HÂLÂ AÇIK** | `retrieval/text.py:295` `for i, freqs in enumerate(self.doc_freqs):` — hâlâ tam tarama. Skor-şişirme kolu kapandı, karmaşıklık kapanmadı. `config.py:192-193` rate limit varsayılanı hâlâ 0 |
 | 3 | **Y15 / K33** Gemini çağrısında zaman aşımı yok; lazy client yarışı | **KAPANMIŞ** | `answer/gemini.py:42-45` `GEMINI_TIMEOUT_S=15.0`, `GEMINI_TOTAL_BUDGET_S=35.0`; `_ensure_client` `:245-261` çift-kontrollü kilit (`threading.Lock`) |
 | 4 | **K27** `honest_miss` Türkçe İ/I'de kırılıyor | **KAPANMIŞ** | `answer/base.py:64,74` artık `tr_lower()` kullanıyor (paylaşılan `retrieval.text` fonksiyonu) |
 | 5 | **Y17/Y31** honest-miss API sözleşmesinde görünmez | **KAPANMIŞ** | `app/main.py:781` yanıtta `"honest_miss"` alanı; `index.html:805,811,818` ayrı CSS sınıfı |
 | 6 | **Y20** `degraded` olaylarında hata sınıfı yok (114/114 NULL) | **KAPANMIŞ** | `answer/base.py:194-202` `error_type` hesaplanıp `annotate` ediliyor; `gemini.py:149-198` `classify_error()` taksonomisi |
 | 7 | **Y28/K17** Enter/çip tıklaması çift-gönderim korumasını atlıyor | **KAPANMIŞ** | `index.html:728,737` `let inFlight = false` + tek giriş noktası |
-| 8 | **Y29** UI'da "43 soruluk **insan-doğrulamalı** canary" | **HÂLÂ AÇIK — KRİTİK (itibar)** | `app/static/index.html:454` birebir duruyor. Gerçek: 3/48 insan. E2 bunu KRİTİK/#7 diye işaretlemiş, düzeltme metnini de vermiş; uygulanmamış (`git blame` → `6d5b345`, sonrasında değişmemiş) |
-| 9 | **Y30** "6 çipin hepsi canary'den" iddiası | **HÂLÂ AÇIK — ÖNEMLİ (itibar)** | `index.html:347` birebir duruyor; 6 çipin 2'si için yanlış (biri ayarlama hedefi olmuş vitrin sorgusu, biri canary'de olmayan bir sorunun ASCII varyantı) |
+| 8 | **Y29** UI'da "43 soruluk **insan-doğrulamalı** retrieval_eval" | **HÂLÂ AÇIK — KRİTİK (itibar)** | `app/static/index.html:454` birebir duruyor. Gerçek: 3/48 insan. E2 bunu KRİTİK/#7 diye işaretlemiş, düzeltme metnini de vermiş; uygulanmamış (`git blame` → `6d5b345`, sonrasında değişmemiş) |
+| 9 | **Y30** "6 çipin hepsi retrieval_eval'den" iddiası | **HÂLÂ AÇIK — ÖNEMLİ (itibar)** | `index.html:347` birebir duruyor; 6 çipin 2'si için yanlış (biri ayarlama hedefi olmuş vitrin sorgusu, biri retrieval_eval'de olmayan bir sorunun ASCII varyantı) |
 | 10 | **K18** `stage1_ms`/`stage2_ms` üretimde daima NULL | **HÂLÂ AÇIK** | `app/main.py:544-545` hâlâ `col.stages.get("stage1_hamming")` / `("stage2_maxsim")` okuyor; hibrit hat bu adları hiç yaymıyor (`query_encode`, `exhaustive_maxsim`, `text_bm25`, `route_fuse`) |
 | 11 | **K9/K10** `candidate_survival` aslında Recall@200; `gold_ranks=-1` teşhis sinyalini yok ediyor | **HÂLÂ AÇIK** | `bench/harness.py:265` `-1 if g not in top_ids`; `:271` `candidate_survival` yalnız `record_top` penceresinde üyelik bakıyor |
 | 12 | **K21** `hub.pull_index` hedef dizini temizlemiyor | **HÂLÂ AÇIK** | `index/hub.py:43-45` `mkdir(exist_ok=True)` + doğrudan `shutil.copy` döngüsü; `delete_patterns` yok → karma kuantizasyon artığı riski |
 | 13 | **Y5** `/search` OOV sorguda "hepsi sıfır" listeyi geçerli sonuç gibi döndürüyor | **HÂLÂ AÇIK** | `app/main.py:713` hâlâ düz `{"hits": hits}`; `no_match`/`status` alanı yok |
-| 14 | **K3** Eşik cevaplanabilir/cevaplanamazı ayırmıyor | **HÂLÂ AÇIK (bilinçli, kilitli)** | `tests/retrieval/test_semantic_canary.py:202-235` `xfail(strict=True)` — hibrit/BM25 ölçeğinde de ayırmıyor. Çözüm P2 kapı 1 (varsayılan kapalı) |
+| 14 | **K3** Eşik cevaplanabilir/cevaplanamazı ayırmıyor | **HÂLÂ AÇIK (bilinçli, kilitli)** | `tests/retrieval/test_semantic_retrieval_eval.py:202-235` `xfail(strict=True)` — hibrit/BM25 ölçeğinde de ayırmıyor. Çözüm P2 kapı 1 (varsayılan kapalı) |
 | 15 | **NEW-1** `_evict_oldest` boş dict'te `ValueError` | **HÂLÂ AÇIK ama GEÇERSİZ (ulaşılamaz)** | `app/main.py:178-183` guard yok; ama `max_clients` Settings alanı değil, daima `RATE_LIMITER_MAX_CLIENTS=10_000` |
 
 **Ek bağımsız spot-check'ler (bu denetimin kendi taraması):**
@@ -308,7 +308,7 @@ RESOLVED turları).
 
 ### 6.1 Ölçülen gerçek sayılar (JSONL'lerden bu denetimde hesaplandı)
 
-**`data/bench/canary_v1.jsonl` — 48 satır**
+**`data/bench/retrieval_eval_v1.jsonl` — 48 satır**
 
 | Alan | Dağılım |
 |---|---|
@@ -319,9 +319,9 @@ RESOLVED turları).
 | dilim | dogrudan-madde 13, paraphrase 7, madde-numarali 6, ayni-kanun-hard-negative 5, tablo-layout 4, tarihi-tarama 4, capraz-kanun-terim 4, korpus-disi 3, anlamsiz-ood 2 |
 
 İnsan doğrulamalı 3 satır: `c307`, `c308`, `c314`. **Spec'in 12 diliminden 3'ü boş**
-(multi-hop, belirsiz-coklu-dayanak, eksik-kanit — canary'de yok).
+(multi-hop, belirsiz-coklu-dayanak, eksik-kanit — retrieval_eval'de yok).
 
-**`data/bench/unans_v1.jsonl` — 330 satır (hepsi cevaplanamaz)**
+**`data/bench/abstention_eval_v1.jsonl` — 330 satır (hepsi cevaplanamaz)**
 
 | Alan | Dağılım |
 |---|---|
@@ -331,12 +331,12 @@ RESOLVED turları).
 | dilim × durum | korpus-disi 218/12 · anlamsiz-ood 60/0 · eksik-kanit 31/9 |
 
 230 `korpus-disi` satırın **113'ü hiçbir bağımsız denetçiden geçmedi** (yalnız
-`script:validate_unans` mekanik etiketi).
+`script:validate_abstention_eval` mekanik etiketi).
 
 **`data/bench/splits_v1.json`** — law-grouped, **22 test dokümanı / 34 dev dokümanı**,
 kesişim boş. Bu denetimde `assign_split()` yeniden uygulanarak doğrulandı:
 
-| | unanswerable | canary-answerable |
+| | unanswerable | retrieval_eval-answerable |
 |---|---|---|
 | **dev** | 159 | 26 |
 | **test** | 155 | 17 |
@@ -349,20 +349,20 @@ hepsi bağımsız olarak dev'e düştü → **kalibrasyon ↔ test sızıntısı
 
 | Yayınlanan sayı | Kaynak koşum | Küme |
 |---|---|---|
-| R@5 **0,8605** (37/43 ikili) / **0,8488** (kesirli) / R@20 **0,9302** | `20260830-1611-6d5b345-hybrid.json` | canary_v1, n=43, hibrit, int8 |
-| int8 = float16 her k'da; 1-bit −7,0 puan R@20 | `a2-traincompat-oracle.json` | canary_v1, n=43 |
-| B1/B2 baseline (two-stage R@5 0,000 / exhaustive 0,070) | `baseline-v0idx-{exhaustive,twostage}.json` | canary_v1, v0 indeks |
-| Aday süpürmesi 200/500/1000/exhaustive | `b2-traincompat-twostage-c*.json` | canary_v1 |
-| tau=0,5037, kapsama %2,2, AUROC 0,7817, ECE 0,0341 | `p2-calibration-dev-v1.json` + `calibrator.json` | canary(dev 26) + unans(dev 159) = 185 |
-| Görsel-only R@5 0,1163 | `verified-production-exhaustive.json` | canary_v1, 1-bit |
+| R@5 **0,8605** (37/43 ikili) / **0,8488** (kesirli) / R@20 **0,9302** | `20260830-1611-6d5b345-hybrid.json` | retrieval_eval_v1, n=43, hibrit, int8 |
+| int8 = float16 her k'da; 1-bit −7,0 puan R@20 | `a2-traincompat-oracle.json` | retrieval_eval_v1, n=43 |
+| B1/B2 baseline (two-stage R@5 0,000 / exhaustive 0,070) | `baseline-v0idx-{exhaustive,twostage}.json` | retrieval_eval_v1, v0 indeks |
+| Aday süpürmesi 200/500/1000/exhaustive | `b2-traincompat-twostage-c*.json` | retrieval_eval_v1 |
+| tau=0,5037, kapsama %2,2, AUROC 0,7817, ECE 0,0341 | `p2-calibration-dev-v1.json` + `calibrator.json` | retrieval_eval(dev 26) + abstention_eval(dev 159) = 185 |
+| Görsel-only R@5 0,1163 | `verified-production-exhaustive.json` | retrieval_eval_v1, 1-bit |
 
-**Hiçbir recall koşumu `unans_v1.jsonl` üzerinde koşmadı** — o dosya yalnız
+**Hiçbir recall koşumu `abstention_eval_v1.jsonl` üzerinde koşmadı** — o dosya yalnız
 kalibrasyon fitinde negatif örnek olarak kullanılıyor.
 
 ### 6.3 bench_v2 yokluğu
 
 Spec §5.1 ≥120 answerable + ≥30 unanswerable, insan-doğrulamalı bir set istiyor.
-`data/bench/bench_v2.jsonl` **hiçbir yerde yok**. Yerine geçen `canary_v1 + unans_v1`
+`data/bench/bench_v2.jsonl` **hiçbir yerde yok**. Yerine geçen `retrieval_eval_v1 + abstention_eval_v1`
 kombinasyonu **43 answerable** taşıyor (hedefin ~1/3'ü) ve 378 satırın **3'ü (%0,8)**
 insan onaylı → spec'in "insan-doğrulamalı" şartını da karşılamıyor.
 
@@ -371,16 +371,16 @@ insan onaylı → spec'in "insan-doğrulamalı" şartını da karşılamıyor.
 | Yer | İddia | Hüküm |
 |---|---|---|
 | `README.md:358`, `:382`, `:161-169` | "3/48 rows human-verified, 45 model-cross-checked" | **DOĞRU** — üç ayrı yerde tekrarlanan çekince |
-| `data/bench/canary_v1.README.md` | "Bu set insan-doğrulanmış DEĞİLDİR… 3'ü insan" | **DOĞRU** |
-| `data/bench/unans_v1.README.md` | "0'ı insan onayından geçmiştir" | **DOĞRU** (ama üstteki özet tablo bayat: 300/286/14 diyor, dosya bugün 330/309/21) |
+| `data/bench/retrieval_eval_v1.README.md` | "Bu set insan-doğrulanmış DEĞİLDİR… 3'ü insan" | **DOĞRU** |
+| `data/bench/abstention_eval_v1.README.md` | "0'ı insan onayından geçmiştir" | **DOĞRU** (ama üstteki özet tablo bayat: 300/286/14 diyor, dosya bugün 330/309/21) |
 | `2026-08-27-p0-gate.md:35-48, 449-452` | "insan-doğrulanmış olarak alıntılanamaz" | **DOĞRU** |
 | `p0-decision-log.md:278` | "yalnız 3/48 insan onaylı" | **DOĞRU** |
-| **`src/belge_gozu/app/static/index.html:454`** | **"43 soruluk insan-doğrulamalı canary"** | **YANLIŞ — canlı serviste duruyor.** 43 answerable satırın yalnız 3'ü (aslında hepsi de değil: 3 insan satırının 3'ü de answerable) insan onaylı |
-| `index.html:347` | "6 çipin hepsi canary setinden ya da yazım varyantından" | **YANLIŞ** — 2 çip için doğru değil |
+| **`src/belge_gozu/app/static/index.html:454`** | **"43 soruluk insan-doğrulamalı retrieval_eval"** | **YANLIŞ — canlı serviste duruyor.** 43 answerable satırın yalnız 3'ü (aslında hepsi de değil: 3 insan satırının 3'ü de answerable) insan onaylı |
+| `index.html:347` | "6 çipin hepsi retrieval_eval setinden ya da yazım varyantından" | **YANLIŞ** — 2 çip için doğru değil |
 
 **Ek bulgu (bu denetimde ortaya çıktı):** `--only-verified` bayrağı bugünkü veride
 **etkisiz**. `bench/dataset.py:114-132` yalnız `verification_status != "verified"`
-filtreliyor, `verification_kind`'a bakmıyor; canary'nin 48/48'i `verified` olduğundan
+filtreliyor, `verification_kind`'a bakmıyor; retrieval_eval'nin 48/48'i `verified` olduğundan
 `--only-verified` hiçbir satırı elemiyor. Kanıt: `verified-production-exhaustive.json`
 (only_verified=True) ile `a2-traincompat-1bit-exhaustive.json` (False) **birebir aynı**
 overall sayıları veriyor. p0-gate'in "doğrulanmış set üzerinde sayılar DEĞİŞMEDİ"
@@ -397,7 +397,7 @@ Büyüklük: **S** ≤ yarım gün · **M** 1-3 gün · **L** > 3 gün (tek geli
 
 | # | İş | Boyut | Bağımlılık |
 |---|---|---|---|
-| a1 | **T4: `bench/answer_eval.py` + `bench answers` CLI** — answerable/unanswerable koşum harness'ı; `AnswerRecord`, citation precision/completeness, false-answer/false-abstain | **M** | Yok (veri hazır: canary 43 + unans 330) |
+| a1 | **T4: `bench/answer_eval.py` + `bench answers` CLI** — answerable/unanswerable koşum harness'ı; `AnswerRecord`, citation precision/completeness, false-answer/false-abstain | **M** | Yok (veri hazır: retrieval_eval 43 + abstention_eval 330) |
 | a2 | **T3 kalanı: citation metrikleri** (G2.2'nin hesap yeri) | **S** | a1 |
 | a3 | **G2 koşum kota planı** — 2×20 çağrı/gün ücretsiz kota vs ücretli katman; önbellek + güne bölme. **KULLANICI KARARI bekliyor** | **S** (karar) / **M** (koşum) | Kullanıcı |
 | a4 | **T12: p2-gate.md + test-split final koşumu** (G2.1-G2.8 satır satır) | **M** | a1, a2, a3 |
@@ -426,7 +426,7 @@ Büyüklük: **S** ≤ yarım gün · **M** 1-3 gün · **L** > 3 gün (tek geli
 | c1 | **T7: dense metin kanalı** (BGE-M3 / multilingual-E5) — paraphrase dilimi R@5 0,2857'de sıkışmış; sözcüksel tavanın tek çıkışı. G1.2'nin tek FAIL'i | **L** | Yok (F1 ablasyon çerçevesi hazır) |
 | c2 | **T10: cross-encoder reranker** — recall kapısı artık geçiliyor (R@20 0,9302); G1.3 ölçülebilir | **M** | c1 tercihen |
 | c3 | **bench_v2 (120 answerable + 30 unanswerable)** — spec §5.1; law-grouped split hazır | **L** | Yok |
-| c4 | **İnsan doğrulaması** — canary'nin ≥30 satırı + unans örneklemi; `verify_canary --review` kuyruğu kusurunun (K8) düzeltilmesi + `require_human` bayrağı | **L** | K8 fix (**S**) |
+| c4 | **İnsan doğrulaması** — retrieval_eval'nin ≥30 satırı + abstention_eval örneklemi; `verify_retrieval_eval --review` kuyruğu kusurunun (K8) düzeltilmesi + `require_human` bayrağı | **L** | K8 fix (**S**) |
 | c5 | **T3 (madde segmentasyonu)** — ilke 11'in tek gerçek ihlali; citation granülaritesi ve `gold_article_ids`'in aktifleşmesi | **M** | Yok |
 | c6 | **T10 (LLM-judge + PPI)** — c4'ün ≥30 insan çifti ön koşulu | **M** | c4 |
 | c7 | **Ablasyon matrisinin (spec §7) tamamlanması** — E1/F1/F2/F3/G1 satırları | **L** | c1, c2 |
@@ -442,14 +442,14 @@ Büyüklük: **S** ≤ yarım gün · **M** 1-3 gün · **L** > 3 gün (tek geli
 | d4 | Y11 `/stats`/`/metrics` erişim kontrolü + tam tablo taraması | S |
 | d5 | UI nit'leri: Y33 (sahte pacing), Y34, Y35, Y36, Y37, Y38 (a11y), Y40, Y43, Y45 | M (toplu) |
 | d6 | Telemetri/katalog birleştirmeleri (D12, S22-S23, D11, S55, D14), vokabüler enum'ları (D4-D6, S36, D25) | M |
-| d7 | `unans_v1.README.md` üstteki özet tablosunun güncellenmesi (300/286/14 → 330/309/21) | S |
+| d7 | `abstention_eval_v1.README.md` üstteki özet tablosunun güncellenmesi (300/286/14 → 330/309/21) | S |
 | d8 | PDL "minor (deferred)" kalemleri (T1/T2/T4/T15), NEW-1, N1/N2 nit'leri | S |
 | d9 | Korpus genişletmesi (1475), LocalVLM, agentic derin arama — spec §10 kapsam dışı, ilke 23 gereği P2 sonrası | L |
 
 ### 7.1 En kritik 5 eksik (tek cümlelik)
 
 1. **Proje GitHub'da değil (0 remote, main 85 commit geride)** — 147 commit / 666 test / 3 faz görünmez; CI hiç koşmadı.
-2. **Canlı UI'da yanlış iddia** (`index.html:454` "insan-doğrulamalı canary") — projenin kendi dürüstlük standardını ihlal ediyor ve iç incelemede KRİTİK işaretlenmiş olmasına rağmen düzeltilmemiş.
+2. **Canlı UI'da yanlış iddia** (`index.html:454` "insan-doğrulamalı retrieval_eval") — projenin kendi dürüstlük standardını ihlal ediyor ve iç incelemede KRİTİK işaretlenmiş olmasına rağmen düzeltilmemiş.
 3. **G1 hiç adjudike edilmemiş, G2 koşumu yok** — hibrit üretimde default açık; ölçülü sayılar (R@50 0,9302 < %95; paraphrase 0,5714 < %90) bir kapı raporunda kayıtlı değil.
 4. **Dağıtım zinciri hiç doğrulanmamış** — Docker imajı bir kez bile build edilmedi, `--pull` sessiz no-op, HF'teki indeks P1 öncesi (metin artefaktı yok), Space PRO nedeniyle yok.
 5. **P2'nin ölçüm ayağı eksik** — `bench/answer_eval.py` + `bench answers` yok; G2.1/G2.2 için hiçbir koşum yapılamaz, dolayısıyla verifier/kalibre kapıları meşru biçimde açılamıyor.

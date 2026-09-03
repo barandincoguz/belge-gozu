@@ -5,7 +5,7 @@
   taranmış RG sayfalarında boş string)
 - visual_scores.npz  : scores (n_q, n_pages) float32 — üretim int8 indeksinde
   ColSmol MaxSim skorları (görsel kanal DONUK; deneyler bunun üstüne kurulur)
-- queries.json       : sorgu künyeleri (canary answerable=43 + 2 vaka analizi)
+- queries.json       : sorgu künyeleri (retrieval_eval answerable=43 + 2 vaka analizi)
 
 Koşum: uv run python research/prepare.py
 """
@@ -26,7 +26,7 @@ from belge_gozu.index.loader import load_scorable_index
 from belge_gozu.index.manifest import QUERY_FORMATS, read_manifest
 
 OUT_DIR = Path("data/research")
-CANARY = Path("data/bench/canary_v1.jsonl")
+RETRIEVAL_EVAL = Path("data/bench/retrieval_eval_v1.jsonl")
 PDF_DIR = Path("data/pdf")
 
 # Vitrin (chip) sorguları — birincil metriğe GİRMEZ (program.md: 2 soruya overfit yasak)
@@ -70,7 +70,7 @@ def main() -> None:
     df.to_parquet(OUT_DIR / "page_texts.parquet")
     print(f"metin: {len(df)} sayfa, {empty} boş (taranmış RG dahil)")
 
-    bench = load_bench(CANARY, only_verified=False)
+    bench = load_bench(RETRIEVAL_EVAL, only_verified=False)
     answerable = [q for q in bench if q.answerable]
     queries = [
         {
@@ -78,7 +78,7 @@ def main() -> None:
             "question": q.question,
             "gold": list(q.gold_page_ids),
             "requires_visual": q.requires_visual,
-            "role": "canary",
+            "role": "retrieval_eval",
         }
         for q in answerable
     ] + [{**c, "requires_visual": False, "role": "case_study"} for c in CASE_STUDIES]
@@ -100,7 +100,9 @@ def main() -> None:
     }
     (OUT_DIR / "queries.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
     print(f"görsel kanal: {mat.shape} — {s.index_dir} ({meta['quantization']})")
-    print(f"sorgular: {len(answerable)} canary answerable + {len(CASE_STUDIES)} vaka analizi")
+    print(
+        f"sorgular: {len(answerable)} retrieval_eval answerable + {len(CASE_STUDIES)} vaka analizi"
+    )
     print("-> data/research/{page_texts.parquet, visual_scores.npz, queries.json}")
 
 

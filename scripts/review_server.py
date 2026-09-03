@@ -1,13 +1,13 @@
-"""Canary bench — insan doğrulama için yerel HTML arayüzü.
+"""RetrievalEval bench — insan doğrulama için yerel HTML arayüzü.
 
-Terminal `verify_canary.py --review` ile AYNI işi yapar, aynı saf fonksiyonları
+Terminal `verify_retrieval_eval.py --review` ile AYNI işi yapar, aynı saf fonksiyonları
 çağırır (`select_review_queue`, `precheck_question`, `apply_decision`,
 `write_jsonl_atomic`) — tek farkı kararı klavyeden değil tarayıcıdan almasıdır.
 Kazanç somut: sayfa görüntüsü sorunun ve kanıt alıntılarının YANINDA durur,
 ayrı bir görüntü penceresine geçip geri gelmek gerekmez. 46 satırlık bir
 kuyrukta bu fark, incelemenin bitip bitmemesini belirler.
 
-Neden ayrı bir betik: `verify_canary.py` PDF/indeks I/O'suna dokunmayan saf
+Neden ayrı bir betik: `verify_retrieval_eval.py` PDF/indeks I/O'suna dokunmayan saf
 çekirdeğiyle CI'da test edilebiliyor. HTTP sunucusu o çekirdeğe HİÇBİR şey
 eklemez, yalnız üstüne bir taşıyıcı koyar; ayrı dosyada durması çekirdeğin
 test edilebilirliğini bozmaz.
@@ -38,7 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from verify_canary import (  # noqa: E402
+from verify_retrieval_eval import (  # noqa: E402
     DEFAULT_IMAGES_DIR,
     DEFAULT_PDF_DIR,
     apply_decision,
@@ -54,7 +54,7 @@ from verify_canary import (  # noqa: E402
 from belge_gozu.bench.dataset import BenchQuestion  # noqa: E402
 from belge_gozu.config import Settings  # noqa: E402
 
-DEFAULT_BENCH_V2 = REPO_ROOT / "data" / "bench" / "canary_v2.jsonl"
+DEFAULT_BENCH_V2 = REPO_ROOT / "data" / "bench" / "retrieval_eval_v2.jsonl"
 
 # Karar dilimleri: G1.2'nin üstünde hüküm verdiği dört dilim. Varsayılan
 # kuyruk bunlarla sınırlıdır — emeği kapının gerçekten baktığı yere harcamak
@@ -250,7 +250,7 @@ class Handler(BaseHTTPRequestHandler):
 PAGE = r"""<!doctype html>
 <html lang="tr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Canary inceleme</title>
+<title>RetrievalEval inceleme</title>
 <style>
 :root{color-scheme:light dark;--bg:#f6f7f9;--panel:#fff;--ink:#12283d;--mut:#6e7f8f;
 --line:#d7dfe8;--ok:#2e7d4f;--okbg:#e8f3ec;--bad:#a61c2c;--badbg:#fceceb;
@@ -307,7 +307,7 @@ border-radius:3px;padding:1px 5px;color:var(--mut)}
 .err{color:var(--bad);font-size:13px}
 </style></head><body>
 <header>
-  <b>Canary inceleme</b>
+  <b>RetrievalEval inceleme</b>
   <span class="prog" id="prog">yükleniyor…</span>
   <span class="bar"><i id="bar"></i></span>
   <span class="prog" id="who"></span>
@@ -338,7 +338,7 @@ function render(){
   if(!S.items.length || i>=S.items.length){
     $('main').innerHTML='<div class="card done"><h2>Kuyruk bitti.</h2>'+
       '<p>Bu filtrede insan doğrulaması bekleyen satır kalmadı. '+
-      'Sayımı görmek için: <code>python scripts/verify_canary.py --status</code></p></div>';
+      'Sayımı görmek için: <code>python scripts/verify_retrieval_eval.py --status</code></p></div>';
     $('foot').hidden=true; return;
   }
   $('foot').hidden=false;

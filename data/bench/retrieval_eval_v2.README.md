@@ -1,4 +1,4 @@
-# `canary_v2.jsonl` — köken ve doğrulama künyesi
+# `retrieval_eval_v2.jsonl` — köken ve doğrulama künyesi
 
 **66 satırın 47'si insan doğrulamasından geçmiştir.** G1.2'nin üzerinde hüküm
 verdiği dört karar diliminin (`paraphrase`, `dogrudan-madde`, `madde-numarali`,
@@ -10,7 +10,7 @@ kayda geçirir.
 ## 1. v2, v1'in ÜST KÜMESİDİR
 
 v1'in 48 satırı v2'ye **birebir** taşındı — `question_id`'ler, altın sayfalar,
-kanıt alıntıları, doğrulama künyeleri değişmedi. `canary_v1.jsonl` dondurulmuş
+kanıt alıntıları, doğrulama künyeleri değişmedi. `retrieval_eval_v1.jsonl` dondurulmuş
 tarihsel referans olarak repoda durur.
 
 Bu yapı bilinçli bir karardır: v2 v1'i tamamen içerdiği için, v1 alt kümesinde
@@ -50,7 +50,7 @@ tek bir hataydı: soru, altın sayfanın KENDİ sözcüklerini tekrarlıyor ama
 edilmiş sorgu" dilimi aslında birebir kelime eşleşmesini ölçer ve BM25 haksız
 yere iyi görünür.
 
-`verify_canary.py --report` artık bunu ölçer: soru ile altın sayfa, ÜRETİM
+`verify_retrieval_eval.py --report` artık bunu ölçer: soru ile altın sayfa, ÜRETİM
 tokenizer'ıyla (`retrieval.text.tokenize`) tokenize edilir ve sorunun içerik
 sözcüklerinin kaçta kaçının sayfada birebir geçtiği hesaplanır. `paraphrase`
 diliminde %50'yi aşan satır ŞÜPHELİ'ye düşer. Kapı **etiket değiştirmez**,
@@ -158,8 +158,8 @@ Kanıt: `data/bench/results/d1-final-all.json`, `d1-final-human.json`.
 
 ```bash
 uv run python scripts/review_server.py --by baran          # HTML arayüz, karar dilimleri
-uv run python scripts/verify_canary.py --status            # sayım
-uv run python scripts/verify_canary.py --report            # makine ön-kontrolü
+uv run python scripts/verify_retrieval_eval.py --status            # sayım
+uv run python scripts/verify_retrieval_eval.py --report            # makine ön-kontrolü
 ```
 
 Arayüz yalnız `127.0.0.1`'e bağlanır. Her karar diske ATOMİK yazılır; sekme

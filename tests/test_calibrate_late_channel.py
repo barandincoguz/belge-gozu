@@ -44,7 +44,7 @@ def _late_row(qid: str, label: int, inner: str, value: float) -> LateCalibration
         gold_in_topk=bool(label),
         unanswerable_reason=None if label else "anlamsiz-ood",
         slice="paraphrase" if label else "anlamsiz-ood",
-        source="canary" if label else "unans",
+        source="retrieval_eval" if label else "abstention_eval",
         features={
             "mogan_top1_mean": value,
             "mogan_margin_mean": value / 10,

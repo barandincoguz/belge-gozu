@@ -13,7 +13,7 @@ kabul. exp13 (çift-biçim) denendi ve iki guardrail'i düşürdüğü için red
 
 EXP-14 (qtf≤2 sorgu doygunluğu, KEPT): `BM25.scores` artık sorgunun BENZERSİZ
 token'ları üzerinde gezip her terime `min(qtf, 2)` ağırlığı veriyor. Reçete
-değişikliği ÜRETİMDEN geldi (bulgu Y1): canary'de hiçbir sorgu terim tekrar
+değişikliği ÜRETİMDEN geldi (bulgu Y1): retrieval_eval'de hiçbir sorgu terim tekrar
 etmediği için ölçüm uzayı bu sınıfı hiç görmemişti, üretimde ise "ihbar"×80
 skoru 667.5'e çıkarıp eşiği anlamsızlaştırıyordu. Ölçüm ledger 2026-08-30.
 """
@@ -72,7 +72,7 @@ class BM25:
     def scores(self, query: str) -> np.ndarray:
         """BM25 skorları; sorgu BENZERSİZ token'lar üzerinde `min(qtf, QTF_CAP)` ağırlıkla.
 
-        qtf≤2 doygunluğu — canary birebir değişmedi: R@5 37/43, MRR 0.6320;
+        qtf≤2 doygunluğu — retrieval_eval birebir değişmedi: R@5 37/43, MRR 0.6320;
         saldırı 'ihbar'×80 top-1 667.5→16.7; ölçüm ledger 2026-08-30.
         """
         out = np.zeros(len(self.doc_freqs), dtype=np.float32)

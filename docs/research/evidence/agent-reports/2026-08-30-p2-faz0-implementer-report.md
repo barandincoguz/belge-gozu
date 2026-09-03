@@ -48,7 +48,7 @@ iç sınıf adlarına bağlamak operatöre eylem söylemez.
 ### Y1 — BM25 sorgu-terim doygunluğu (qtf ≤ 2) · `retrieval/text.py` + `research/retrieve.py`
 
 `scores()` sorgu token'ları üzerinde döngü kurup her tekrar için aynı terimi yeniden
-topluyordu; klasik BM25'in `k3` doygunluk çarpanı bu portta yoktu çünkü **canary'de hiçbir
+topluyordu; klasik BM25'in `k3` doygunluk çarpanı bu portta yoktu çünkü **retrieval_eval'de hiçbir
 sorgu terim tekrar etmiyor** — ölçüm uzayı bu sınıfı hiç görmemişti. `MAX_QUERY_CHARS=500`
 bunu kapatmıyordu, yalnız ölçekliyordu.
 
@@ -190,7 +190,7 @@ uv run pytest -q -m "not slow"   -> 429 passed, 6 deselected            (BASE: 3
 make lint                        -> ruff check OK · ruff format OK · pyright 0 errors
 BG_DEVICE=mps uv run pytest -m slow -v
                                  -> 5 passed, 429 deselected, 1 xfailed   (XPASS yok)
-                                    xfail = test_out_of_corpus_canary_scores_below_threshold
+                                    xfail = test_out_of_corpus_retrieval_eval_scores_below_threshold
                                     (K3 hâlâ dürüstçe kilitli — P2'nin var oluş sebebi)
 ```
 
@@ -228,7 +228,7 @@ hepsi doğru dokümandan (yönlendirme çalışıyor). Eski konumsal bağlamada 
 **(b) Korpus-dışı `/ask` → dürüst ıska sözleşmede**
 
 ```
-soru : canary c003 (Türk Vatandaşlığı Kanunu — korpusta YOK)
+soru : retrieval_eval c003 (Türk Vatandaşlığı Kanunu — korpusta YOK)
 top-1: 23.52  (eşik 10.6 -> fren GEÇİRDİ, ücretli çağrı yapıldı: K3 hâlâ açık)
 ->     status=answered  honest_miss=True  citations=[]
 metin: "verilen sayfalarda bulamadım"

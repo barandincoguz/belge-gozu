@@ -24,7 +24,7 @@ Not: S/C/D numaraları yukarıdaki üç arşiv dosyasının tablo satırlarına 
 
 **Ölçüm (eşik taşıma, int8, MPS):** answerable n=43 min 0.5767 / medyan 0.6250 / maks 0.7450; unanswerable n=5: 0.5679–0.6866. Dağılımlar int8'de de örtüşüyor → **ayrışmama temsilden bağımsızdır**; kalibrasyon P2'nin işi olarak değişmedi. Hedef sorgular: kısa sorgu gold rank 4 (top1 0.7450), uzun sorgu gold rank 664 (1-bit'te 1221 idi — int8 kalite kazancının cırcıra yansıması).
 
-**Ek ölçüm (scoped review, 2026-08-29) — eşik temsiller arası TAŞINAMAZ:** b790f6c incelemesi, 1-bit indeksin AYNI normalize ölçekteki ([−1,1], /EMBED_DIM) canary top-1 dağılımını ölçtü: answerable min 0.4676 / medyan 0.4953 / maks 0.6133 → 0.58 eşiğini 1-bit'te yalnız **1/43** answerable geçer (int8'de 42/43). Yani **normalizasyon aralığı birleştirir, dağılımı birleştirmez** — eşik, ölçek değil temsil dağılımı üzerinde tanımlıdır ve her temsil değişiminde yeniden taşıma ölçümü gerekir (README/config bu uyarıyı taşır; temsil-başına eşik konfigürasyonu bilinçli olarak EKLENMEDİ — R19, kalibrasyon P2). İkinci incelik: 0.58 taşıması çalışma noktasını SAYICA korur (42/43 + 4/5) ama soru-kimliği bazında iki satır yer değiştirir — c306 binary@60'ta abstain iken int8@0.58'de geçer (0.5965), c211 tersi (0.5767) — çünkü int8 ile binary sıralamaları/skorları farklıdır. Monotonik taşıma sayıları korur, kimlikleri korumaz; makale için not edilmiştir. Düzeltme turunda bağımsız yeniden üretildi; 1-bit için eşdeğer çalışma noktası bandı `(0.4676, 0.4698]` ≈ **0.47** ölçüldü — yani 1-bit'e dönülecek olsa eşik de ~0.47'ye taşınmalıdır (README/config uyarısı bunu söyler).
+**Ek ölçüm (scoped review, 2026-08-29) — eşik temsiller arası TAŞINAMAZ:** b790f6c incelemesi, 1-bit indeksin AYNI normalize ölçekteki ([−1,1], /EMBED_DIM) retrieval_eval top-1 dağılımını ölçtü: answerable min 0.4676 / medyan 0.4953 / maks 0.6133 → 0.58 eşiğini 1-bit'te yalnız **1/43** answerable geçer (int8'de 42/43). Yani **normalizasyon aralığı birleştirir, dağılımı birleştirmez** — eşik, ölçek değil temsil dağılımı üzerinde tanımlıdır ve her temsil değişiminde yeniden taşıma ölçümü gerekir (README/config bu uyarıyı taşır; temsil-başına eşik konfigürasyonu bilinçli olarak EKLENMEDİ — R19, kalibrasyon P2). İkinci incelik: 0.58 taşıması çalışma noktasını SAYICA korur (42/43 + 4/5) ama soru-kimliği bazında iki satır yer değiştirir — c306 binary@60'ta abstain iken int8@0.58'de geçer (0.5965), c211 tersi (0.5767) — çünkü int8 ile binary sıralamaları/skorları farklıdır. Monotonik taşıma sayıları korur, kimlikleri korumaz; makale için not edilmiştir. Düzeltme turunda bağımsız yeniden üretildi; 1-bit için eşdeğer çalışma noktası bandı `(0.4676, 0.4698]` ≈ **0.47** ölçüldü — yani 1-bit'e dönülecek olsa eşik de ~0.47'ye taşınmalıdır (README/config uyarısı bunu söyler).
 
 ---
 
@@ -36,9 +36,9 @@ Not: S/C/D numaraları yukarıdaki üç arşiv dosyasının tablo satırlarına 
 |---|---|---|
 | Eşik-temsil bağı | C7, S3, S25 | Tek ölçek + 0.58 mekanik taşıma + config yorumu ölçek künyeli |
 | Ölçek korkuluğu | (sınıfın kendisi) | `create_app`: `threshold > 1.5` → fail-fast (eski binary değer kalıntısı reddi) |
-| Loader dispatch | C1, S2, S3, C23, S49 | `load_scorable_index` (manifest.quantization → Packed/Int8/Float); serve + bench run + d1 + canary fixture aynı yolu kullanır |
+| Loader dispatch | C1, S2, S3, C23, S49 | `load_scorable_index` (manifest.quantization → Packed/Int8/Float); serve + bench run + d1 + retrieval_eval fixture aynı yolu kullanır |
 | two-stage × int8 çapraz kontrolü | C22 | two-stage yalnız PackedIndex; aksi halde anlamlı IndexCompatibilityError |
-| create_app ↔ canary fixture kopyası | D22, C18 | `build_retriever()` çıkarıldı; fixture üretim kablolamasının kendisini çağırır |
+| create_app ↔ retrieval_eval fixture kopyası | D22, C18 | `build_retriever()` çıkarıldı; fixture üretim kablolamasının kendisini çağırır |
 | `index build` karma-dizin tuzağı | C6 | `--out` yokken hedef manifest'inin quantization'ı uyuşmuyorsa red (mevcut format guard'ının genişletilmesi) |
 | Quantization vokabüleri | D7 | `Quantization` StrEnum `index/manifest.py`'a taşındı + `float16` üyesi; çıplak literaller kapandı |
 | Prometheus kovaları | S6, S7, C29 | SCORE/MARGIN kovaları normalize ölçeğe |
@@ -48,7 +48,7 @@ Not: S/C/D numaraları yukarıdaki üç arşiv dosyasının tablo satırlarına 
 | UI metinleri | S16 kısmen, S29 | Dipnot temsil-nötr ("kalibre edilmemiş benzerlik ~[−1..1]"); "binary" ibaresi düştü |
 | /healthz kimliği | S17 kısmen, D17, S30 | `quantization`, `index_revision`, `top_k` eklendi; UI "ilk 5" top_k'dan |
 | EMBED_DIM / INT8_MAX | S37, S38, S39 | `EMBED_DIM=128`, `INT8_MAX=127` tek tanım; `_as_u64` şekil guard'ı; normalizasyon `/EMBED_DIM` |
-| Cırcır temsil anahtarı | S48, C32, D33 kısmen | `canary_expectations.json` `quantization` alanı taşır; test yüklü manifest'le eşleştirir; 1221→664 |
+| Cırcır temsil anahtarı | S48, C32, D33 kısmen | `retrieval_eval_expectations.json` `quantization` alanı taşır; test yüklü manifest'le eşleştirir; 1221→664 |
 | xfail XPASS riski | S26, C17 | Abstain kilidi int8 sayılarıyla yeniden yazıldı; 0.58'de hâlâ FAIL (xfail geçerli) — korpus-dışı top1'ler eşik üstünde |
 | Config drift kilitleri | C21 | `test_defaults` artık index_dir + eşiği assert ediyor |
 | colpali-engine pin | C13 kısmen | `==0.3.18` (format sözleşmesinin asıl kilidi) |
@@ -82,7 +82,7 @@ Not: S/C/D numaraları yukarıdaki üç arşiv dosyasının tablo satırlarına 
 - **Bench altyapısı:** tam-korpus rank kaydı (S45), tek `BENCH_KS` (S46, D23), `record_top` kesmesi (S47), oracle rapor `score_scale` notu (S50), `DEFAULT_CANDIDATES` (D24).
 - **Provenance:** render dpi/quality gerçeğinin manifest'e akması (S43, C30, D26), `ab_st_reference` render bağı notu (S58).
 - **Yardımcı birleştirmeler:** `page_id`/görüntü yolu tek modül (S41, S42, D9, D10), encode determinizm garantisinin `encode_pages` içine taşınması (S44), `data_dir` türetmeleri (C34, C35), port/timeout tablosu (S56, S57, D32), örnek sorgular tek dosya (D36), UI künye alanlarının healthz'ten gelmesi — kalanlar: pipeline/model adı/tarih aralığı (S60, D18, D20), pacing/aşama seçimi (S31, S32), `[Sn]` sabitleri (D31), CPE prompt canlı doğrulaması (C39), `/healthz` answerer_ready (C37 — E2E öncelik #4 LLM-freni ile birlikte).
-- **Canary süreci:** insan onayının `verification_kind`'ı yükseltmesi + `require_human` (D27), şema dokümanının modelden üretimi (D37), README rakam-kilidi testi (D19 kalanı, D18).
+- **RetrievalEval süreci:** insan onayının `verification_kind`'ı yükseltmesi + `require_human` (D27), şema dokümanının modelden üretimi (D37), README rakam-kilidi testi (D19 kalanı, D18).
 
 ### D. P2'ye bağlı (kalibrasyonla birlikte anlamlı)
 

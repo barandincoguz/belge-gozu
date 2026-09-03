@@ -455,7 +455,7 @@ def _q(qid: str, **over) -> dict:
     return base
 
 
-def _unans(qid: str, question: str, **over) -> dict:
+def _abstention_eval(qid: str, question: str, **over) -> dict:
     return _q(
         qid,
         question=question,
@@ -479,7 +479,7 @@ def test_label_is_one_only_for_answerable_with_gold_in_top5(channel):
     raw = [
         _q("hit", question="tanımı", gold_page_ids=["k1:2"]),
         _q("miss", question="tanımı", gold_page_ids=["k2:1"], gold_doc_ids=["k2"]),
-        _unans("u1", "hiçbiryerdeolmayankelime"),
+        _abstention_eval("u1", "hiçbiryerdeolmayankelime"),
     ]
     rows = build_rows(raw, SPLITS, text, names, k=1)
     by_id = {r.question_id: r for r in rows}
@@ -533,7 +533,7 @@ def test_load_rows_drops_draft_and_rejected(tmp_path: Path):
 def test_load_rows_keeps_underscore_fields_split_needs(tmp_path: Path):
     """`_subject_doc` pydantic'te düşer; hukuk-gruplu bölme onu OKUMAK zorunda."""
     p = tmp_path / "b.jsonl"
-    p.write_text(json.dumps(_unans("u1", "soru"), ensure_ascii=False), encoding="utf-8")
+    p.write_text(json.dumps(_abstention_eval("u1", "soru"), ensure_ascii=False), encoding="utf-8")
     assert load_rows(p)[0]["_subject_doc"] == "k1"
 
 
@@ -580,8 +580,8 @@ def _fixture_env(
             git_commit="deadbee",
         ),
     )
-    canary = tmp_path / "canary.jsonl"
-    canary.write_text(
+    retrieval_eval = tmp_path / "retrieval_eval.jsonl"
+    retrieval_eval.write_text(
         "\n".join(
             json.dumps(r, ensure_ascii=False)
             for r in [
@@ -595,19 +595,21 @@ def _fixture_env(
         ),
         encoding="utf-8",
     )
-    unans = tmp_path / "unans.jsonl"
-    unans.write_text(
+    abstention_eval = tmp_path / "abstention_eval.jsonl"
+    abstention_eval.write_text(
         "\n".join(
             json.dumps(r, ensure_ascii=False)
             for r in [
-                _unans("u1", "zzzqqq wwwxxx"),
-                _unans("u2", "aaabbb cccddd"),
-                _unans("u3", "eeefff ggghhh"),
-                _unans("u4", "iiijjj kkklll"),
-                _unans("u5", "mmmnnn oooppp", verification_status="rejected", verified_by=""),
+                _abstention_eval("u1", "zzzqqq wwwxxx"),
+                _abstention_eval("u2", "aaabbb cccddd"),
+                _abstention_eval("u3", "eeefff ggghhh"),
+                _abstention_eval("u4", "iiijjj kkklll"),
+                _abstention_eval(
+                    "u5", "mmmnnn oooppp", verification_status="rejected", verified_by=""
+                ),
                 # `_subject_doc="k2"`: varsayılan bölmede dev'e, `test_docs=["k2"]`
                 # varyantında test'e düşer — kapı testine negatif sınıfı verir.
-                _unans("u6", "qqqrrr ssstttt", _subject_doc="k2"),
+                _abstention_eval("u6", "qqqrrr ssstttt", _subject_doc="k2"),
             ]
         ),
         encoding="utf-8",
@@ -626,17 +628,17 @@ def _fixture_env(
     )
     monkeypatch.setenv("BG_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("BG_INDEX_DIR", str(index_dir))
-    return canary, unans, splits
+    return retrieval_eval, abstention_eval, splits
 
 
-def _fit_args(canary, unans, splits, out, extra=()):
+def _fit_args(retrieval_eval, abstention_eval, splits, out, extra=()):
     return [
         "calibrate",
         "fit",
-        "--canary",
-        str(canary),
-        "--unans",
-        str(unans),
+        "--retrieval-eval",
+        str(retrieval_eval),
+        "--abstention-eval",
+        str(abstention_eval),
         "--splits",
         str(splits),
         "--out",
@@ -646,9 +648,9 @@ def _fit_args(canary, unans, splits, out, extra=()):
 
 
 def test_cli_calibrate_fit_writes_artifact_and_report(tmp_path: Path, monkeypatch):
-    canary, unans, splits = _fixture_env(tmp_path, monkeypatch)
+    retrieval_eval, abstention_eval, splits = _fixture_env(tmp_path, monkeypatch)
     out = tmp_path / "report.json"
-    res = runner.invoke(app, _fit_args(canary, unans, splits, out))
+    res = runner.invoke(app, _fit_args(retrieval_eval, abstention_eval, splits, out))
     assert res.exit_code == 0, res.output
 
     report = json.loads(out.read_text(encoding="utf-8"))
@@ -658,7 +660,10 @@ def test_cli_calibrate_fit_writes_artifact_and_report(tmp_path: Path, monkeypatc
     assert report["kunye"]["counts"]["unanswerable"] == 5
     assert report["key"].endswith(f"__hybrid__{recipe_fingerprint()}")
     assert report["artifact_committed"] is False
-    assert [f["name"] for f in report["kunye"]["data_files"]] == ["canary", "unans"]
+    assert [f["name"] for f in report["kunye"]["data_files"]] == [
+        "retrieval_eval",
+        "abstention_eval",
+    ]
     assert all(len(f["sha256"]) == 64 for f in report["kunye"]["data_files"])
     # review M4: içeriği GERİ GETİREN referans da künyede; re-review N1: tmp
     # fikstürleri commit'lenmemiş olduğundan dürüst "-uncommitted" son eki taşır
@@ -696,24 +701,38 @@ def test_cli_calibrate_fit_writes_artifact_and_report(tmp_path: Path, monkeypatc
 
 def test_cli_calibrate_fit_records_the_data_pin_note(tmp_path: Path, monkeypatch):
     """Bench verisi aktif taslakta: koşumun kimliği yol değil İÇERİK + not."""
-    canary, unans, splits = _fixture_env(tmp_path, monkeypatch)
+    retrieval_eval, abstention_eval, splits = _fixture_env(tmp_path, monkeypatch)
     out = tmp_path / "report.json"
     res = runner.invoke(
-        app, _fit_args(canary, unans, splits, out, ["--note", "unans @ commit abc1234"])
+        app,
+        _fit_args(
+            retrieval_eval,
+            abstention_eval,
+            splits,
+            out,
+            ["--note", "abstention_eval @ commit abc1234"],
+        ),
     )
     assert res.exit_code == 0, res.output
-    assert json.loads(out.read_text(encoding="utf-8"))["kunye"]["note"] == "unans @ commit abc1234"
+    assert (
+        json.loads(out.read_text(encoding="utf-8"))["kunye"]["note"]
+        == "abstention_eval @ commit abc1234"
+    )
 
     # not verilmezse künyede alan HİÇ olmamalı (boş dize gürültüsü yok)
     out2 = tmp_path / "report2.json"
-    assert runner.invoke(app, _fit_args(canary, unans, splits, out2)).exit_code == 0
+    assert (
+        runner.invoke(app, _fit_args(retrieval_eval, abstention_eval, splits, out2)).exit_code == 0
+    )
     assert "note" not in json.loads(out2.read_text(encoding="utf-8"))["kunye"]
 
 
 def test_cli_calibrate_eval_recomputes_from_artifact(tmp_path: Path, monkeypatch):
-    canary, unans, splits = _fixture_env(tmp_path, monkeypatch)
+    retrieval_eval, abstention_eval, splits = _fixture_env(tmp_path, monkeypatch)
     out = tmp_path / "report.json"
-    assert runner.invoke(app, _fit_args(canary, unans, splits, out)).exit_code == 0
+    assert (
+        runner.invoke(app, _fit_args(retrieval_eval, abstention_eval, splits, out)).exit_code == 0
+    )
     fit_metrics = json.loads(out.read_text(encoding="utf-8"))["metrics"]
 
     ev_out = tmp_path / "eval.json"
@@ -722,10 +741,10 @@ def test_cli_calibrate_eval_recomputes_from_artifact(tmp_path: Path, monkeypatch
         [
             "calibrate",
             "eval",
-            "--canary",
-            str(canary),
-            "--unans",
-            str(unans),
+            "--retrieval-eval",
+            str(retrieval_eval),
+            "--abstention-eval",
+            str(abstention_eval),
             "--splits",
             str(splits),
             "--out",
@@ -738,9 +757,11 @@ def test_cli_calibrate_eval_recomputes_from_artifact(tmp_path: Path, monkeypatch
 
 
 def test_cli_calibrate_test_split_needs_explicit_gate(tmp_path: Path, monkeypatch):
-    canary, unans, splits = _fixture_env(tmp_path, monkeypatch)
+    retrieval_eval, abstention_eval, splits = _fixture_env(tmp_path, monkeypatch)
     out = tmp_path / "report.json"
-    res = runner.invoke(app, _fit_args(canary, unans, splits, out, ["--split", "test"]))
+    res = runner.invoke(
+        app, _fit_args(retrieval_eval, abstention_eval, splits, out, ["--split", "test"])
+    )
     assert res.exit_code != 0
     combined = res.output + (res.stderr or "")
     assert "--yes-final-gate" in combined
@@ -757,10 +778,13 @@ def test_cli_calibrate_test_split_proceeds_with_the_gate_flag(tmp_path: Path, mo
     TAMAMEN SENTETİK bir test bölmesi kullanılır (`test_docs=("k2",)` ile üç
     satır); gerçek `data/bench/splits_v1.json` test yakası HİÇ okunmaz.
     """
-    canary, unans, splits = _fixture_env(tmp_path, monkeypatch, test_docs=("k2",))
+    retrieval_eval, abstention_eval, splits = _fixture_env(tmp_path, monkeypatch, test_docs=("k2",))
     out = tmp_path / "gate.json"
     res = runner.invoke(
-        app, _fit_args(canary, unans, splits, out, ["--split", "test", "--yes-final-gate"])
+        app,
+        _fit_args(
+            retrieval_eval, abstention_eval, splits, out, ["--split", "test", "--yes-final-gate"]
+        ),
     )
     assert res.exit_code == 0, res.output + (res.stderr or "")
     # banner yine basılır (onay, uyarıyı susturmaz)
@@ -781,20 +805,25 @@ def test_cli_calibrate_test_split_proceeds_with_the_gate_flag(tmp_path: Path, mo
 
 
 def test_cli_calibrate_fit_rejects_non_hybrid_pipeline(tmp_path: Path, monkeypatch):
-    canary, unans, splits = _fixture_env(tmp_path, monkeypatch)
+    retrieval_eval, abstention_eval, splits = _fixture_env(tmp_path, monkeypatch)
     monkeypatch.setenv("BG_RETRIEVAL_PIPELINE", "exhaustive")
-    res = runner.invoke(app, _fit_args(canary, unans, splits, tmp_path / "r.json"))
+    res = runner.invoke(
+        app, _fit_args(retrieval_eval, abstention_eval, splits, tmp_path / "r.json")
+    )
     assert res.exit_code != 0
     assert "yalnız hybrid" in (res.output + (res.stderr or ""))
 
 
 def test_cli_calibrate_fit_is_reproducible(tmp_path: Path, monkeypatch):
     """Aynı girdi -> aynı ağırlıklar/eşikler (zaman damgası hariç)."""
-    canary, unans, splits = _fixture_env(tmp_path, monkeypatch)
+    retrieval_eval, abstention_eval, splits = _fixture_env(tmp_path, monkeypatch)
     reports = []
     for name in ("r1.json", "r2.json"):
         out = tmp_path / name
-        assert runner.invoke(app, _fit_args(canary, unans, splits, out)).exit_code == 0
+        assert (
+            runner.invoke(app, _fit_args(retrieval_eval, abstention_eval, splits, out)).exit_code
+            == 0
+        )
         reports.append(json.loads(out.read_text(encoding="utf-8")))
     for r in reports:
         r.pop("created_at")

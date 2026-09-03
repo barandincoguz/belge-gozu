@@ -69,7 +69,7 @@ K1 = 1.5
 B = 0.75
 
 # Standart Türkçe işlev kelimeleri (tam-kelime, kırpmadan ÖNCE uygulanır).
-# CANARY'YE AYARLI DEĞİL: "zaman"/"iş" gibi içerik taşıyabilecek kelimeler
+# RETRIEVAL_EVAL'YE AYARLI DEĞİL: "zaman"/"iş" gibi içerik taşıyabilecek kelimeler
 # bilinçli olarak dışarıda bırakıldı. Ölçüm: R@5 eşit kalır, R@20 0.884->0.907
 # ve vitrin sorgusu chip1 8->4 (soru-kalıbı kelimeleri en çok ORTA sıralarda
 # karışıklık üretiyor).
@@ -91,7 +91,7 @@ WINDOW = 50
 # SORGU-TERİM DOYGUNLUK TAVANI (Y1, ölçülmüş karar R30 — 2026-08-30).
 #
 # Klasik BM25'in üçüncü doygunluk çarpanı `(k3+1)·qtf/(k3+qtf)` bu porta hiç
-# gelmemişti: araştırma döngüsünde sorgular canary'den geliyordu ve hiçbirinde
+# gelmemişti: araştırma döngüsünde sorgular retrieval_eval'den geliyordu ve hiçbirinde
 # terim TEKRAR ETMİYORDU, yani ölçülen uzayda qtf her zaman 1'di. Ölçülmeyen
 # uzayda ise skor sorgudaki tekrar sayısıyla DOĞRUSAL şişiyordu: 480 karakterlik
 # `"ihbar "×80` sorgusu top-1'i 667.50'ye çıkarıyor (eşik 10.6'nın 63 katı),
@@ -103,7 +103,7 @@ WINDOW = 50
 # kilitliyor. 2 (1 değil) çünkü gerçek sorgularda bir terimin iki kez geçmesi
 # meşru bir vurgudur ("kira artışı ... artış oranı"), 80 kez geçmesi değildir.
 #
-# ÖLÇÜM (exp14-qtf-cap2-parity, research/results.jsonl, 2026-08-30): canary
+# ÖLÇÜM (exp14-qtf-cap2-parity, research/results.jsonl, 2026-08-30): retrieval_eval
 # birebir DEĞİŞMEDİ — R@5 0.8605 (37/43), MRR 0.6320, R@1/R@20/visual_R@5 aynı;
 # saldırı sorgusu 667.5 -> 16.7 (tam olarak tek-geçişin 2 katı).
 QTF_CAP = 2
@@ -121,7 +121,7 @@ QTF_CAP = 2
 # çevirirdi. Değiştirmek isteyen önce bench'i yeniden koşmalıdır.
 _GENERIC = frozenset({"kanun", "türk", "türki", "cumhu"})
 # 1. sayfadaki büyük-harfli başlık satırı (elle doküman-adı tablosu YOK ->
-# canary'den sızıntı yok; ad korpusun kendisinden türetiliyor).
+# retrieval_eval'den sızıntı yok; ad korpusun kendisinden türetiliyor).
 _TITLE_LINE = re.compile(r"^[A-ZÇĞİÖŞÜÂÎÛ0-9 ()'’.,;:-]{8,}$")
 
 # Başlık adayı KAPISI: satırın doküman adı sayılabilmesi için içermesi gereken
@@ -276,7 +276,7 @@ class BM25Index:
         """(n_pages,) float32 BM25 skorları — `page_ids` sırasıyla hizalı.
 
         ÖLÇEK: kalibre edilmemiş, ÜST SINIRSIZ BM25 birimi. Ölçülen bant
-        (canary, 4222 sayfa): cevaplanabilir top-1'ler min 10.53 / medyan
+        (retrieval_eval, 4222 sayfa): cevaplanabilir top-1'ler min 10.53 / medyan
         26.05 / maks 69.30. Görsel kanalın normalize [-1,1] skorlarıyla AYNI
         ŞEY DEĞİLDİR — eşik bu ölçekte taşınmıştır (bkz. config.py).
 
@@ -312,7 +312,7 @@ def extract_doc_name_tokens(page_ids: list[str], texts: list[str]) -> dict[str, 
     Adayı 1. sayfanın "KANUN"/"ANAYASA" geçen büyük-harfli satırlarından en
     UZUNU olarak seçer, tokenleştirir ve `_GENERIC`'i çıkarır. Elle yazılmış
     doküman-adı tablosu YOKTUR: ad korpusun kendisinden gelir, bu yüzden
-    canary'ye ayar (sızıntı) riski yoktur.
+    retrieval_eval'ye ayar (sızıntı) riski yoktur.
 
     Adı çıkarılamayan doküman sözlükte yer almaz — yönlendirme onu hiç
     tetiklemez (kapsam dışı; ölçülen ıskalar: c206 KVKK kısaltması, c209

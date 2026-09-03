@@ -5,7 +5,7 @@ Karar: **Üretim değişikliği yok; BM25 top-1 sabit P kolu güvenlik açısın
 
 ## Koşum
 
-`canary_v2`den yalnız insan doğrulanmış, cevaplanabilir 47 soru seçildi.
+`retrieval_eval_v2`den yalnız insan doğrulanmış, cevaplanabilir 47 soru seçildi.
 Her sorguda yönlendirilmiş BM25'ten ve iki ColBERT kanalından ilk 50 sayfa
 skor füzyonu olmadan birleştirildi. Sabit checkpoint
 `BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`, MPS,
@@ -44,7 +44,7 @@ Yalnız BGE bölümü p50 **8.690 ms**, p95 **12.534 ms** sürdü. Bu maliyet,
 
 Bu koşum **geliştirme teşhisidir**, üretim seçimi değildir:
 
-1. `canary_v2` bu projede önceki tasarımları yönlendirmek için görülmüş bir
+1. `retrieval_eval_v2` bu projede önceki tasarımları yönlendirmek için görülmüş bir
    kümedir; burada yeniden kazanan seçmek veri sızıntısı olur.
 2. Bu deney tanım gereği kaynak başına 50 aday kullanır. Bugünkü üretim geç
    aday örmesi 200 derinlikte çalışır; dolayısıyla P'nin R@20'sini üretimdeki
@@ -61,7 +61,7 @@ topolojisinin eşleştirilmiş baseline'ı. Bu veri olmadan bayrak, eşik veya
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 uv run python scripts/eval_candidate_reranker.py \
-  --bench data/bench/canary_v2.jsonl \
+  --bench data/bench/retrieval_eval_v2.jsonl \
   --min-verification human \
   --out data/bench/results/candidate-reranker-dev-v1.json
 ```

@@ -2,7 +2,7 @@
 
 Sıralamayı METİN KANALI belirler (`retrieval/text.py` — autoresearch
 exp7/exp8/exp12 reçetesi; ölçüm: findings 2026-08-29-autoresearch-text-channel.md
-+ journal #8 ve #12, canary answerable n=43 R@5 0.2326 -> 0.8372 -> **0.8605**;
++ journal #8 ve #12, retrieval_eval answerable n=43 R@5 0.2326 -> 0.8372 -> **0.8605**;
 exp12'nin ASCII aksan katlaması sistemi YAZIM-DEĞİŞMEZ yapar — aksansız yazılan
 aynı sorgu da 0.8605). Görsel MaxSim kanalı her sorguda KOŞMAYA DEVAM EDER ama
 sıralamaya GİRMEZ:

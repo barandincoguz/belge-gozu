@@ -14,7 +14,7 @@
 - Candidate pool depth is exactly 50 per source: routed BM25 pages plus page lists from Mogan and Colmm ColBERT.
 - No BM25, Mogan, Colmm, or reranker scores are fused numerically.
 - Reranker checkpoint is `BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`; use the existing `ml` extra only.
-- The observed `canary_v2` is development diagnosis only. A final holdout is a separate, human-data gate and cannot be fabricated or selected from observed results.
+- The observed `retrieval_eval_v2` is development diagnosis only. A final holdout is a separate, human-data gate and cannot be fabricated or selected from observed results.
 - Unpinned output is offline-only until a new end-to-end abstention calibration and locked test pass.
 
 ---
@@ -201,7 +201,7 @@ git commit -m "feat(retrieval): add pinned transformers reranker"
 **Interfaces:**
 - Consumes: `Settings`, `load_text_channel`, `load_late_channel`, `build_candidate_pool`, `compare_rerankings`, and `BenchQuestion`.
 - Produces: atomic JSON report with `pinned`, `unpinned`, `candidate_pool`, per-question diagnostics, model/index/bench SHA-256 provenance, and p50/p95 rerank latency.
-- Command: `uv run python scripts/eval_candidate_reranker.py --bench data/bench/canary_v2.jsonl --min-verification human --out data/bench/results/candidate-reranker-dev-v1.json`.
+- Command: `uv run python scripts/eval_candidate_reranker.py --bench data/bench/retrieval_eval_v2.jsonl --min-verification human --out data/bench/results/candidate-reranker-dev-v1.json`.
 
 - [ ] **Step 1: Write failing runner tests using fake late channels and a fixed reranker**
 
@@ -241,12 +241,12 @@ git commit -m "feat(bench): add reranker comparison runner"
 - Create: `data/bench/results/candidate-reranker-dev-v1.json`
 
 **Interfaces:**
-- Consumes: the Task 4 runner and observed `canary_v2`.
+- Consumes: the Task 4 runner and observed `retrieval_eval_v2`.
 - Produces: a diagnosis that is explicitly non-final, plus the exact missing input for final selection: a new human-verified, law-group-disjoint holdout.
 
 - [ ] **Step 1: Run the model-backed development comparison once**
 
-Run: `uv run python scripts/eval_candidate_reranker.py --bench data/bench/canary_v2.jsonl --min-verification human --out data/bench/results/candidate-reranker-dev-v1.json`
+Run: `uv run python scripts/eval_candidate_reranker.py --bench data/bench/retrieval_eval_v2.jsonl --min-verification human --out data/bench/results/candidate-reranker-dev-v1.json`
 
 Expected: report contains P/U metrics, BM25-top1 rank distribution, selected-top1 `would_abstain` counts, and latency percentiles.
 

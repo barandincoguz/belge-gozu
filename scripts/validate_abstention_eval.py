@@ -1,4 +1,4 @@
-"""`data/bench/unans_v1.jsonl` doğrulayıcısı — cevaplanamaz setin makine kapısı.
+"""`data/bench/abstention_eval_v1.jsonl` doğrulayıcısı — cevaplanamaz setin makine kapısı.
 
 Bu setin 200 satırlık `korpus-disi` dilimi "insan onaylı" DEĞİLDİR; tek
 doğrulaması MEKANİKTİR ve tam olarak şunu iddia eder: *sorunun dayandığı kanun
@@ -20,14 +20,14 @@ Kontroller:
   6. eksik-kanıt konusu — `_subject_doc` korpusta OLMALI.
   7. Doğrulama künyesi — dilim başına beklenen `verification_status` /
      `verified_by` / `verification_kind` üçlüsü.
-  8. Yakın-tekrar — set içinde ve canary'ye karşı, tr-duyarlı normalize edilmiş
+  8. Yakın-tekrar — set içinde ve retrieval_eval'ye karşı, tr-duyarlı normalize edilmiş
      token kümesi örtüşmesi (Jaccard) >= 0.8 olan çiftler işaretlenir.
   9. Split — `data/bench/splits_v1.json` künyedeki kuralla yeniden türetilir ve
      dosyadaki listeyle karşılaştırılır; `assign_split` ile bileşim basılır.
 
 Kullanım:
-    uv run python scripts/validate_unans.py
-    uv run python scripts/validate_unans.py --bench data/bench/unans_v1.jsonl
+    uv run python scripts/validate_abstention_eval.py
+    uv run python scripts/validate_abstention_eval.py --bench data/bench/abstention_eval_v1.jsonl
 
 Herhangi bir ihlalde çıkış kodu 1'dir.
 """
@@ -58,11 +58,11 @@ SLICE_EXPECT = {"korpus-disi": 230, "anlamsiz-ood": 60, "eksik-kanit": 40}
 # Dilim başına İZİNLİ doğrulama künyeleri (status, verified_by, kind).
 # Çapraz-kontrol (2026-08-30, drafter≠checker) sonrası durumlar da geçerlidir;
 # "rejected" satırlar her dilimde meşrudur (tüketiciler status ile dışlar) —
-# yalnız künye bütünlüğü aranır. Bkz. data/bench/unans_v1.README.md §çapraz-kontrol.
+# yalnız künye bütünlüğü aranır. Bkz. data/bench/abstention_eval_v1.README.md §çapraz-kontrol.
 _CHECKER = "model-cross-check:claude-fable-5-checker"
 VERIF_EXPECT: dict[str, set[tuple[str, str, str]]] = {
     "korpus-disi": {
-        ("verified", "script:validate_unans", "mechanical:manifest-absence"),
+        ("verified", "script:validate_abstention_eval", "mechanical:manifest-absence"),
         ("verified", _CHECKER, "mechanical:manifest-absence"),
         # red kararı çapraz-kontrolden gelir; denetçi kind'i buna çevirir:
         ("rejected", _CHECKER, "model-cross-check"),
@@ -267,9 +267,9 @@ def check_rows(rows: list[dict], corpus_ids: set[str], corpus_names: dict[str, s
 
 
 def find_near_dupes(
-    rows: list[dict], canary: list[dict], threshold: float = DUP_THRESHOLD
+    rows: list[dict], retrieval_eval: list[dict], threshold: float = DUP_THRESHOLD
 ) -> list[tuple[str, str, float]]:
-    """Normalize token kümesi Jaccard'ı eşiği aşan çiftler (set içi + canary'ye karşı)."""
+    """Normalize token kümesi Jaccard'ı eşiği aşan çiftler (set içi + retrieval_eval'ye karşı)."""
     hits: list[tuple[str, str, float]] = []
     items = [(r["question_id"], tokens(r["question"])) for r in rows]
     for i in range(len(items)):
@@ -277,12 +277,12 @@ def find_near_dupes(
             s = jaccard(items[i][1], items[j][1])
             if s >= threshold:
                 hits.append((items[i][0], items[j][0], s))
-    cit = [(c["question_id"], tokens(c["question"])) for c in canary]
+    cit = [(c["question_id"], tokens(c["question"])) for c in retrieval_eval]
     for qid, qt in items:
         for cid, ct in cit:
             s = jaccard(qt, ct)
             if s >= threshold:
-                hits.append((qid, f"canary:{cid}", s))
+                hits.append((qid, f"retrieval_eval:{cid}", s))
     return hits
 
 
@@ -293,19 +293,19 @@ def derive_test_docs(
     seed: str,
     pinned: list[str],
     size: int,
-    canary_docs: set[str],
+    retrieval_eval_docs: set[str],
 ) -> list[str]:
     """splits_v1.json'daki `derivation` kuralının makine karşılığı.
 
-    `canary_docs`: canary'de cevaplanabilir sorusu OLAN belgeler. Sabitlenenler
-    dışındakiler doldurmaya kapalıdır — aksi halde test'e giren her ek canary
+    `retrieval_eval_docs`: retrieval_eval'de cevaplanabilir sorusu OLAN belgeler. Sabitlenenler
+    dışındakiler doldurmaya kapalıdır — aksi halde test'e giren her ek retrieval_eval
     belgesi 26/17 hedefini kaydırırdı.
     """
 
     def h(doc: str) -> str:
         return hashlib.sha256(f"{seed}|{doc}".encode()).hexdigest()
 
-    blocked = set(pinned) | (canary_docs - set(pinned))
+    blocked = set(pinned) | (retrieval_eval_docs - set(pinned))
     free = sorted(d for d in corpus_ids if d not in blocked)
     free_rg = sorted((d for d in free if doc_types[d] == "rg_tarihi"), key=h)
     rest = sorted((d for d in free if doc_types[d] != "rg_tarihi"), key=h)
@@ -319,14 +319,18 @@ def derive_test_docs(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--bench", default="data/bench/unans_v1.jsonl")
+    ap.add_argument("--bench", default="data/bench/abstention_eval_v1.jsonl")
     ap.add_argument("--splits", default="data/bench/splits_v1.json")
-    ap.add_argument("--canary", default="data/bench/canary_v1.jsonl")
+    ap.add_argument("--retrieval-eval", default="data/bench/retrieval_eval_v1.jsonl")
     args = ap.parse_args()
 
     bench_path = (REPO / args.bench) if not Path(args.bench).is_absolute() else Path(args.bench)
     splits_path = (REPO / args.splits) if not Path(args.splits).is_absolute() else Path(args.splits)
-    canary_path = (REPO / args.canary) if not Path(args.canary).is_absolute() else Path(args.canary)
+    retrieval_eval_path = (
+        (REPO / args.retrieval_eval)
+        if not Path(args.retrieval_eval).is_absolute()
+        else Path(args.retrieval_eval)
+    )
 
     corpus_ids, corpus_names = load_corpus(REPO)
 
@@ -334,10 +338,10 @@ def main() -> int:
         return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
     rows = read_jsonl(bench_path)
-    canary = read_jsonl(canary_path)
+    retrieval_eval = read_jsonl(retrieval_eval_path)
 
     errs = check_rows(rows, corpus_ids, corpus_names)
-    dupes = find_near_dupes(rows, canary)
+    dupes = find_near_dupes(rows, retrieval_eval)
     errs += [f"yakın-tekrar: {a} ~ {b} (jaccard {s:.2f})" for a, b, s in dupes]
 
     try:
@@ -345,7 +349,7 @@ def main() -> int:
     except ValueError:  # repo dışı --bench yolu: mutlak göster, çökme (inceleme L1)
         shown_path = bench_path
     print("=" * 72)
-    print(f"unans doğrulama — {shown_path}")
+    print(f"abstention_eval doğrulama — {shown_path}")
     print("=" * 72)
     print(f"korpus: {len(corpus_ids)} belge, {len(corpus_law_numbers(corpus_ids))} kanun numarası")
     print(f"satır : {len(rows)}")
@@ -389,8 +393,10 @@ def main() -> int:
                 doc_types[rec["doc_id"]] = rec["doc_type"]
         rule = meta.get("derivation", {})
         if rule:
-            canary_docs = {
-                c["gold_doc_ids"][0] for c in canary if c["answerable"] and c["gold_doc_ids"]
+            retrieval_eval_docs = {
+                c["gold_doc_ids"][0]
+                for c in retrieval_eval
+                if c["answerable"] and c["gold_doc_ids"]
             }
             want = derive_test_docs(
                 corpus_ids,
@@ -398,7 +404,7 @@ def main() -> int:
                 seed=meta["seed"],
                 pinned=rule["pinned_test_docs"],
                 size=rule["test_doc_count"],
-                canary_docs=canary_docs,
+                retrieval_eval_docs=retrieval_eval_docs,
             )
             if want != sorted(meta["test_docs"]):
                 errs.append(
@@ -423,9 +429,9 @@ def main() -> int:
                 rej[k] += 1
                 continue
             comp[(k, r["slice"])] += 1
-        for c in canary:
+        for c in retrieval_eval:
             kind = "cevaplanabilir" if c["answerable"] else "cevaplanamaz"
-            comp[(assign_split(c, splits), f"canary-{kind}")] += 1
+            comp[(assign_split(c, splits), f"retrieval_eval-{kind}")] += 1
 
         seed = meta.get("seed")
         print(f"split bileşimi (seed={seed!r}, test_docs={len(meta['test_docs'])}, RG={n_rg})")
@@ -436,9 +442,11 @@ def main() -> int:
         print("-" * 36)
         for k in ("dev", "test"):
             una = sum(
-                n for (kk, sl), n in comp.items() if kk == k and sl != "canary-cevaplanabilir"
+                n
+                for (kk, sl), n in comp.items()
+                if kk == k and sl != "retrieval_eval-cevaplanabilir"
             )
-            ans = comp.get((k, "canary-cevaplanabilir"), 0)
+            ans = comp.get((k, "retrieval_eval-cevaplanabilir"), 0)
             print(
                 f"{k:<6}{'TOPLAM cevaplanamaz':<24}{una:>6}   "
                 f"cevaplanabilir: {ans}   (rejected hariç; rejected: {rej.get(k, 0)})"

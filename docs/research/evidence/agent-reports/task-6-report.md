@@ -36,7 +36,7 @@ make lint (ruff check + ruff format --check + pyright)
 ## Files Changed
 
 - `src/belge_gozu/bench/__init__.py` — new, empty (package marker)
-- `src/belge_gozu/bench/dataset.py` — new: `QueryStyle`, `Slice`, `UnansReason` literals;
+- `src/belge_gozu/bench/dataset.py` — new: `QueryStyle`, `Slice`, `UnanswerableReason` literals;
   `BenchQuestion` pydantic model with three `model_validator(mode="after")` methods
   (`_check_answerability`, `_check_gold_page_doc_consistency`, `_check_verification`);
   `load_bench`, `bench_stats`, `load_splits`, `question_split`.

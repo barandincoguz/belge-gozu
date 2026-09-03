@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from verify_canary import (  # noqa: E402
+from verify_retrieval_eval import (  # noqa: E402
     PARAPHRASE_MAX_OVERLAP,
     apply_decision,
     compute_status,
@@ -275,7 +275,7 @@ def test_write_jsonl_atomic_roundtrip_preserves_unknown_keys(tmp_path: Path):
         ),
         q_dict(question_id="c002"),
     ]
-    out = tmp_path / "canary.jsonl"
+    out = tmp_path / "retrieval_eval.jsonl"
     write_jsonl_atomic(out, rows)
 
     text_lines = out.read_text(encoding="utf-8").splitlines()
@@ -286,15 +286,15 @@ def test_write_jsonl_atomic_roundtrip_preserves_unknown_keys(tmp_path: Path):
 
 
 def test_write_jsonl_atomic_no_leftover_temp_files(tmp_path: Path):
-    out = tmp_path / "canary.jsonl"
+    out = tmp_path / "retrieval_eval.jsonl"
     write_jsonl_atomic(out, [q_dict()])
-    leftovers = [p for p in tmp_path.iterdir() if p.name != "canary.jsonl"]
+    leftovers = [p for p in tmp_path.iterdir() if p.name != "retrieval_eval.jsonl"]
     assert leftovers == []
 
 
 def test_write_jsonl_atomic_then_load_raw_rows_matches(tmp_path: Path):
     rows = [q_dict(question_id="c001", _hard_negatives=["x"]), q_dict(question_id="c002")]
-    out = tmp_path / "canary.jsonl"
+    out = tmp_path / "retrieval_eval.jsonl"
     write_jsonl_atomic(out, rows)
     assert load_raw_rows(out) == rows
 

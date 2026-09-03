@@ -30,7 +30,7 @@ kaydediliyor (`detail.retrieval.bm25_top1` / `visual_top1`) — P2 kalibrasyonun
 
 ## 2. Eşik: mekanik ölçek taşıması, kalibrasyon değil
 
-Ölçüm (canary, üretim int8 indeksi + hibrit yol, bu görevde yeniden doğrulandı):
+Ölçüm (retrieval_eval, üretim int8 indeksi + hibrit yol, bu görevde yeniden doğrulandı):
 
 | | değer |
 |---|---|
@@ -81,10 +81,10 @@ defterdeki satırları karşılaştırılamaz hale getirirdi. Kararı controller
 ```
 BG_DEVICE=mps uv run pytest -m slow -v
   tests/index/test_encode_mask.py::test_batch_vs_single_sign_determinism        PASSED
-  tests/retrieval/test_semantic_canary.py::test_canary_gold_pages_covered       PASSED
-  tests/retrieval/test_semantic_canary.py::test_short_query_gold_in_top5        PASSED
-  tests/retrieval/test_semantic_canary.py::test_long_query_rank_ratchet         PASSED
-  tests/retrieval/test_semantic_canary.py::test_out_of_corpus_..._threshold     XFAIL
+  tests/retrieval/test_semantic_retrieval_eval.py::test_retrieval_eval_gold_pages_covered       PASSED
+  tests/retrieval/test_semantic_retrieval_eval.py::test_short_query_gold_in_top5        PASSED
+  tests/retrieval/test_semantic_retrieval_eval.py::test_long_query_rank_ratchet         PASSED
+  tests/retrieval/test_semantic_retrieval_eval.py::test_out_of_corpus_..._threshold     XFAIL
   ================ 4 passed, 282 deselected, 1 xfailed in 20.28s ================
 ```
 
@@ -210,7 +210,7 @@ addendum'u (autoresearch round 2, exp8: yönlendirme penceresi 20 → 50).
 | **L6** | Artefakt VARLIK kontrolü `require_text_artifact` olarak ayrıldı ve `create_app`in en başına, eşik korkuluğunun yanına alındı — VLM + 474 MB indeks yüklenmeden. HİZALAMA kontrolü (page_ids gerektirdiği için) `load_text_channel`'da kalıyor ve orada da koşuyor. |
 | **L7** | `HybridDiagnosticAdapter` artık kompozisyonu yeniden kurmuyor, `HybridRetriever.rank` (public yapıldı) çağırıyor. `visual.latency_ms` `encode_query`'yi ARTIK İÇERMİYOR (üretimde ayrı aşama) ve bu docstring'de yazılı. |
 | **L8** | `build_text_channel` `app/main.py`'den `retrieval/hybrid.py`'ye taşındı (`load_text_channel` + `require_text_artifact`). `cli.py` artık `belge_gozu.app.main`'i import ETMİYOR; serve ve bench aynı getirim-katmanı fonksiyonunu çağırıyor. |
-| **L9** | `canary_expectations.json`'daki `pipeline` anahtarı artık assert ediliyor (blok künyesi ↔ sözlük anahtarı tutarlılığı). |
+| **L9** | `retrieval_eval_expectations.json`'daki `pipeline` anahtarı artık assert ediliyor (blok künyesi ↔ sözlük anahtarı tutarlılığı). |
 | **L10** | Katalog §1'deki `detail` satırı gerçek şemayı sayıyor: `hits`, `threshold`, model/device/version, `stages`, `retrieval` (+ hibritte `bm25_top1`/`visual_top1`/`routed_docs`). Ayrıca Grafana iki-panel notu eklendi. |
 
 **İtiraz edilen bulgu yok.** Round 1'de "controller kararına bırakılan" `make lint`
@@ -236,10 +236,10 @@ ve 42/43 + 4/5 çalışma noktası aynen geçerli; korpus-dışı top-1'ler de b
 uv run pytest -q -m "not slow"     -> 296 passed, 5 deselected
 make lint                          -> All checks passed! / 100 files already formatted / 0 errors (pyright)
 BG_DEVICE=mps uv run pytest -m slow -v
-   test_canary_gold_pages_covered                         PASSED
+   test_retrieval_eval_gold_pages_covered                         PASSED
    test_short_query_gold_in_top5                          PASSED   (kısa sorgu gold rank 1)
    test_long_query_rank_ratchet                           PASSED   (rank 2 <= cırcır 2)
-   test_out_of_corpus_canary_scores_below_threshold       XFAIL    (XPASS yok)
+   test_out_of_corpus_retrieval_eval_scores_below_threshold       XFAIL    (XPASS yok)
    ================ 4 passed, 296 deselected, 1 xfailed ================
 ```
 

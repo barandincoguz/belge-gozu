@@ -3,7 +3,7 @@
 - **Tarih:** 2026-08-30
 - **Branch / parent HEAD:** `feat/p0-retrieval-correctness` @ `db6e7bd`
   (görev `d1087fb`'de başladı; paralel veri taslakçısı arada `6f26d76`+`db6e7bd`'yi
-  landing yaptı — yalnız `data/bench/` + `scripts/validate_unans.py`, kod değişmedi)
+  landing yaptı — yalnız `data/bench/` + `scripts/validate_abstention_eval.py`, kod değişmedi)
 - **Kapsam:** T5 (özellik çıkarımı) + T6 (kalibratör, versiyonlu artefakt, eşik seçimi)
   + ilk offline dev kalibrasyon koşumu
 - **Model/ağ/kota:** HİÇBİRİ. Tüm döngü metin-yanı ve CPU: BM25 skorları + tokenleştirme
@@ -75,7 +75,7 @@ safe_to_answer = 0  <=>  cevaplanamaz HER soru
 judge yok, kota yok. `bench.dataset.assign_split` + `load_splits` kullanılır (hukuk-gruplu
 bölme); `verification_status != "verified"` olan HER satır atılır — yani `draft` ile
 birlikte **`rejected` de dışarıda** (`load_bench`'in `only_verified` filtresiyle birebir;
-`test_load_rows_drops_draft_and_rejected` kilitler). unans_v1'deki 14 `rejected` satır
+`test_load_rows_drops_draft_and_rejected` kilitler). abstention_eval_v1'deki 14 `rejected` satır
 veri kümesine girmedi.
 
 ---
@@ -132,7 +132,7 @@ yerleşik disiplindir (`provenance.py` tam bu yüzden ayrılmıştı). Alt süre
 ## 5. Dev koşumu — VERBATIM çıktı
 
 ```
-$ uv run belge-gozu calibrate fit --unans 'data/calibration/_pins/unans_v1@d1087fb.jsonl' --note "..."
+$ uv run belge-gozu calibrate fit --abstention-eval 'data/calibration/_pins/abstention_eval_v1@d1087fb.jsonl' --note "..."
 bölme=dev n=173 (pozitif=22, negatif=151)
   cevaplanabilir=26 (gold@5=22, ıska=4) cevaplanamaz=147
 fit: iter=1394 converged=True nll=0.3130
@@ -163,24 +163,24 @@ rapor -> data/bench/results/p2-calibration-dev-v1.json
 
 ### 5.1 Veri sabitlemesi (ÖNEMLİ)
 
-`data/bench/unans_v1.jsonl` bu görev sırasında paralel bir taslakçı tarafından
+`data/bench/abstention_eval_v1.jsonl` bu görev sırasında paralel bir taslakçı tarafından
 **300 → 330 satıra çıkarıldı ve commit'lendi** (`6f26d76` u301-u330 partisi,
 `db6e7bd` validator beklentisi). Koşum, controller'ın verdiği pin'e uyularak
 `d1087fb`'deki içerikle yapıldı — böylece sayılar tekrarlanabilir ve taslakçıyla
-yarışmıyor. **Bu fit, unans_v1 v1.1 (330 satır) ile YENİDEN KOŞULMALIDIR** (§7).
-Paralel commit'ler yalnız `data/bench/` ve `scripts/validate_unans.py`'yi değiştirdi,
+yarışmıyor. **Bu fit, abstention_eval_v1 v1.1 (330 satır) ile YENİDEN KOŞULMALIDIR** (§7).
+Paralel commit'ler yalnız `data/bench/` ve `scripts/validate_abstention_eval.py`'yi değiştirdi,
 hiçbir üretim kodunu değil — yani künyedeki `git_commit=db6e7bd` kod durumunu doğru
 tanımlıyor.
 
 ```
-sha256(unans girdisi) = 2955d59e48e005e71a89a630efd0bcd5d3e07806df7d190891bcd6e8d32940ff
-                      = sha256(git show d1087fb:data/bench/unans_v1.jsonl)     [doğrulandı]
-canary_v1.jsonl       = 1676bb46...5a6e  (48 satır, koşum boyunca değişmedi)
+sha256(abstention_eval girdisi) = 2955d59e48e005e71a89a630efd0bcd5d3e07806df7d190891bcd6e8d32940ff
+                      = sha256(git show d1087fb:data/bench/abstention_eval_v1.jsonl)     [doğrulandı]
+retrieval_eval_v1.jsonl       = 1676bb46...5a6e  (48 satır, koşum boyunca değişmedi)
 splits_v1.json        = 3a0217f4...8b65  (v1, seed "belge-gozu-splits-v1", hukuk-gruplu)
 ```
 
 Yeniden üretmek:
-`git show d1087fb:data/bench/unans_v1.jsonl > 'data/calibration/_pins/unans_v1@d1087fb.jsonl'`
+`git show d1087fb:data/bench/abstention_eval_v1.jsonl > 'data/calibration/_pins/abstention_eval_v1@d1087fb.jsonl'`
 (dizin gitignore'da). Rapor künyesindeki `note` alanı bunu de yazıyor; `--note` bayrağı
 tam bu sebeple eklendi — koşumun kimliği dosya YOLU değil, o anki İÇERİĞİdir (sha256).
 
@@ -199,7 +199,7 @@ Künyedeki `git_commit` = `d1087fb`, yani koşumun üstüne yapıldığı **pare
 | — cevaplanamaz | 147 |
 | cevaplanabilir toplam | 26 |
 
-Kaynak kırılımı: canary 28, unans 145.
+Kaynak kırılımı: retrieval_eval 28, abstention_eval 145.
 Cevaplanamaz gerekçe kırılımı: `korpus-disi` 102, `anlamsiz` 30, `eksik-kanit` 15.
 
 Eşikler (cevaplanabilir ≥ 20, cevaplanamaz ≥ 40) **aşıldı** — prominent uyarı
@@ -218,7 +218,7 @@ gerekmedi. Ama **taban oran %87.3 negatiftir** ve bu, aşağıdaki en önemli k�
 **BEŞ ÖZELLİĞİN DE sınıf ortalaması ve tek-değişkenli AUC'si DOĞRU YÖNDE** (poz > neg,
 AUC > 0.5). Ama araştırma ölçümünden **çok daha zayıf**:
 
-| özellik | AUC (canary: 43 poz / **5** neg) | AUC (dev: 22 poz / **151** neg) |
+| özellik | AUC (retrieval_eval: 43 poz / **5** neg) | AUC (dev: 22 poz / **151** neg) |
 |---|---|---|
 | `matched_terms_top1` | .937 | **.677** |
 | `matched_frac` | .863 | **.722** |
@@ -289,8 +289,8 @@ banner ile korunuyor).
 
 ## 6. Dürüst kırılganlık beyanı
 
-1. **Taban oran gerçekçi değil.** dev'in %87.3'ü negatif, çünkü unans_v1 (300 satır)
-   canary'yi (48) eziyor. Üretim trafiğinde cevaplanamaz soru oranı bu değildir. Risk,
+1. **Taban oran gerçekçi değil.** dev'in %87.3'ü negatif, çünkü abstention_eval_v1 (300 satır)
+   retrieval_eval'yi (48) eziyor. Üretim trafiğinde cevaplanamaz soru oranı bu değildir. Risk,
    kapsama ve AURC'nin MUTLAK değerleri bu prior'a bağlıdır; AUROC bağlı değildir
    (sıralama ölçüsü) — bu yüzden **AUROC 0.781 bu koşumun en taşınabilir sayısıdır**.
 2. **Pozitif n = 22.** Yirmi iki pozitifle seçilen bir tau kırılgandır; tek bir sorunun
@@ -302,7 +302,7 @@ banner ile korunuyor).
 4. **`eksik-kanit` en zor sınıf** (dev'de 15 örnek): konu korpusta var, BM25 güvenle
    getiriyor, sözcüksel özellikler "kanıt var" diyor. Kalibratörün asıl düşmanı bu ve
    örneklem küçük.
-5. **Veri akışkan — fit ZATEN BAYAT.** unans_v1 bu görev sırasında 300 → **330** satıra
+5. **Veri akışkan — fit ZATEN BAYAT.** abstention_eval_v1 bu görev sırasında 300 → **330** satıra
    çıktı ve commit'lendi (`6f26d76`). Bu koşum d1087fb'ye sabitli, yani **yeni 30 soruyu
    (u301-u330) GÖRMEDİ**. Sayılar v1.1'de değişecektir; `calibrate fit`'i yeniden koşmak
    tek komutluk bir iştir ve §7'nin ilk maddesidir.
@@ -311,8 +311,8 @@ banner ile korunuyor).
 
 ## 7. Sonraki adımlar (öneri, bu görevde YAPILMADI)
 
-- **ÖNCE: fit'i unans_v1 v1.1 (330 satır) ile yeniden koş.** Tek komut, model/kota yok:
-  `uv run belge-gozu calibrate fit --note "unans_v1 v1.1 @ <commit>"`. Bu rapordaki tüm
+- **ÖNCE: fit'i abstention_eval_v1 v1.1 (330 satır) ile yeniden koş.** Tek komut, model/kota yok:
+  `uv run belge-gozu calibrate fit --note "abstention_eval_v1 v1.1 @ <commit>"`. Bu rapordaki tüm
   dev sayıları o koşumla güncellenmelidir.
 - **T8 (serve entegrasyonu):** `extract_features` + `load_calibrator(expected_key)` hazır
   ve çevrimiçi kullanılabilir. `app/main.py`'nin satır içi `index_revision` kopyası
@@ -325,7 +325,7 @@ banner ile korunuyor).
   ve ikisi de yeni SİNYAL gerektiriyor (eşik ayarı değil): (a) T1 verifier'ın
   `verifier_support_ratio`'su, (b) madde katmanı / `eksik-kanit`e özgü bir sinyal.
   Bugünkü beş özellikle bütçeyi gevşetmeden kapsamayı büyütmek mümkün değil.
-- **Veri:** unans_v1 v2'ye ulaştığında `calibrate fit`'i yeniden koş; `--note` ile yeni
+- **Veri:** abstention_eval_v1 v2'ye ulaştığında `calibrate fit`'i yeniden koş; `--note` ile yeni
   pin'i yaz.
 
 ---
@@ -405,18 +405,18 @@ Eski artefakt `load_calibrator` tarafından artık **reddedilir** (`CalibrationK
 M4'ün asıl şikâyeti şuydu: `uv run belge-gozu calibrate fit` (bayraksız) kaydı
 üretmiyordu, çünkü kayıt 300 satırlık bir pin dosyasına dayanıyordu. **Artık üretiyor.**
 
-Koşum sırası önemliydi: fix turu boyunca checker-2 `unans_v1.jsonl` üzerinde çalışıyordu
+Koşum sırası önemliydi: fix turu boyunca checker-2 `abstention_eval_v1.jsonl` üzerinde çalışıyordu
 (commit edilmemiş, 112 satırda etiket/kind değişimi). Ara bir koşum HEAD `db6e7bd`'ye
 sabitlendi; sonra checker-2 `c6b68c3` ile landing yaptı ve çalışma ağacı HEAD ile
-eşitlendi. Kanonik kayıt bu son durumda, **hiçbir `--unans`/`--canary`/`--splits`
+eşitlendi. Kanonik kayıt bu son durumda, **hiçbir `--abstention-eval`/`--retrieval-eval`/`--splits`
 bayrağı olmadan** üretildi:
 
 ```
 $ uv run belge-gozu calibrate fit --note "..."
 git_commit  : c6b68c3
-unans       : data/bench/unans_v1.jsonl   330 satır / 309 verified
+abstention_eval       : data/bench/abstention_eval_v1.jsonl   330 satır / 309 verified
               sha256 2ba2ee70...aec9   git blob 553747756cdb87d40a68008a97fd24ff77391a05
-canary      : data/bench/canary_v1.jsonl  48 satır / 48 verified
+retrieval_eval      : data/bench/retrieval_eval_v1.jsonl  48 satır / 48 verified
               sha256 1676bb46...5a6e   git blob 82ba969854d1c92f05d0c187d65ff7579fc5823d
 ```
 
@@ -470,8 +470,8 @@ rapor -> data/bench/results/p2-calibration-dev-v1.json
 
 | | pin300 (v1) | HEAD/330 (kanonik) |
 |---|---|---|
-| girdi | `unans` @ d1087fb, 300 satır | `unans` @ c6b68c3, **330 satır** |
-| yeniden üretme | `--unans <pin dosyası>` (elle kurulmalı) | **bayraksız `calibrate fit`** |
+| girdi | `abstention_eval` @ d1087fb, 300 satır | `abstention_eval` @ c6b68c3, **330 satır** |
+| yeniden üretme | `--abstention-eval <pin dosyası>` (elle kurulmalı) | **bayraksız `calibrate fit`** |
 | dev n | 173 (22 / 151) | **185 (22 / 163)** |
 | cevaplanamaz | 147 | **159** |
 | tau | 0.538128 | **0.503679** |

@@ -13,7 +13,7 @@ doküman indeksi SABİT tutulurken sorgu tarafındaki augmentation token sayıs�
   `manifest.model_name` kullanılır, yoksa `CPE_0_3_18` + `vidore/colSmol-500M`'e
   düşülür ve bir UYARI basılır. `manifest.doc_prompt_sha256` yalnız raporlamada
   kullanılır, encode'a hiç geçilmez.
-- `--bench PATH` (varsayılan `data/bench/canary_v1.jsonl`, REPO_ROOT'a göre).
+- `--bench PATH` (varsayılan `data/bench/retrieval_eval_v1.jsonl`, REPO_ROOT'a göre).
 - `--only-verified`/`--all` karşılıklı dışlayan grup; varsayılan `--all`
   (taslak dahil) çünkü insan doğrulaması hâlâ sürüyor — aktif mod stdout'a
   basılıyor.

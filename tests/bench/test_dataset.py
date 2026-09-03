@@ -268,8 +268,8 @@ def test_split_assignment_unknown_doc_defaults_to_dev(tmp_path: Path):
 
 
 # --------------------------------------------------------- P2: sözlük genişlemeleri
-def unans_dict(**over) -> dict:
-    """Cevaplanamaz satır iskeleti (unans_v1.jsonl biçimi)."""
+def abstention_eval_dict(**over) -> dict:
+    """Cevaplanamaz satır iskeleti (abstention_eval_v1.jsonl biçimi)."""
     fields = dict(
         answerable=False,
         gold_doc_ids=[],
@@ -289,18 +289,20 @@ def unans_dict(**over) -> dict:
 @pytest.mark.parametrize("reason", ["korpus-disi", "eksik-kanit", "anlamsiz", "belirsiz"])
 def test_unanswerable_reason_vocabulary(reason: str):
     """Sözlüğü sabitler: `eksik-kanit` (sınırdaki sınıf) kabul edilmeli."""
-    q = BenchQuestion(**unans_dict(slice="eksik-kanit", unanswerable_reason=reason))
+    q = BenchQuestion(**abstention_eval_dict(slice="eksik-kanit", unanswerable_reason=reason))
     assert q.unanswerable_reason == reason
 
 
 def test_unanswerable_reason_rejects_unknown():
     with pytest.raises(ValidationError):
-        BenchQuestion(**unans_dict(slice="eksik-kanit", unanswerable_reason="uydurma"))
+        BenchQuestion(**abstention_eval_dict(slice="eksik-kanit", unanswerable_reason="uydurma"))
 
 
 def test_source_type_ajan_taslak_is_distinct_from_insan_onayli():
     """`ajan-taslak` (onaysız) ile `ajan-taslak-insan-onayli` ayrı değerlerdir."""
-    q = BenchQuestion(**unans_dict(slice="korpus-disi", unanswerable_reason="korpus-disi"))
+    q = BenchQuestion(
+        **abstention_eval_dict(slice="korpus-disi", unanswerable_reason="korpus-disi")
+    )
     assert q.source_type == "ajan-taslak"
     onayli = BenchQuestion(**q_dict(source_type="ajan-taslak-insan-onayli"))
     assert onayli.source_type != q.source_type
@@ -309,10 +311,10 @@ def test_source_type_ajan_taslak_is_distinct_from_insan_onayli():
 def test_verification_kind_mechanical_is_a_third_kind():
     """Mekanik manifest-yokluk doğrulaması insan/model turlarıyla karışmamalı."""
     q = BenchQuestion(
-        **unans_dict(
+        **abstention_eval_dict(
             slice="korpus-disi",
             unanswerable_reason="korpus-disi",
-            verified_by="script:validate_unans",
+            verified_by="script:validate_abstention_eval",
             verification_status="verified",
             verification_kind="mechanical:manifest-absence",
         )
@@ -323,7 +325,7 @@ def test_verification_kind_mechanical_is_a_third_kind():
 
 def test_verification_kind_rejects_unknown():
     with pytest.raises(ValidationError):
-        BenchQuestion(**unans_dict(verification_kind="mechanical:vibes"))
+        BenchQuestion(**abstention_eval_dict(verification_kind="mechanical:vibes"))
 
 
 # ------------------------------------------------------------------- assign_split
@@ -342,13 +344,13 @@ def test_assign_split_answerable_unknown_doc_defaults_to_dev():
 
 def test_assign_split_korpus_disi_groups_by_anchor_law():
     """Aynı absent kanuna dayanan iki farklı soru AYNI yakaya düşmeli."""
-    a = unans_dict(
+    a = abstention_eval_dict(
         question_id="u001",
         slice="korpus-disi",
         unanswerable_reason="korpus-disi",
         _anchor_law="5901",
     )
-    b = unans_dict(
+    b = abstention_eval_dict(
         question_id="u002",
         slice="korpus-disi",
         unanswerable_reason="korpus-disi",
@@ -358,7 +360,7 @@ def test_assign_split_korpus_disi_groups_by_anchor_law():
     # farklı kanun farklı yakaya düşebilmeli (kural sabit-değer döndürmüyor)
     others = {
         assign_split(
-            unans_dict(
+            abstention_eval_dict(
                 question_id="u003",
                 slice="korpus-disi",
                 unanswerable_reason="korpus-disi",
@@ -373,13 +375,13 @@ def test_assign_split_korpus_disi_groups_by_anchor_law():
 
 def test_assign_split_eksik_kanit_follows_subject_doc():
     """Konu belgesi hukuk-gruplu bölmeyi belirler — cevaplanabilirlerle aynı yaka."""
-    dev_row = unans_dict(
+    dev_row = abstention_eval_dict(
         question_id="u261",
         slice="eksik-kanit",
         unanswerable_reason="eksik-kanit",
         _subject_doc="k4857",
     )
-    test_row = unans_dict(
+    test_row = abstention_eval_dict(
         question_id="u262",
         slice="eksik-kanit",
         unanswerable_reason="eksik-kanit",
@@ -390,14 +392,16 @@ def test_assign_split_eksik_kanit_follows_subject_doc():
 
 
 def test_assign_split_anlamsiz_uses_question_id_hash():
-    row = unans_dict(question_id="u201", slice="anlamsiz-ood", unanswerable_reason="anlamsiz")
+    row = abstention_eval_dict(
+        question_id="u201", slice="anlamsiz-ood", unanswerable_reason="anlamsiz"
+    )
     first = assign_split(row, SPLITS)
     assert first in ("dev", "test")
     assert assign_split(row, SPLITS) == first  # deterministik
     # id değişince kural gerçekten id'ye bakıyor olmalı
     variants = {
         assign_split(
-            unans_dict(
+            abstention_eval_dict(
                 question_id=f"u{i:03d}", slice="anlamsiz-ood", unanswerable_reason="anlamsiz"
             ),
             SPLITS,
@@ -409,7 +413,7 @@ def test_assign_split_anlamsiz_uses_question_id_hash():
 
 def test_assign_split_falls_back_when_underscore_fields_missing():
     """BenchQuestion alt çizgili alanları taşımaz -> qid hash'ine düşülmeli."""
-    raw = unans_dict(
+    raw = abstention_eval_dict(
         question_id="u001",
         slice="korpus-disi",
         unanswerable_reason="korpus-disi",
@@ -425,7 +429,9 @@ def test_assign_split_falls_back_when_underscore_fields_missing():
 def test_assign_split_is_pure_no_file_access(tmp_path: Path):
     """Saf fonksiyon: aynı girdi + aynı splits -> aynı çıktı, yan etki yok."""
     before = sorted(p.name for p in tmp_path.iterdir())
-    row = unans_dict(question_id="u205", slice="anlamsiz-ood", unanswerable_reason="anlamsiz")
+    row = abstention_eval_dict(
+        question_id="u205", slice="anlamsiz-ood", unanswerable_reason="anlamsiz"
+    )
     results = {assign_split(row, SPLITS) for _ in range(5)}
     assert len(results) == 1
     assert sorted(p.name for p in tmp_path.iterdir()) == before
@@ -434,7 +440,9 @@ def test_assign_split_is_pure_no_file_access(tmp_path: Path):
 def test_load_bench_and_splits_accept_str_paths(tmp_path: Path):
     """İnceleme L2: load_bench/load_splits düz `str` yol kabul etmeli (Path'e çevrilir)."""
     bench = tmp_path / "mini.jsonl"
-    row = unans_dict(question_id="u001", slice="korpus-disi", unanswerable_reason="korpus-disi")
+    row = abstention_eval_dict(
+        question_id="u001", slice="korpus-disi", unanswerable_reason="korpus-disi"
+    )
     bench.write_text(json.dumps(row) + "\n")
     qs = load_bench(str(bench), only_verified=False)
     assert len(qs) == 1

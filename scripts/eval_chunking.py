@@ -88,7 +88,7 @@ def main() -> int:
     df["pno"] = df.page_id.astype(str).str.split(":").str[1].astype(int)
     page_ids = list(df.page_id)
     _, doc_names = load_text_channel(s.index_dir, page_ids)
-    bench = (REPO_ROOT / "data/bench/canary_v2.jsonl").read_text().splitlines()
+    bench = (REPO_ROOT / "data/bench/retrieval_eval_v2.jsonl").read_text().splitlines()
     rows = [json.loads(x) for x in bench if x.strip()]
 
     chunks = []

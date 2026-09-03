@@ -1,7 +1,7 @@
 {
   "benchmark": {
     "git_blob_sha": "7379a3aeb51a631014d6a05e49084589f05de1c0",
-    "path": "data/bench/canary_v2.jsonl",
+    "path": "data/bench/retrieval_eval_v2.jsonl",
     "sha256": "81e2ce2b90a25166cdc81594e7e063d73fbb72a1cb211dd3be222b971acaa818"
   },
   "candidate_limit": 50,

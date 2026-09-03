@@ -1,12 +1,12 @@
-# P2 veri — `unans_v1.jsonl` çapraz-kontrol raporu
+# P2 veri — `abstention_eval_v1.jsonl` çapraz-kontrol raporu
 
 **Tarih:** 2026-08-30 · **Rol:** bağımsız denetleyici (drafter ≠ checker) ·
 **Denetleyici:** `model-cross-check:claude-fable-5-checker` ·
 **Kanıt:** yalnız `data/research/page_texts.parquet` (4222 sayfa / 56 belge).
 Ağ yok, Gemini yok, alt-ajan yok.
 
-Dokunulan dosyalar: `data/bench/unans_v1.jsonl`, `data/bench/unans_v1.README.md`.
-`scripts/validate_unans.py` bilerek DEĞİŞTİRİLMEDİ.
+Dokunulan dosyalar: `data/bench/abstention_eval_v1.jsonl`, `data/bench/abstention_eval_v1.README.md`.
+`scripts/validate_abstention_eval.py` bilerek DEĞİŞTİRİLMEDİ.
 
 ---
 
@@ -35,16 +35,16 @@ gizlemek olurdu; yanlış olanlar `rejected` yapıldı (satırlar silinmedi).
 
 14 reddin 7'si test yakasında. `rejected` hariç yeni bileşim:
 
-| | cevaplanamaz | canary cevaplanabilir |
+| | cevaplanamaz | retrieval_eval cevaplanabilir |
 |---|---|---|
-| dev | 147 (101 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 canary) | 26 |
+| dev | 147 (101 korpus-dışı + 29 anlamsız + 15 eksik-kanıt + 2 retrieval_eval) | 26 |
 | **test** | **144** (94 + 31 + 16 + 3) | 17 |
 
 n=144'te 0 hata → Clopper-Pearson %95 üst sınırı **%2.059**; G2.1'in istediği
 %2.0 için gereken asgari n = **149**. Kapı 5 satır açık kaldı. Bu, çapraz-
 kontrolün yarattığı değil, görünür kıldığı bir açıktır.
 
-### 2.2 `scripts/validate_unans.py` şu an 105 ihlalle kırmızı
+### 2.2 `scripts/validate_abstention_eval.py` şu an 105 ihlalle kırmızı
 
 `VERIF_EXPECT` dilim başına doğrulama künyesini çapraz-kontrol ÖNCESİ duruma
 (`("draft","","model-cross-check")`) sabitliyor. 105 = 60 anlamsız + 40
@@ -59,7 +59,7 @@ Sahibinin yapması gereken (betik denetleyicinin dosyası değil):
 
 ```python
 VERIF_EXPECT = {
-    "korpus-disi": ("verified", "script:validate_unans", "mechanical:manifest-absence"),
+    "korpus-disi": ("verified", "script:validate_abstention_eval", "mechanical:manifest-absence"),
     "anlamsiz-ood": ("verified", "model-cross-check:claude-fable-5-checker", "model-cross-check"),
     "eksik-kanit": ("verified", "model-cross-check:claude-fable-5-checker", "model-cross-check"),
 }

@@ -19,7 +19,7 @@ kalibrasyonu geçmeden üretime bağlanmaz.
 
 ## Gerekçe
 
-İnsan-doğrulanmış canary'de sevk edilen sıralama paraphrase R@50'de 0,8571'dir;
+İnsan-doğrulanmış retrieval_eval'de sevk edilen sıralama paraphrase R@50'de 0,8571'dir;
 buna karşılık BM25, Mogan ve Colmm'nin derinlik-50 aday kümesi 0,9048 kapsama
 taşır. `c411` Mogan'da sayfa 29, Colmm'de 44 iken mevcut ardışık örgüde 86.
 Bu, en az bir ıskanın getirimden değil sıralama politikasından kaynaklandığını
@@ -37,7 +37,7 @@ varyantı/alan uyarlama deneyinin kapsamındadır.
   cevap metni görmez.
 - Üretim `HybridRetriever.search()` ve `/ask` varsayılanı deney tamamlanana
   kadar değişmez; yeni yol önce yalnız bench/CLI deneyi olarak yaşar.
-- `canary_v2` daha önce görüldüğü için teşhis/dev verisidir. Model, havuz
+- `retrieval_eval_v2` daha önce görüldüğü için teşhis/dev verisidir. Model, havuz
   derinliği veya karar kuralı bunun sonucuna göre seçilemez.
 
 ## Bileşen sınırları
@@ -65,7 +65,7 @@ hit skoru, seçilen sayfanın mevcut BM25 skorudur. Böylece U için raporlanan
    dev/model seçimi için kullanılan satırlarla kesişmez; özellikle paraphrase
    sorular içerir. Altın sayfa, kanıt alıntısı ve insan doğrulama künyesi
    zorunludur.
-2. `canary_v2` yalnız mekanizma teşhisi ve hata ayıklama için kullanılır.
+2. `retrieval_eval_v2` yalnız mekanizma teşhisi ve hata ayıklama için kullanılır.
 3. Holdout tek seferlik nihai koşumdur. Koşumdan sonra model, prompt, havuz
    derinliği veya karar kuralı holdout'a bakılarak ayarlanmaz.
 4. Rapor P/U için R@5, R@20, R@50, MRR, nDCG@5, paraphrase dilimi, üç R@50

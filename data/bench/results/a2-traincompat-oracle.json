@@ -1,7 +1,7 @@
 {
  "run_id": "20260827-1612-eb66be5-oracle",
  "git_commit": "eb66be5",
- "bench": "data/bench/canary_v1.jsonl",
+ "bench": "data/bench/retrieval_eval_v1.jsonl",
  "only_verified": false,
  "packed_index": "data/index-traincompat-1bit",
  "float_index": "data/index-traincompat-f16",

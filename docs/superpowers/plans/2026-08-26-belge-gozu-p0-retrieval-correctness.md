@@ -4,7 +4,7 @@
 
 **Goal:** Retrieval'ı ölçülebilir ve doğru yapmak: bozuk mean-sign Stage-1'i üretim
 yolundan kaldırıp exhaustive binary MaxSim'e geçmek; padding/mask, processor formatı,
-index manifest ve fail-fast'i düzeltmek; canary benchmark + teşhis harness + binary/float
+index manifest ve fail-fast'i düzeltmek; retrieval_eval benchmark + teşhis harness + binary/float
 oracle'ları kurmak; kuantizasyon kaybını sayılandırmak; README/UI'ı dürüstleştirmek.
 
 **Architecture:** Yeni `bench/` paketi (dataset/metrics/harness/oracle), `index/manifest.py`,
@@ -57,10 +57,10 @@ src/belge_gozu/
                            # index write-manifest --legacy                                    [T5,T8,T9]
   app/main.py              # pipeline seçimi + compat fail-fast + telemetri alanları          [T4,T5,T13]
   config.py                # retrieval_pipeline, query_format_id, allow_index_mismatch        [T4,T5]
-data/bench/canary_v1.jsonl # 30-50 insan-doğrulamalı soru                                     [T10]
+data/bench/retrieval_eval_v1.jsonl # 30-50 insan-doğrulamalı soru                                     [T10]
 data/bench/splits_v1.json  # law-grouped split iskeleti                                       [T6]
 tests/index/test_manifest.py, tests/index/test_encode_mask.py, tests/index/test_quantize.py
-tests/retrieval/test_exhaustive.py, tests/retrieval/test_semantic_canary.py (slow)
+tests/retrieval/test_exhaustive.py, tests/retrieval/test_semantic_retrieval_eval.py (slow)
 tests/bench/test_dataset.py, tests/bench/test_metrics.py, tests/bench/test_harness.py,
 tests/bench/test_oracle.py, tests/app/test_compat.py
 docs/research/findings/2026-XX-XX-p0-baseline.md, 2026-XX-XX-p0-gate.md               [T14]
@@ -815,7 +815,7 @@ Slice = Literal[
     "capraz-kanun-terim", "tablo-layout", "tarihi-tarama", "belirsiz-coklu-dayanak",
     "multi-hop", "korpus-disi", "eksik-kanit", "anlamsiz-ood",
 ]
-UnansReason = Literal["korpus-disi", "eksik-kanit", "anlamsiz", "belirsiz"]
+AbstentionEvalReason = Literal["korpus-disi", "eksik-kanit", "anlamsiz", "belirsiz"]
 
 class BenchQuestion(BaseModel):
     question_id: str
@@ -832,7 +832,7 @@ class BenchQuestion(BaseModel):
     source_type: Literal["insan", "insan-paraphrase", "ajan-taslak-insan-onayli"]
     requires_visual: bool
     requires_multi_hop: bool
-    unanswerable_reason: UnansReason | None
+    unanswerable_reason: AbstentionEvalReason | None
     verified_by: str
     verification_status: Literal["draft", "verified", "rejected"]
 
@@ -927,7 +927,7 @@ def test_split_assignment(tmp_path: Path):
 - [ ] **Step 3: dataset.py yaz** — yukarıdaki imza ve kurallarla; `load_bench` JSONL'i
   satır satır parse eder, hatada `ValueError(f"bench satır {i}: ...")`; boş sonuç
   `ValueError`. `data/bench/splits_v1.json` iskeleti:
-  `{"dev_docs": [], "test_docs": []}` (T10 canary tamamı dev'dir; P1 T12 doldurur).
+  `{"dev_docs": [], "test_docs": []}` (T10 retrieval_eval tamamı dev'dir; P1 T12 doldurur).
 - [ ] **Step 4: GREEN + full regression** — Run:
   `uv run pytest tests/bench -v && uv run pytest -q -m "not slow" && make lint`
 - [ ] **Step 5: Commit** — `feat(bench): rich benchmark data model with verification and split rules`
@@ -1235,7 +1235,7 @@ latency. `TwoStageDiagnosticAdapter.run` — stage1 sıralamasını (`hamming_ma
 üstünden) `stage="stage1"` olarak, stage2 aday skorlamasını `stage="stage2"` olarak
 kaydeder. `_git_commit()`: `subprocess.run(["git", "rev-parse", "--short", "HEAD"], ...)`,
 hata halinde `"unknown"`.
-CLI: `belge-gozu bench run --bench data/bench/canary_v1.jsonl
+CLI: `belge-gozu bench run --bench data/bench/retrieval_eval_v1.jsonl
 --pipeline exhaustive|two-stage --out data/bench/results/<run_id>.json`
 (`run_id` üretimi: `<UTC tarih>-<git sha>-<pipeline>`); gerçek indeks + `ColSmolEncoder`
 ile koşar, `known_page_ids` indeksten.
@@ -1337,19 +1337,19 @@ def test_scores_are_true_maxsim():
 
 ---
 
-### Task 10: Canary set v1 + semantic canary regression testleri (runbook + kod)
+### Task 10: RetrievalEval set v1 + semantic retrieval_eval regression testleri (runbook + kod)
 
 **Files:**
-- Create: `data/bench/canary_v1.jsonl` (30-50 soru; İNSAN doğrulama kapılı),
-  `tests/retrieval/test_semantic_canary.py`, `tests/retrieval/canary_expectations.json`
+- Create: `data/bench/retrieval_eval_v1.jsonl` (30-50 soru; İNSAN doğrulama kapılı),
+  `tests/retrieval/test_semantic_retrieval_eval.py`, `tests/retrieval/retrieval_eval_expectations.json`
 
 **Interfaces:**
 - Consumes: T6 şeması, T5 üretim hattı, T8 harness.
-- Produces: insan-doğrulamalı canary seti (tamamı `verification_status="verified"`,
+- Produces: insan-doğrulamalı retrieval_eval seti (tamamı `verification_status="verified"`,
   `verified_by` dolu); iki hedef sorgu dahil; slow regression testleri.
 
 - [ ] **Step 1 (ajan taslağı):** Korpustan örneklenen sayfa görüntülerini DOĞRUDAN
-  okuyarak (API kotası gerekmez) 45-60 taslak soru üret → `canary_v1.jsonl`,
+  okuyarak (API kotası gerekmez) 45-60 taslak soru üret → `retrieval_eval_v1.jsonl`,
   `verification_status="draft"`, `source_type="ajan-taslak-insan-onayli"`. Dağılım
   hedefi: `dogrudan-madde` 10, `paraphrase` 10 (Sorgu A ve B dahil), `madde-numarali` 6,
   `ayni-kanun-hard-negative` 5, `capraz-kanun-terim` 4, `tablo-layout` 4,
@@ -1361,12 +1361,12 @@ def test_scores_are_true_maxsim():
   yapar. Hedef: ≥30 verified (≥25 answerable + ≥5 unanswerable). Bu adım kullanıcı
   onayı olmadan geçilmez.
 - [ ] **Step 3: Doğrulama komutu** — Run:
-  `uv run python -c "from pathlib import Path; from belge_gozu.bench.dataset import load_bench, bench_stats; qs=load_bench(Path('data/bench/canary_v1.jsonl')); print(len(qs), bench_stats(qs))"`
+  `uv run python -c "from pathlib import Path; from belge_gozu.bench.dataset import load_bench, bench_stats; qs=load_bench(Path('data/bench/retrieval_eval_v1.jsonl')); print(len(qs), bench_stats(qs))"`
   — Expected: ≥30 verified, dilim dağılımı basılır.
-- [ ] **Step 4: Semantic canary testlerini yaz**
+- [ ] **Step 4: Semantic retrieval_eval testlerini yaz**
 
 ```python
-# tests/retrieval/test_semantic_canary.py  (tamamı -m slow: gerçek model + gerçek indeks)
+# tests/retrieval/test_semantic_retrieval_eval.py  (tamamı -m slow: gerçek model + gerçek indeks)
 import json
 from pathlib import Path
 
@@ -1378,7 +1378,7 @@ pytestmark = pytest.mark.slow
 Q_SHORT = "Yerleşim yeri nedir?"
 Q_LONG = "Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"
 GOLD = "k4721:4"
-EXPECT = json.loads(Path("tests/retrieval/canary_expectations.json").read_text())
+EXPECT = json.loads(Path("tests/retrieval/retrieval_eval_expectations.json").read_text())
 
 
 @pytest.fixture(scope="module")
@@ -1394,11 +1394,11 @@ def prod_retriever():
     return ExhaustiveBinaryRetriever(idx, meta, ColSmolEncoder(s.retriever_model, s.device))
 
 
-def test_canary_gold_pages_covered(prod_retriever):
+def test_retrieval_eval_gold_pages_covered(prod_retriever):
     from belge_gozu.bench.dataset import load_bench
 
     known = set(prod_retriever.index.page_ids)
-    for q in load_bench(Path("data/bench/canary_v1.jsonl")):
+    for q in load_bench(Path("data/bench/retrieval_eval_v1.jsonl")):
         for g in q.gold_page_ids:
             assert g in known, f"{q.question_id}: {g} korpusta yok"
 
@@ -1420,7 +1420,7 @@ def test_long_query_rank_ratchet(prod_retriever):
     )
 ```
 
-`canary_expectations.json` ilk değeri: `{"long_query_gold_rank_max": 1576}` (bugünkü
+`retrieval_eval_expectations.json` ilk değeri: `{"long_query_gold_rank_max": 1576}` (bugünkü
 ölçüm; format/kuantizasyon kararlarıyla İYİLEŞTİKÇE bilinçli commit'le düşürülür —
 cırcır asla sessizce gevşetilmez).
 Not: `test_short_query_gold_in_top5` mevcut v0 indeksinde exhaustive sıra 2 ölçüldüğü
@@ -1428,8 +1428,8 @@ için Stage-1 kaldırılınca YEŞİL olmalıdır — bu, P0'ın ana davranış 
 regression kilididir (G0.8).
 
 - [ ] **Step 5: Slow koşum** — Run:
-  `uv run pytest tests/retrieval/test_semantic_canary.py -m slow -v` — Expected: 3 PASS
-- [ ] **Step 6: Commit** — `test: human-verified canary set v1 + real-model semantic regression locks`
+  `uv run pytest tests/retrieval/test_semantic_retrieval_eval.py -m slow -v` — Expected: 3 PASS
+- [ ] **Step 6: Commit** — `test: human-verified retrieval_eval set v1 + real-model semantic regression locks`
 
 ---
 
@@ -1444,7 +1444,7 @@ regression kilididir (G0.8).
 
 **Interfaces:**
 - Consumes: T2 encoder (`query_format` parametresi), T9 `index build --precision f16
-  --query-format ...`, T8 harness, T10 canary.
+  --query-format ...`, T8 harness, T10 retrieval_eval.
 - Produces: format kararı (`query_format_id` + doc prompt) — p0-gate raporuna sayılarla.
 
 - [ ] **Step 1: Eğitim formatını birincil kaynaktan kilitle** —
@@ -1467,9 +1467,9 @@ regression kilididir (G0.8).
   ve `... --query-format train-compat-v1 --out data/index-traincompat-f16`
   (doc prompt: Step 1 kararına göre; iki build arasında YALNIZ format değişir).
 - [ ] **Step 4: A/B koşumu** — Run: her iki f16 dizini için
-  `uv run belge-gozu bench oracle --bench data/bench/canary_v1.jsonl --float-index <dir> --packed-index <T12'de türetilen> --out data/bench/results/<run_id>.json`
+  `uv run belge-gozu bench oracle --bench data/bench/retrieval_eval_v1.jsonl --float-index <dir> --packed-index <T12'de türetilen> --out data/bench/results/<run_id>.json`
   (ilk turda yalnız float karşılaştırması yeterli; packed karşılaştırma T12'de
-  tamamlanır). Karar metriği: canary answerable Recall@5 / MRR (float düzeyinde);
+  tamamlanır). Karar metriği: retrieval_eval answerable Recall@5 / MRR (float düzeyinde);
   eşitlikte bootstrap CI ve iki hedef sorgunun sıraları.
 - [ ] **Step 5: D1 augmentation ablasyonu** — kazanan formatta `n_suffix=0` vs `10`
   sorgu-tarafı koşumu (indeks sabit): `bench oracle`'a `--query-format-override`
@@ -1477,7 +1477,7 @@ regression kilididir (G0.8).
   `scripts/d1_augmentation.py` ile yapılır, sonuç rapora.
 - [ ] **Step 6: Kararı uygula** — `config.py` `query_format_id` güncellenir; karar +
   sayılar + koşum künyeleri p0-gate raporu taslağına işlenir. Commit —
-  `feat(index): adopt <winner> query/document format (A/B on canary, run <run_id>)`
+  `feat(index): adopt <winner> query/document format (A/B on retrieval_eval, run <run_id>)`
 
 ---
 
@@ -1560,7 +1560,7 @@ def test_int8_roundtrip(tmp_path):
   `uv run pytest tests/index -v && uv run pytest -q -m "not slow" && make lint`
 - [ ] **Step 5: C1/C2 koşumları (runbook)** — kazanan format dizininden: Run:
   `uv run belge-gozu index derive --from data/index-<fmt>-f16 --quant sign-1bit --out data/index-<fmt>-1bit`
-  ve `--quant int8 --out data/index-<fmt>-int8`; ardından canary üzerinde üç koşum
+  ve `--quant int8 --out data/index-<fmt>-int8`; ardından retrieval_eval üzerinde üç koşum
   (float / int8 / 1-bit) `bench oracle` + `bench run` ile. Karar kuralı: **float16
   oracle'a göre Recall@20 kaybı ≤ 2 puan olan en küçük temsil üretim indeksi olur**;
   1-bit bu eşiği geçemiyorsa int8; int8 de geçemiyorsa ColBERTv2-tarzı centroid+residual
@@ -1625,11 +1625,11 @@ def test_int8_roundtrip(tmp_path):
   Eşik çizgisi tooltip'i aynı ifadeyle güncellenir. `config.py` `min_score_threshold`
   yorumu: "kaba v0 kalıntısı; kalibrasyon P2'de — bu değer güven ölçüsü değildir".
 - [ ] **Step 3: Baseline raporu yaz** — `p0-baseline.md`: spec §1.1 tablosu + bu plan
-  koşumlarının EvalReport künyeleri; mevcut mimarinin (v0) canary sonuçları
+  koşumlarının EvalReport künyeleri; mevcut mimarinin (v0) retrieval_eval sonuçları
   (`bench run --pipeline two-stage` ile v0 davranışı yeniden ölçülür) vs yeni hat.
 - [ ] **Step 4: Gate raporu yaz** — `p0-gate.md`: master §5 G0.1-G0.9 satır satır,
   her satırda sayı + koşum `run_id`. Tümü PASS değilse eksikler ve karar.
-- [ ] **Step 5: Full regression + slow canary** — Run:
+- [ ] **Step 5: Full regression + slow retrieval_eval** — Run:
   `uv run pytest -q -m "not slow" && make lint && uv run pytest -m slow -v`
 - [ ] **Step 6: Commit** — `docs: honest scoring/README language + P0 baseline and gate reports`
 
@@ -1661,7 +1661,7 @@ Master plan §5 G0.1-G0.9. Ek açık kurallar:
 
 - **G0.3 yorumu:** üretim yolu exhaustive olduğundan Recall@candidate tanım gereği
   %100'dür; herhangi bir aday-üreteci (Stage-1 varyantı, PLAID-tarzı) üretime ancak
-  canary üzerinde gold Recall@candidate ≥ %98 ölçümüyle dönebilir — aksi halde flag
+  retrieval_eval üzerinde gold Recall@candidate ≥ %98 ölçümüyle dönebilir — aksi halde flag
   kapalı kalır.
 - **Kuantizasyon kuralı (G0.7):** float16 oracle'a göre Recall@20 kaybı ≤ 2 puan
   olmayan hiçbir temsil "tek üretim gerçeği" ilan edilemez.
@@ -1672,7 +1672,7 @@ Master plan §5 G0.1-G0.9. Ek açık kurallar:
 ## Self-Review (yazar kontrolü)
 
 1. **Spec kapsaması:** brief'in P0 listesi ↔ task eşlemesi: benchmark veri modeli (T6),
-   canary 30-50 (T10), geniş benchmark hedefi (P1 T12'ye işaretle devredildi — master §2),
+   retrieval_eval 30-50 (T10), geniş benchmark hedefi (P1 T12'ye işaretle devredildi — master §2),
    gold doc/page/article/span (T6), law-grouped split (T6), corpus coverage (T8
    `missing_gold_pages` + G0.1), stage ranks + candidate survival (T8), Stage-1
    Recall@candidate (T8 TwoStageDiagnosticAdapter + G0.3), exhaustive oracle (T5/T8),

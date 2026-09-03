@@ -35,7 +35,7 @@
 | 10 | G2 kapı raporu, test-split final koşumu ve Gemini kota planı (P2 T12) | `kapı`, `p2` | `p2-gate.md` yok, test yakası hiç kullanılmadı; kota (2×20/gün) planı + runbook + tek seferlik final koşum + risk-coverage figürü. |
 | 11 | Dense metin kanalı (P1 T7): paraphrase dilimindeki sözcüksel tavanı kır | `p1`, `bilimsel-derinlik` | `retrieval/dense.py` yok; paraphrase R@50 0,5714 / R@5 0,2857 — G1.2'nin tek FAIL'i ve G1.1 açığının en olası çıkışı. Füzyon şekli yeniden ölçülecek (RRF reddedilmişti). |
 | 12 | Benchmark v2 (120 answerable + 30 unanswerable): 43 soruluk taban dar | `p1`, `bilimsel-derinlik` | `bench_v2.jsonl` yok; mevcut taban hedefin ~1/3'ü, 12 dilimden 3'ü boş, %0,8 insan onaylı; law-grouped split hazır. |
-| 13 | İnsan doğrulama kapısı: 378 satırın yalnız 3'ü insan onaylı (K8 + `require_human`) | `dürüstlük`, `bilimsel-derinlik` | canary 3/48 human, unans 0/330 human (113 satır hiç denetlenmemiş); K8 kuyruk kusuru + `require_human` + README rakam-kilidi testi. |
+| 13 | İnsan doğrulama kapısı: 378 satırın yalnız 3'ü insan onaylı (K8 + `require_human`) | `dürüstlük`, `bilimsel-derinlik` | retrieval_eval 3/48 human, abstention_eval 0/330 human (113 satır hiç denetlenmemiş); K8 kuyruk kusuru + `require_human` + README rakam-kilidi testi. |
 | 14 | Bağlaşım denetimi B grubu: kalan hızlı dalga düzeltmeleri | `teknik-borç`, `hızlı-kazanım` | C10, S5, C19 (autouse env fixture hiç yok), C41, C42, D21, D1 — hepsi davranış-nötr, ayrı commit. (C8/C9/C12/C38 kapandığı doğrulandı.) |
 | 15 | Gizlilik ve erişim varsayılanları güvensiz | `dağıtım`, `teknik-borç` | `log_query_text=True` ve hız sınırı 0 kütüphane varsayılanı; güvenli profil yalnız Dockerfile'da; `/metrics` + `/stats` kimlik doğrulamasız ve tam tablo taramalı (Y11). |
 | 16 | Korpus yapı katmanı: madde hiyerarşisi (ilke 11 ihlali) + OCR fallback (ilke 10) | `p1`, `bilimsel-derinlik` | `corpus/articles.py` yok → retrieval atomu hâlâ sayfa, `gold_article_ids` ölü alan, `CitationRef.article_id` daima None; ayrıca 5 metinsiz sayfa için OCR yok. |
@@ -47,15 +47,15 @@
 | 17 | Cross-encoder reranker (P1 T10): G1.3 artık ölçülebilir, katman yok | `p1`, `bilimsel-derinlik` | Recall ön koşulu (R@20 0,9302) sağlandı → ilke 2/16 uyumlu biçimde denenebilir; kazanç bootstrap CI alt sınırı > 0 değilse default kapalı kalır. |
 | 18 | P2 T9: UI claim-citation + outcome telemetrisi + geri bildirim + drift raporu | `p2` | Verifier çalışıyor ama görünmüyor: UI'da iddia-atıf bağı yok, `/feedback` yok, outcome alanları yok, `scripts/drift_report.py` yok. |
 | 19 | P2 T10+T11: insan-kalibreli LLM-judge (PPI) ve fine-tuning kapısının resmî hükmü | `p2`, `bilimsel-derinlik` | `bench/judge.py` yok (ön koşul: ≥30 insan çifti); T11 kapı koşulu zaten sağlanıyor (paraphrase R@5 0,2857) ama resmî hüküm yok — dense/reranker sonrası değerlendirilmeli. |
-| 20 | Ertelenmiş borç: BM25 inverted index (Y2) + UI erişilebilirlik/dayanıklılık turu | `teknik-borç` | Y2 doğrusal tarama (bugünkü ölçekte acil değil), Y37/Y38/Y40/Y43/Y45, NEW-1 guard, `unans_v1.README.md` bayat tablo (300/286/14 → 330/309/21). |
+| 20 | Ertelenmiş borç: BM25 inverted index (Y2) + UI erişilebilirlik/dayanıklılık turu | `teknik-borç` | Y2 doğrusal tarama (bugünkü ölçekte acil değil), Y37/Y38/Y40/Y43/Y45, NEW-1 guard, `abstention_eval_v1.README.md` bayat tablo (300/286/14 → 330/309/21). |
 
 ## Bilinçli olarak issue açılmayanlar
 
 **Bu oturumda kapandığı doğrulanan (kod üzerinde teyit edildi):**
 
 - GitHub'a çıkış — `git remote -v` → `origin https://github.com/barandincoguz/belge-gozu.git`.
-- UI'daki "insan-doğrulanmış canary" yanlış iddiası (Y29) — `index.html:454-461` artık doğrulama künyesini taşıyor ("48 satırdan 3'ü insan… insan-doğrulanmış sayılmaz").
-- CI lock disiplini + docker build işi (C12) — `.github/workflows/ci.yml` `uv sync --locked` + ayrı `docker` işi + `validate_unans.py` adımı.
+- UI'daki "insan-doğrulanmış retrieval_eval" yanlış iddiası (Y29) — `index.html:454-461` artık doğrulama künyesini taşıyor ("48 satırdan 3'ü insan… insan-doğrulanmış sayılmaz").
+- CI lock disiplini + docker build işi (C12) — `.github/workflows/ci.yml` `uv sync --locked` + ayrı `docker` işi + `validate_abstention_eval.py` adımı.
 - LLM zaman bütçesi — `answer/gemini.py` `GEMINI_TIMEOUT_S=24.0`, `GEMINI_TOTAL_BUDGET_S=50.0`.
 
 **Envanterin spot-check'inde zaten KAPALI işaretli olanlar:** Y1 (QTF_CAP=2), Y15/K33 (Gemini timeout + lazy client yarışı), K27 (`tr_lower`), Y17/Y31 (honest-miss API alanı), Y20 (`error_type`), Y28/K17 (çift-gönderim kilidi), C8, C9, C38, S51/S52, S33/S34/D1/D2, bağlaşım denetimi §2A'nın 21 satırı.

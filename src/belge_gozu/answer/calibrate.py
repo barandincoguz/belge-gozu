@@ -16,7 +16,7 @@ bench paketine bağlanmaması bu projede yerleşik bir disiplindir
 IMPORTANT-5). `tests/answer/test_calibrate.py` bunu alt süreçte doğrular.
 
 ÖZELLİK SEÇİMİ ÖLÇÜMLEDİR, TAHMİN DEĞİL (`data/research/abstain-signals.json`,
-43 cevaplanabilir + 5 cevaplanamaz canary sorusu üzerinde tek tek AUC):
+43 cevaplanabilir + 5 cevaplanamaz retrieval_eval sorusu üzerinde tek tek AUC):
 
 | özellik | AUC | karar |
 |---|---|---|
@@ -788,7 +788,7 @@ def load_rows(path: Path | str, *, only_verified: bool = True) -> list[dict[str,
 
     `only_verified=True` filtresi `load_bench` ile BİREBİR AYNIDIR:
     `verification_status != "verified"` olan her satır atılır — yani `draft`
-    ile birlikte `rejected` de dışarıda kalır (unans_v1'de 14 rejected satır
+    ile birlikte `rejected` de dışarıda kalır (abstention_eval_v1'de 14 rejected satır
     vardır ve bunlar veri kümesine girmemelidir).
     """
     from pydantic import ValidationError
@@ -1007,10 +1007,12 @@ def evaluate(
 
     answerable = np.array([r.answerable for r in rows], dtype=bool)
     if bool(np.any(~answerable)):
-        rate, n_unans, n_err, upper = false_answer_rate_on_unanswerable(probs, answerable, t)
+        rate, n_abstention_eval, n_err, upper = false_answer_rate_on_unanswerable(
+            probs, answerable, t
+        )
         metrics["false_answer_on_unanswerable"] = {
             "rate": rate,
-            "n": n_unans,
+            "n": n_abstention_eval,
             "errors": n_err,
             "upper_bound_95": upper,
             "method": "clopper_pearson",

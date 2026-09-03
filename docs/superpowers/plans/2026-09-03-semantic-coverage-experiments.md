@@ -18,7 +18,7 @@
 - Dense models use Qwen's official left-padding, last-token pooling and L2 normalization protocol. CLS/mean pooling is not an option.
 - Query expansion uses `Qwen/Qwen3-8B@b968826d9c46dd6066d109eabc6255188de91218`, `enable_thinking=False`, `do_sample=False`, and exactly one generated Turkish search variant.
 - The host has 24 GiB unified memory. Before every real model arm, unload prior Transformer objects, call MPS cache release where available, then perform a one-item preflight. An OOM produces a recorded `skipped_oom` arm; it never silently selects a smaller model.
-- `canary_v2` is development-only. No result may select a production configuration without a new human-verified law-group-disjoint holdout.
+- `retrieval_eval_v2` is development-only. No result may select a production configuration without a new human-verified law-group-disjoint holdout.
 
 ---
 
@@ -255,7 +255,7 @@ git commit -m "feat(bench): evaluate semantic candidate coverage"
 - Modify: `tests/bench/test_semantic_coverage.py`
 
 **Interfaces:**
-- Command: `uv run python scripts/eval_semantic_coverage.py --bench data/bench/canary_v2.jsonl --min-verification human --out data/bench/results/semantic-coverage-dev-v1.json --cache data/bench/cache/semantic-expansions-v1.jsonl`.
+- Command: `uv run python scripts/eval_semantic_coverage.py --bench data/bench/retrieval_eval_v2.jsonl --min-verification human --out data/bench/results/semantic-coverage-dev-v1.json --cache data/bench/cache/semantic-expansions-v1.jsonl`.
 - Produces baseline, two dense arms, one selected-dense-plus-expansion arm, model/artefact provenance, disk bytes and p50/p95 latency in atomic JSON.
 
 - [ ] **Step 1: Write a failing loader test with fake encoders**
@@ -379,7 +379,7 @@ Run:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 uv run python scripts/eval_semantic_coverage.py \
-  --bench data/bench/canary_v2.jsonl \
+  --bench data/bench/retrieval_eval_v2.jsonl \
   --min-verification human \
   --cache data/bench/cache/semantic-expansions-v1.jsonl \
   --out data/bench/results/semantic-coverage-dev-v1.json
@@ -403,7 +403,7 @@ Open the local HTML with the available visual inspection tool. Verify the develo
 
 - [ ] **Step 3: Record only allowed conclusions**
 
-Write the exact measured numbers, selected dense arm under the documented development tie-break, expansion delta, resource cost, and whether c206/c404 entered. State explicitly that observed canary cannot authorize production and list the required new human-verified law-group-disjoint holdout.
+Write the exact measured numbers, selected dense arm under the documented development tie-break, expansion delta, resource cost, and whether c206/c404 entered. State explicitly that observed retrieval_eval cannot authorize production and list the required new human-verified law-group-disjoint holdout.
 
 - [ ] **Step 4: Full verification and commit artefacts**
 

@@ -12,7 +12,7 @@
 
 - Keep BM25 on pages and do not modify `retrieval/text.py`, `RECIPE_VERSION`, or `recipe_fingerprint()`.
 - Keep query expansion in encoding but exclude expansion vectors from the MaxSim sum through `encode_query_vectors()`.
-- Use only human-verified answerable rows from `canary_v2` and verified rows from `unans_v1`.
+- Use only human-verified answerable rows from `retrieval_eval_v2` and verified rows from `abstention_eval_v1`.
 - Select the feature schema and threshold without reading the locked test split.
 - Use `risk <= 0.05` for threshold calibration and all five enablement checks from the design spec.
 - Preserve the existing default-closed/fail-fast late-channel behavior unless the final gate says `eligible_to_enable=true`.
@@ -30,7 +30,7 @@
 
 **Interfaces:**
 - Consumes: the current branch at `a3b158d` plus the committed design document.
-- Produces: `LateInteractionChannel`, `ColBERTEncoder.encode_query_vectors()`, `union_candidates()`, `canary_v2`, and the two-channel production parity script.
+- Produces: `LateInteractionChannel`, `ColBERTEncoder.encode_query_vectors()`, `union_candidates()`, `retrieval_eval_v2`, and the two-channel production parity script.
 
 - [x] **Step 1: Merge the local measured implementation**
 
@@ -201,8 +201,8 @@ Compute enablement checks exactly as:
 ```python
 checks = {
     "selective_risk_point_lte_0_05": selective_risk <= 0.05,
-    "unanswerable_false_accept_point_lte_0_02": unans_rate <= 0.02,
-    "unanswerable_false_accept_cp95_lte_0_05": unans_upper <= 0.05,
+    "unanswerable_false_accept_point_lte_0_02": abstention_eval_rate <= 0.02,
+    "unanswerable_false_accept_cp95_lte_0_05": abstention_eval_upper <= 0.05,
     "safe_answerable_accept_rate_gte_0_80": safe_accept >= 0.80,
     "identity_matches": identity_matches,
 }
@@ -231,7 +231,7 @@ git commit -m "feat(answer): add leakage-resistant late calibration artifact"
 - Create: `tests/test_calibrate_late_channel.py`
 
 **Interfaces:**
-- Consumes: primary `chunks.parquet`/`page_texts.parquet`, two late-index directories, `canary_v2.jsonl`, `unans_v1.jsonl`, `splits_v1.json`, `LateInteractionChannel.search_with_scores()`, and `union_candidates()`.
+- Consumes: primary `chunks.parquet`/`page_texts.parquet`, two late-index directories, `retrieval_eval_v2.jsonl`, `abstention_eval_v1.jsonl`, `splits_v1.json`, `LateInteractionChannel.search_with_scores()`, and `union_candidates()`.
 - Produces: `fit` and `eval` subcommands, `calibrator.json`, and self-contained JSON reports.
 
 - [x] **Step 1: Write failing CLI tests with injected synthetic channels**
@@ -262,8 +262,8 @@ The scorer must:
 Use these defaults:
 
 ```text
---canary data/bench/canary_v2.jsonl
---unans data/bench/unans_v1.jsonl
+--retrieval-eval data/bench/retrieval_eval_v2.jsonl
+--abstention-eval data/bench/abstention_eval_v1.jsonl
 --splits data/bench/splits_v1.json
 --index-dir data/index-traincompat-int8
 --late-index data/index-colbert-mogan-f16
@@ -352,7 +352,7 @@ git commit -m "exp(calibration): measure late-channel abstention gate"
 
 - [x] **Step 1: Write the finding from report values**
 
-Include dataset counts and verification caveats, fit/calibration/test metrics, raw-vs-normalized evidence, the exact `tau`, all enablement checks, and the decision. Do not describe model-cross-checked `unans_v1` rows as human verified.
+Include dataset counts and verification caveats, fit/calibration/test metrics, raw-vs-normalized evidence, the exact `tau`, all enablement checks, and the decision. Do not describe model-cross-checked `abstention_eval_v1` rows as human verified.
 
 - [x] **Step 2: Verify documentation and repository diff**
 

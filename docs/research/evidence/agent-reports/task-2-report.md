@@ -185,7 +185,7 @@ pre-decision question.
   as specified:
   > "==1.0 MPS'te tutmadı (ölçüm: 0.9990/0.9989, 2026-08-26); karar: index
   > build batch_size=1 (cli.py). Bu eşik yalnız kaba gerilemeleri (ör.
-  > maskeleme bozulması) yakalar; bit-exact kilit T10 canary testlerinde."
+  > maskeleme bozulması) yakalar; bit-exact kilit T10 retrieval_eval testlerinde."
 
 **Commands + output:**
 
@@ -218,4 +218,4 @@ left untouched/unstaged).
 **Outcome:** slow suite is green again while still catching gross
 regressions (e.g. a masking bug that would push agreement well below
 0.995); the original bit-exact question is explicitly deferred to T10
-canary tests per the docstring.
+retrieval_eval tests per the docstring.

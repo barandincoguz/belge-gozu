@@ -37,7 +37,7 @@ def test_recipe_constants_are_the_measured_ones():
     R@5 0.8140 -> 0.8372 (+c214)."""
     assert F5 == 5
     assert WINDOW == 50
-    # İçerik taşıyabilecek kelimeler listede OLMAMALI (canary'ye ayar riski).
+    # İçerik taşıyabilecek kelimeler listede OLMAMALI (retrieval_eval'ye ayar riski).
     assert {"ve", "göre", "nedir", "sayılı"} <= STOPWORDS
     assert not ({"zaman", "iş", "izin", "yerleşim"} & STOPWORDS)
 
@@ -172,7 +172,7 @@ def test_query_term_saturation_cap_is_the_measured_one():
 
 
 def test_unique_query_terms_are_unaffected_by_the_cap():
-    """Reçete PARİTESİ: hiçbir terimi tekrar etmeyen sorgu (canary'nin
+    """Reçete PARİTESİ: hiçbir terimi tekrar etmeyen sorgu (retrieval_eval'nin
     tamamı) tavan öncesi/sonrası birebir aynı skoru alır — exp14'ün
     R@5 0.8605 / MRR 0.632 pariteyi ölçen koşumunun birim karşılığı."""
     ids = ["a:1", "b:1"]

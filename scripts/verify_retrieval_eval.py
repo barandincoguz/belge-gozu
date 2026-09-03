@@ -1,6 +1,6 @@
-"""Canary bench — insan doğrulama aracı (ön-kontrol + interaktif inceleme).
+"""RetrievalEval bench — insan doğrulama aracı (ön-kontrol + interaktif inceleme).
 
-`data/bench/canary_v1.jsonl`'daki tüm sorular `verification_status: "draft"`
+`data/bench/retrieval_eval_v1.jsonl`'daki tüm sorular `verification_status: "draft"`
 ile başlar; sayıların gate-kalitesinde sayılması için proje sahibinin her
 birini elle onaylaması gerekir. Bu betik üç modda çalışır:
 
@@ -9,10 +9,10 @@ birini elle onaylaması gerekir. Bu betik üç modda çalışır:
              mı, gold_page_ids/gold_doc_ids öneki tutarlı mı, sayfa taranmış
              mı) ve soruları TEMİZ / ŞÜPHELİ / MANUEL gruplarına ayırır.
              Salt-okunur: hiçbir dosyayı DEĞİŞTİRMEZ. Terminale kompakt bir
-             tablo + grup sayıları basar, ayrıca `data/bench/canary_precheck.md`
+             tablo + grup sayıları basar, ayrıca `data/bench/retrieval_eval_precheck.md`
              yazar.
 
-             uv run python scripts/verify_canary.py --report
+             uv run python scripts/verify_retrieval_eval.py --report
 
   --review   Hâlâ "draft" olan soruları tek tek gösterir (soru, referans
              cevap, kanıt alıntıları, ön-kontrol sonucu), altın sayfa
@@ -20,17 +20,17 @@ birini elle onaylaması gerekir. Bu betik üç modda çalışır:
              a=atla, q=kaydet-çık; harften sonra isteğe bağlı not) ve HER
              karardan sonra dosyayı ATOMİK yazar (kesintiye dayanıklı).
 
-             uv run python scripts/verify_canary.py --review --by baran
-             uv run python scripts/verify_canary.py --review --by baran --only ŞÜPHELİ
+             uv run python scripts/verify_retrieval_eval.py --review --by baran
+             uv run python scripts/verify_retrieval_eval.py --review --by baran --only ŞÜPHELİ
 
   --status   verification_status / dilim (slice) / doğrulama TÜRÜ (insan vs.
              model çapraz-kontrolü) dağılımını ve plan hedefinin (>=25
              doğrulanmış cevaplanabilir + >=5 doğrulanmış cevaplanamaz)
              karşılanıp karşılanmadığını basar. Hedef satırı hem birleşik hem
              yalnız-insan sayısını gösterir; birleşik sayı insan doğrulaması
-             DEĞİLDİR (bkz. data/bench/canary_v2.README.md).
+             DEĞİLDİR (bkz. data/bench/retrieval_eval_v2.README.md).
 
-             uv run python scripts/verify_canary.py --status
+             uv run python scripts/verify_retrieval_eval.py --status
 
 Normalizasyon notu (--report'taki alıntı eşleşmesi için): karşılaştırmadan
 önce hem sayfa metni hem alıntı aynı iki adımdan geçer — (1) boşluk/satır
@@ -42,7 +42,7 @@ tutarsızlık riski yok.
 
 CI'da koşmaz (PDF/indeks I/O gerektirir); testler saf mantığı (normalizasyon,
 alıntı eşleşmesi, atomik round-trip, durum sayımı) PDF/görüntü/stdin OLMADAN
-kapsar — bkz. tests/test_verify_canary.py.
+kapsar — bkz. tests/test_verify_retrieval_eval.py.
 """
 
 from __future__ import annotations
@@ -67,13 +67,13 @@ from belge_gozu.bench.dataset import BenchQuestion, bench_stats, load_bench  # n
 from belge_gozu.config import Settings  # noqa: E402
 from belge_gozu.retrieval.text import tokenize as recipe_tokenize  # noqa: E402
 
-# CANLI set v2'dir: v1 D1'de donduruldu (bkz. canary_v2.README.md) ve artık
+# CANLI set v2'dir: v1 D1'de donduruldu (bkz. retrieval_eval_v2.README.md) ve artık
 # yalnız tarihsel referanstır. Varsayılan v1 kalsaydı `--status`/`--report`
 # sessizce ESKİ seti ölçer, kullanıcı yeni sayıları gördüğünü sanırdı.
-DEFAULT_BENCH = REPO_ROOT / "data" / "bench" / "canary_v2.jsonl"
+DEFAULT_BENCH = REPO_ROOT / "data" / "bench" / "retrieval_eval_v2.jsonl"
 DEFAULT_PDF_DIR = REPO_ROOT / "data" / "pdf"
 DEFAULT_IMAGES_DIR = REPO_ROOT / "data" / "images"
-DEFAULT_REPORT_OUT = REPO_ROOT / "data" / "bench" / "canary_precheck.md"
+DEFAULT_REPORT_OUT = REPO_ROOT / "data" / "bench" / "retrieval_eval_precheck.md"
 
 # "sayfa boş/çok kısa" eşiği: bunun altı taranmış sayfa varsayılır (rg* belgeleri).
 SCANNED_MIN_CHARS = 40
@@ -370,7 +370,7 @@ def compute_status(questions: list[BenchQuestion]) -> dict:
     model çapraz-kontrolü) sayar, `target_met_human_only` yalnız insan
     doğrulamalı satırları. İkisi ayrı raporlanır ki birleşik sayı yanlışlıkla
     "insan doğrulanmış" diye okunmasın — model çapraz-kontrolü insan onayının
-    yerine geçmez (bkz. data/bench/canary_v2.README.md).
+    yerine geçmez (bkz. data/bench/retrieval_eval_v2.README.md).
     """
     by_status = Counter(q.verification_status for q in questions)
     verified = [q for q in questions if q.verification_status == "verified"]
@@ -488,7 +488,7 @@ def format_report_md(
 ) -> str:
     counts = Counter(p.group for p in prechecks)
     lines = [
-        "# Canary Ön-Kontrol Raporu",
+        "# RetrievalEval Ön-Kontrol Raporu",
         "",
         f"Oluşturulma: {generated_at}  ·  toplam soru: {len(prechecks)}",
         "",
@@ -576,7 +576,7 @@ def print_status(status: dict) -> None:
         print(
             "  UYARI: 'toplam' rakamı model çapraz-kontrolünü içerir ve İNSAN DOĞRULAMASI\n"
             "  DEĞİLDİR. Bu set insan-doğrulanmış olarak alıntılanamaz; gerekçe ve bilinen\n"
-            "  kısıtlar için bkz. data/bench/canary_v2.README.md"
+            "  kısıtlar için bkz. data/bench/retrieval_eval_v2.README.md"
         )
 
 

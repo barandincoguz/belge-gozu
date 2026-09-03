@@ -1,4 +1,4 @@
-# Canary Ön-Kontrol Raporu
+# RetrievalEval Ön-Kontrol Raporu
 
 Oluşturulma: 2026-09-02T14:00:52.617502+00:00  ·  toplam soru: 66
 

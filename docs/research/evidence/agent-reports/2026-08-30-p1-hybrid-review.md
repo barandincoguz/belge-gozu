@@ -305,11 +305,11 @@ importlarını) çekiyor. Gerekçe ("serve ile AYNI kurulum") sağlam ve yorumla
 belgelenmiş, ama fonksiyonun doğru evi `retrieval/` ya da `index/`; oradan
 hem serve hem bench çağırabilirdi.
 
-#### L9 — `canary_expectations.json` hybrid bloğunda ölü anahtar
-`tests/retrieval/canary_expectations.json`
+#### L9 — `retrieval_eval_expectations.json` hybrid bloğunda ölü anahtar
+`tests/retrieval/retrieval_eval_expectations.json`
 
 `"pipeline": "hybrid"` hiçbir yerde okunmuyor (exhaustive bloğunun
-`"quantization"`'ı okunuyor ve assert ediliyor — `test_semantic_canary.py:141`).
+`"quantization"`'ı okunuyor ve assert ediliyor — `test_semantic_retrieval_eval.py:141`).
 Ya assert edilmeli ya kaldırılmalı; şu hali "kontrol ediliyor" izlenimi veriyor.
 
 #### L10 — `detail` kolonunun katalog satırı yeni anahtarları saymıyor
@@ -349,7 +349,7 @@ zaten eksik olan `stages`) yok. §2'deki BM25 notu ayrıntılı ve doğru, eksik
    `getattr` korumalı ve ContextVar ile istek-yerel (test var).
 6. **Testler iddiaları kilitliyor mu** — çoğunlukla evet; L3 (totolojik assert),
    L4 (sınır değerleri + two-stage), L5 (property yerine örnek), L9 (ölü anahtar).
-   Cırcır ETKİN pipeline'ı okuyor (`test_semantic_canary.py:129`) ve fixture aynı
+   Cırcır ETKİN pipeline'ı okuyor (`test_semantic_retrieval_eval.py:129`) ve fixture aynı
    `get_settings()` + `build_retriever` yolundan geçiyor ✅. conftest parquet
    fixture'ı tiny indeksin `ids` listesini birebir kullanıyor ✅.
 7. **Doküman dürüstlüğü** — büyük ölçüde iyi (eşiğin kalibrasyon DEĞİL oluşu,

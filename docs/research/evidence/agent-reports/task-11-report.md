@@ -210,7 +210,7 @@ gerçekten iki ayrı build gerektiriyor — sorgu formatı tek başına indeksi 
 
 - Sorgu tarafı ispatlı (`input_ids` özdeş). Doküman tarafı embedding düzeyinde ≥0.99 uyuşuyor ve
   token sayısı birebir; kalan fark fp16/fp32.
-- Hangi formatın canary'de daha iyi retrieval verdiği **hâlâ açık** — bu Step 4'ün işi. Step 1-2
+- Hangi formatın retrieval_eval'de daha iyi retrieval verdiği **hâlâ açık** — bu Step 4'ün işi. Step 1-2
   yalnız "train-compat gerçekten eğitim zamanı formatı mı?" sorusunu kapattı: evet.
 
 ---

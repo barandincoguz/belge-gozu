@@ -1,7 +1,7 @@
 # Autoresearch günlüğü — Belge-Gözü retrieval kalite döngüsü
 
 Program: `research/program.md` · Harness: `evaluate.py` (DONUK) · Deney yüzeyi: `retrieve.py`
-Birincil metrik: canary-answerable (n=43) **R@5**. Sayı satırları: `results.jsonl`.
+Birincil metrik: retrieval_eval-answerable (n=43) **R@5**. Sayı satırları: `results.jsonl`.
 
 ---
 
@@ -70,7 +70,7 @@ Birincil metrik: canary-answerable (n=43) **R@5**. Sayı satırları: `results.j
 
 - **Hipotez:** yakın-ıska analizi soru-kalıbı kelimelerinin (göre, nasıl, bir,
   için...) eşleşmeyi bastığını gösterdi; sabit Türkçe işlev-kelimesi listesi
-  (canary'ye ayarsız; "zaman"/"iş" gibi içerik-çakışanlar bilinçli dışarıda)
+  (retrieval_eval'ye ayarsız; "zaman"/"iş" gibi içerik-çakışanlar bilinçli dışarıda)
   gürültüyü keser.
 - **Sayılar:** R@5 0.7674 (eşit) · R@1 0.5116 (+1) · R@20 **0.907** · MRR 0.6249
   · visual_R@5 1.0 · **chip1 rank 8→4 (top-5'e girdi)** · chip2 rank 2
@@ -156,7 +156,7 @@ Kalan 7 ıskanın TAMAMI kanun adı/kısaltma içermeyen saf anlamsal paraphrase
 (dilim kırılımı: paraphrase 2/7 — sözcüksel tavan). Sonraki sıçrama dense metin
 kanalı ister (P1 backlog T7; model seçimi bu döngünün bütçe kuralları dışında).
 Sağlamlık: k1/b ve F5 platoları geniş (robustness.json); bootstrap ΔR@5 %95 GA
-[0.42, 0.74] (taban→exp7); k1=1.8'in +1'i bilinçli ALINMADI (canary'ye ayar olur).
+[0.42, 0.74] (taban→exp7); k1=1.8'in +1'i bilinçli ALINMADI (retrieval_eval'ye ayar olur).
 
 ---
 

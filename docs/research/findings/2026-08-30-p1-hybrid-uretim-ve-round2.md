@@ -11,7 +11,7 @@
 İki vitrin sorusunun "bulamadım" alması şikâyetiyle başlayan zincir, üretimde çalışan
 ölçülmüş bir hibrit retrieval hattıyla kapandı:
 
-| Aşama | Canary R@5 (43 answerable, binary any-gold@5) | chip1 (TMK uzun) | chip2 (İş K. izin) |
+| Aşama | RetrievalEval R@5 (43 answerable, binary any-gold@5) | chip1 (TMK uzun) | chip2 (İş K. izin) |
 |---|---|---|---|
 | 1-bit görsel (eski üretim) | 0.116 | rank ~1221 | — |
 | int8 görsel (b790f6c) | 0.2326 | 664 | 137 |
@@ -66,7 +66,7 @@ birleşim sözcüksel-birincil + kural yönlendirme.
 
 **Sağlamlık (robustness.json):** k1∈[0.9,1.8]×b∈[0.5,0.9] → R@5 0.814–0.837 dar bandı;
 F5∈{4..7} platosu (3 zarar, kırpmasız 0.767); pencere 10-20 eş, 30-50 +1. Reçete bıçak
-sırtında değil. k1=1.8'in +1 sorusu bilinçli ALINMADI (canary'ye ayar = overfit; R24).
+sırtında değil. k1=1.8'in +1 sorusu bilinçli ALINMADI (retrieval_eval'ye ayar = overfit; R24).
 Bootstrap ΔR@5 (görsel taban → reçete) %95 GA **[0.42, 0.74]** — kesin.
 
 **Dilim kırılımı (reçete vs görsel):** ayni-kanun-hard-negative 5/5 vs 1/5 ·
@@ -83,10 +83,10 @@ görsel kanalın kalıcı gerekçesi.
 
 ## 4. Sınırlar (dürüstlük)
 
-- Canary 48'in 45'i model-cross-check doğrulamalı (insan 3) — sayılar insan-doğrulanmış
+- RetrievalEval 48'in 45'i model-cross-check doğrulamalı (insan 3) — sayılar insan-doğrulanmış
   SAYILMAZ; benchmark v2 (İNSAN kapılı, plan T12) hâlâ backlog'da.
 - 43 soruya yinelenen iterasyon = geliştirme-kümesi uyum riski; karşı tedbirler:
-  ayarsız/kural-tabanlı değişiklikler, sabit listelerin canary'den bağımsız seçimi,
+  ayarsız/kural-tabanlı değişiklikler, sabit listelerin retrieval_eval'den bağımsız seçimi,
   duyarlılık platoları, k1=1.8 reddi. Yine de nihai doğrulama tutulmuş (held-out)
   set ister.
 - Eşik hiçbir ölçekte ayırmıyor (tasarım gereği mekanik taşıma) — "halüsinasyon freni"

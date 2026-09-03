@@ -57,8 +57,8 @@ from belge_gozu.retrieval.text import (  # noqa: E402
 )
 from belge_gozu.retrieval.union import union_candidates  # noqa: E402
 
-DEFAULT_CANARY = REPO_ROOT / "data/bench/canary_v2.jsonl"
-DEFAULT_UNANS = REPO_ROOT / "data/bench/unans_v1.jsonl"
+DEFAULT_RETRIEVAL_EVAL = REPO_ROOT / "data/bench/retrieval_eval_v2.jsonl"
+DEFAULT_ABSTENTION_EVAL = REPO_ROOT / "data/bench/abstention_eval_v1.jsonl"
 DEFAULT_SPLITS = REPO_ROOT / "data/bench/splits_v1.json"
 DEFAULT_INDEX = REPO_ROOT / "data/index-traincompat-int8"
 DEFAULT_LATE_INDICES = (
@@ -110,10 +110,10 @@ def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
             Path(tmp_name).unlink(missing_ok=True)
 
 
-def load_benchmark_rows(canary: Path, unans: Path) -> list[dict[str, Any]]:
+def load_benchmark_rows(retrieval_eval: Path, abstention_eval: Path) -> list[dict[str, Any]]:
     """Dondurulmuş iki kaynaktan yalnız tasarımda izin verilen satırları al."""
     selected: list[dict[str, Any]] = []
-    for source, path in (("canary", canary), ("unans", unans)):
+    for source, path in (("retrieval_eval", retrieval_eval), ("abstention_eval", abstention_eval)):
         for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if not line.strip():
                 continue
@@ -122,7 +122,7 @@ def load_benchmark_rows(canary: Path, unans: Path) -> list[dict[str, Any]]:
                 BenchQuestion(**row)
             except Exception as exc:
                 raise ValueError(f"{path}:{line_no}: geçersiz bench satırı: {exc}") from exc
-            if source == "canary":
+            if source == "retrieval_eval":
                 if not (row.get("answerable") and row.get("verification_kind") == "human"):
                     continue
             elif row.get("verification_status") != "verified":
@@ -172,12 +172,10 @@ def build_labeled_rows(
                 slice=str(raw.get("slice") or "unknown"),
                 source=str(
                     raw.get("_calibration_source")
-                    or ("canary" if answerable else "unans")
+                    or ("retrieval_eval" if answerable else "abstention_eval")
                 ),
                 features={key: float(value) for key, value in scored.features.items()},
-                diagnostics={
-                    key: float(value) for key, value in scored.diagnostics.items()
-                },
+                diagnostics={key: float(value) for key, value in scored.diagnostics.items()},
             )
         )
     if not out:
@@ -206,9 +204,7 @@ def diagnostic_stats(rows: Sequence[LateCalibrationRow]) -> dict[str, dict[str, 
             (f"{slot}_raw_top1", "diagnostics"),
             (f"{slot}_top1_mean", "features"),
         ):
-            values = np.array(
-                [getattr(row, source)[field] for row in rows], dtype=np.float64
-            )
+            values = np.array([getattr(row, source)[field] for row in rows], dtype=np.float64)
             out[field] = {
                 "auc": univariate_auc(values, labels),
                 "query_token_correlation": _correlation(values, q_tokens),
@@ -392,9 +388,13 @@ class ProductionScorer:
         }
 
 
-def _data_kunye(canary: Path, unans: Path, splits: Path) -> dict[str, Any]:
+def _data_kunye(retrieval_eval: Path, abstention_eval: Path, splits: Path) -> dict[str, Any]:
     files = []
-    for name, path in (("canary", canary), ("unans", unans), ("splits", splits)):
+    for name, path in (
+        ("retrieval_eval", retrieval_eval),
+        ("abstention_eval", abstention_eval),
+        ("splits", splits),
+    ):
         files.append(
             {
                 "name": name,
@@ -407,16 +407,16 @@ def _data_kunye(canary: Path, unans: Path, splits: Path) -> dict[str, Any]:
         "data_files": files,
         "answerable_filter": 'answerable=true AND verification_kind="human"',
         "unanswerable_filter": 'verification_status="verified"',
-        "unans_verification_caveat": (
-            "unans_v1 büyük ölçüde model çapraz-kontrollü veya mekanik doğrulanmıştır; "
+        "abstention_eval_verification_caveat": (
+            "abstention_eval_v1 büyük ölçüde model çapraz-kontrollü veya mekanik doğrulanmıştır; "
             "insan-doğrulanmış diye yorumlanamaz"
         ),
     }
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--canary", type=Path, default=DEFAULT_CANARY)
-    parser.add_argument("--unans", type=Path, default=DEFAULT_UNANS)
+    parser.add_argument("--retrieval-eval", type=Path, default=DEFAULT_RETRIEVAL_EVAL)
+    parser.add_argument("--abstention-eval", type=Path, default=DEFAULT_ABSTENTION_EVAL)
     parser.add_argument("--splits", type=Path, default=DEFAULT_SPLITS)
     parser.add_argument("--index-dir", type=Path, default=DEFAULT_INDEX)
     parser.add_argument("--late-index", type=Path, action="append", dest="late_indices")
@@ -440,7 +440,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "eval":
         require_final_gate(args.yes_final_gate)
     late_indices = tuple(args.late_indices or DEFAULT_LATE_INDICES)
-    raw_rows = load_benchmark_rows(args.canary, args.unans)
+    raw_rows = load_benchmark_rows(args.retrieval_eval, args.abstention_eval)
     splits = load_splits(args.splits)
     scorer = ProductionScorer(args.index_dir, late_indices)
     identity = scorer.identity()
@@ -450,7 +450,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = run_fit_from_rows(
             rows,
             identity=identity,
-            data_kunye=_data_kunye(args.canary, args.unans, args.splits),
+            data_kunye=_data_kunye(args.retrieval_eval, args.abstention_eval, args.splits),
             artifact_dir=args.artifact_dir,
             out=args.out,
         )

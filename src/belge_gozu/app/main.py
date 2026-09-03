@@ -51,7 +51,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 # Sorgu uzunluk tavanı (karakter). Sondaj bulgusu (2026-08-30): 3000 karakterlik
 # bir sorgu BM25 skorunu ~1053'e çıkarıyordu — yani eşik (10.6) böyle bir
 # girdide ANLAMSIZ hale geliyor, üstelik uzun metin doğrudan LLM istemine de
-# giriyordu. 500 karakter gerçek mevzuat sorularının çok üstünde (canary'nin en
+# giriyordu. 500 karakter gerçek mevzuat sorularının çok üstünde (retrieval_eval'nin en
 # uzunu ~180) ama skor şişirmeyi ve istem enjeksiyonu yüzeyini kapatıyor.
 MAX_QUERY_CHARS = 500
 
@@ -295,8 +295,8 @@ def load_configured_late_channels(s: Settings, page_ids: list[str]):
 def build_retriever(s: Settings, encoder) -> tuple[Retriever, IndexManifest | None]:
     """İndeksi yükler, uyumluluğu doğrular ve yapılandırılmış getiriciyi kurar.
 
-    `create_app` ile slow canary fixture'ı (tests/retrieval/
-    test_semantic_canary.py) BU fonksiyonu paylaşır: fixture eskiden aynı
+    `create_app` ile slow retrieval_eval fixture'ı (tests/retrieval/
+    test_semantic_retrieval_eval.py) BU fonksiyonu paylaşır: fixture eskiden aynı
     mantığı kopyalıyordu ve bu yüzden üretim yapılandırmasından sessizce
     sapabiliyordu (nitekim doğrudan `PackedIndex.load` çağırdığı için
     varsayılan indeks int8'e döndüğünde kopya sürüm bozulurdu).

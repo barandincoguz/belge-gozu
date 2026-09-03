@@ -41,7 +41,7 @@ taşımasıyla** aynı çalışma noktasına taşındı (kalibrasyon DEĞİL).
 
 | # | Madde | Durum | Not |
 |---|---|---|---|
-| 1 | `build_retriever` çıkarımı; canary fixture onu çağırır | ✅ | Fixture'ın kopya mantığı silindi (drift sınıfı kapandı) |
+| 1 | `build_retriever` çıkarımı; retrieval_eval fixture onu çağırır | ✅ | Fixture'ın kopya mantığı silindi (drift sınıfı kapandı) |
 | 2 | `index build` kuantizasyon üzerine yazma korkuluğu | ✅ | + CLI testi |
 | 3 | `Quantization` enum'u `index/manifest.py`'ye, 3 üye | ✅ | + `derive --quant float16` reddi (yeni sessiz hata yolu kapatıldı) |
 | 4 | `/healthz` `top_k` + UI'nin "ilk 5"i healthz'den | ✅ | |
@@ -111,10 +111,10 @@ plugins: anyio-4.14.2
 collecting ... collected 234 items / 229 deselected / 5 selected
 
 tests/index/test_encode_mask.py::test_batch_vs_single_sign_determinism PASSED [ 20%]
-tests/retrieval/test_semantic_canary.py::test_canary_gold_pages_covered PASSED [ 40%]
-tests/retrieval/test_semantic_canary.py::test_short_query_gold_in_top5 PASSED [ 60%]
-tests/retrieval/test_semantic_canary.py::test_long_query_rank_ratchet PASSED [ 80%]
-tests/retrieval/test_semantic_canary.py::test_out_of_corpus_canary_scores_below_threshold XFAIL [100%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_retrieval_eval_gold_pages_covered PASSED [ 40%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_short_query_gold_in_top5 PASSED [ 60%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_long_query_rank_ratchet PASSED [ 80%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_out_of_corpus_retrieval_eval_scores_below_threshold XFAIL [100%]
 
 ================ 4 passed, 229 deselected, 1 xfailed in 21.02s =================
 ```
@@ -279,10 +279,10 @@ Slow (retrieval/index/app modülleri değiştiği için tekrar koşuldu):
 
 ```
 tests/index/test_encode_mask.py::test_batch_vs_single_sign_determinism PASSED [ 20%]
-tests/retrieval/test_semantic_canary.py::test_canary_gold_pages_covered PASSED [ 40%]
-tests/retrieval/test_semantic_canary.py::test_short_query_gold_in_top5 PASSED [ 60%]
-tests/retrieval/test_semantic_canary.py::test_long_query_rank_ratchet PASSED [ 80%]
-tests/retrieval/test_semantic_canary.py::test_out_of_corpus_canary_scores_below_threshold XFAIL [100%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_retrieval_eval_gold_pages_covered PASSED [ 40%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_short_query_gold_in_top5 PASSED [ 60%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_long_query_rank_ratchet PASSED [ 80%]
+tests/retrieval/test_semantic_retrieval_eval.py::test_out_of_corpus_retrieval_eval_scores_below_threshold XFAIL [100%]
 
 ================ 4 passed, 233 deselected, 1 xfailed in 21.36s =================
 ```

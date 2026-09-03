@@ -1,4 +1,4 @@
-# `canary_v1.jsonl` — köken ve doğrulama künyesi
+# `retrieval_eval_v1.jsonl` — köken ve doğrulama künyesi
 
 **Bu set insan-doğrulanmış bir benchmark DEĞİLDİR.** 48 satırın 3'ü insan
 doğrulamasından geçmiştir; 45'i bağımsız bir model turunun çapraz-kontrolünden.
@@ -37,7 +37,7 @@ alıntılarını ve bir referans cevap önerdi. Bu aşamanın çıktısı **tasl
 
 1. **Bu set insan-doğrulanmış diye alıntılanamaz.** Üzerinde ölçülen hiçbir
    recall/precision rakamı "insan-doğrulanmış benchmark üzerinde ölçüldü"
-   ifadesiyle sunulamaz. `scripts/verify_canary.py --status` bu yüzden hedefi
+   ifadesiyle sunulamaz. `scripts/verify_retrieval_eval.py --status` bu yüzden hedefi
    iki ayrı sayıyla basar: birleşik ve yalnız-insan. Yalnız-insan sayısı **3**,
    yani P0 planındaki ">=25 cevaplanabilir + >=5 cevaplanamaz insan
    doğrulaması" kapısı **hâlâ açıktır**.
@@ -50,7 +50,7 @@ alıntılarını ve bir referans cevap önerdi. Bu aşamanın çıktısı **tasl
    benzeri hatalar, ve "sayfada geçiyor ama soruyu hukuken karşılamıyor" türü
    hukuki muhakeme hataları.
 3. **Alıntı eşleşmesi ayrı ve makine tarafından kontrol edilebilir.**
-   `scripts/verify_canary.py --report` her kanıt alıntısını PDF metnine karşı
+   `scripts/verify_retrieval_eval.py --report` her kanıt alıntısını PDF metnine karşı
    birebir arar ve altın sayfaların üretim indeksinde bulunduğunu doğrular; bu
    kontrol modelden bağımsızdır ve bu turun bulgularının üstünde ayrı bir
    güvenlik ağıdır. Bu tur sonrası koşumda **45 model çapraz-kontrollü satırın
