@@ -13,6 +13,7 @@ def test_colab_notebook_reuses_checkout_and_requests_single_page_batches() -> No
     )
 
     assert "git', 'fetch', 'origin'" in code
+    assert "belge-gozu-{CODE_REVISION[:12]}" in code
     assert "'--batch-size', '1'" in code
     assert "Yeni Colab oturumu kullanın" not in code
     assert "SOURCE_REVISION = '700ac324fffefb22de02c8e90347b31185547948'" in code
