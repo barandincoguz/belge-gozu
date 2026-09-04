@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from belge_gozu.bench.dense_artifacts import write_dense_manifest
+
 REPO = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
     "eval_semantic_coverage", REPO / "scripts" / "eval_semantic_coverage.py"
@@ -74,30 +76,37 @@ def test_resumable_dense_batches_reject_a_checkpoint_for_another_input(tmp_path:
         )
 
 
-def test_dense_arm_reports_in_progress_when_its_batch_budget_is_exhausted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    class FakeDenseEncoder(_FakeEncoder):
-        def __init__(self, *_: object, **__: object) -> None:
-            super().__init__()
-            self.batch_size = 2
-
-        def preflight(self) -> None:
-            return None
-
-    monkeypatch.setattr(esc, "TransformerDenseEncoder", FakeDenseEncoder)
-    monkeypatch.setattr(esc, "release_transformer_memory", lambda _: None)
+def test_dense_arm_reports_not_available_without_completed_artifact(tmp_path: Path) -> None:
     arm, pages = esc._dense_arm(
         esc.DenseModelSpec("test/model", "abc", "instruction", 8),
         questions=[],
         page_ids=["p1", "p2", "p3"],
         page_texts={"p1": "bir", "p2": "iki", "p3": "üç"},
+        page_texts_sha256="a" * 64,
         baseline={"bm25": {}},
         artifact_root=tmp_path,
         device="cpu",
-        max_batches=1,
     )
 
-    assert arm["status"] == "in_progress"
+    assert arm["status"] == "not_available"
     assert pages is None
     assert not (tmp_path / "model" / "embeddings.npy").exists()
+
+
+def test_verified_embeddings_reject_another_page_text_artifact(tmp_path: Path) -> None:
+    spec = esc.DenseModelSpec("test/model", "a" * 40, "instruction", 128)
+    artifact = tmp_path / "model"
+    artifact.mkdir()
+    np.save(artifact / "embeddings.npy", np.ones((1, 2), dtype=np.float32))
+    write_dense_manifest(
+        artifact,
+        spec=spec,
+        page_ids=["p1"],
+        page_texts_sha256="b" * 64,
+        source_repo="user/index",
+        source_revision="c" * 40,
+        producer_git_commit="d" * 40,
+    )
+
+    with pytest.raises(ValueError, match="page_texts"):
+        esc._load_verified_embeddings(spec, ["p1"], "e" * 64, tmp_path)

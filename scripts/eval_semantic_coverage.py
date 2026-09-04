@@ -20,6 +20,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from belge_gozu.bench.dataset import BenchQuestion, load_bench  # noqa: E402
+from belge_gozu.bench.dense_artifacts import (  # noqa: E402
+    DenseArtifactExpectation,
+    dense_model_key,
+    validate_dense_artifact,
+)
 from belge_gozu.bench.semantic_coverage import evaluate_coverage, select_dense_arm  # noqa: E402
 from belge_gozu.config import Settings  # noqa: E402
 from belge_gozu.index.manifest import index_revision, read_manifest  # noqa: E402
@@ -244,6 +249,25 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _load_verified_embeddings(
+    spec: DenseModelSpec,
+    page_ids: Sequence[str],
+    page_texts_sha256: str,
+    artifact_root: Path,
+) -> np.ndarray:
+    """Yerel indeksle eşleşen dense matrisi doğrulayarak yükler."""
+    artifact_dir = artifact_root / dense_model_key(spec)
+    validate_dense_artifact(
+        artifact_dir,
+        DenseArtifactExpectation(
+            model=spec,
+            page_ids=page_ids,
+            page_texts_sha256=page_texts_sha256,
+        ),
+    )
+    return np.load(artifact_dir / "embeddings.npy", allow_pickle=False)
+
+
 def _bm25_pages(text: Any, doc_names: Mapping[str, frozenset[str]], query: str) -> list[str]:
     scores = np.asarray(text.scores(query), dtype=np.float64)
     if scores.shape != (len(text.page_ids),):
@@ -276,35 +300,22 @@ def _dense_arm(
     questions: Sequence[BenchQuestion],
     page_ids: list[str],
     page_texts: Mapping[str, str],
+    page_texts_sha256: str,
     baseline: Mapping[str, Mapping[str, list[str]]],
     artifact_root: Path,
     device: str | None,
-    max_batches: int | None = None,
 ) -> tuple[dict[str, object], dict[str, list[str]] | None]:
     started = time.perf_counter()
-    model_dir = artifact_root / spec.repo.rsplit("/", 1)[-1]
-    identity = {
-        "repo": spec.repo,
-        "revision": spec.revision,
-        "page_ids_sha256": hashlib.sha256("\n".join(page_ids).encode()).hexdigest(),
-    }
+    model_dir = artifact_root / dense_model_key(spec)
+    if not (model_dir / "embeddings.npy").is_file() or not (model_dir / "dense.json").is_file():
+        return {
+            "status": "not_available",
+            "model": {"repo": spec.repo, "revision": spec.revision},
+        }, None
+    embeddings = _load_verified_embeddings(spec, page_ids, page_texts_sha256, artifact_root)
     encoder = TransformerDenseEncoder(spec, device=device)
     try:
         encoder.preflight()
-        embeddings = resume_dense_embeddings(
-            encoder,
-            [page_texts[page_id] for page_id in page_ids],
-            model_dir,
-            identity,
-            batch_size=encoder.batch_size,
-            max_batches=max_batches,
-        )
-        if embeddings is None:
-            return {
-                "status": "in_progress",
-                "model": {"repo": spec.repo, "revision": spec.revision},
-                "progress": read_dense_progress(model_dir),
-            }, None
         index = DensePageIndex(page_ids, embeddings)
         dense_pages = {
             question.question: index.candidate_pages(encoder.encode_queries([question.question])[0])
@@ -393,24 +404,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--dense-artifacts", type=Path, default=Path("data/bench/dense-artifacts"))
-    parser.add_argument(
-        "--max-dense-batches",
-        type=int,
-        help="Her dense model kolunda bu invocation'ın yazacağı en fazla batch sayısı.",
-    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
-    if args.max_dense_batches is not None and args.max_dense_batches < 1:
-        raise ValueError("--max-dense-batches en az 1 olmalı")
     settings = Settings()
     device = None if settings.device == "auto" else settings.device
     questions = load_bench(args.bench, only_verified=True, min_verification=args.min_verification)
     index_dir = settings.index_dir
     page_texts = load_page_texts(index_dir)
     page_ids = list(page_texts)
+    page_texts_sha256 = _sha256_file(index_dir / "page_texts.parquet")
     text, doc_names = load_text_channel(index_dir, page_ids)
     chunk_pages = _chunk_pages(index_dir, page_ids)
     late_channels = {
@@ -432,10 +437,10 @@ def main() -> int:
             questions=questions,
             page_ids=page_ids,
             page_texts=page_texts,
+            page_texts_sha256=page_texts_sha256,
             baseline=baseline,
             artifact_root=args.dense_artifacts,
             device=device,
-            max_batches=args.max_dense_batches,
         )
         arms[f"dense:{name}"] = arm
         if dense_pages is not None:
@@ -476,8 +481,8 @@ def main() -> int:
             encoder = TransformerDenseEncoder(spec, device=device)
             try:
                 encoder.preflight()
-                embeddings = np.load(
-                    args.dense_artifacts / spec.repo.rsplit("/", 1)[-1] / "embeddings.npy"
+                embeddings = _load_verified_embeddings(
+                    spec, page_ids, page_texts_sha256, args.dense_artifacts
                 )
                 index = DensePageIndex(page_ids, embeddings)
                 expanded_dense = {

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +62,14 @@ def encoding_fingerprint(spec: DenseModelSpec) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def dense_model_key(spec: DenseModelSpec) -> str:
+    """Hub ve yerel dizin için model deposundan türetilen kararlı anahtar."""
+    key = spec.repo.rsplit("/", 1)[-1].lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", key):
+        raise ValueError("dense model deposundan geçerli artefakt anahtarı türetilemedi")
+    return key
+
+
 def _require_commit_sha(value: object, field: str) -> str:
     if not isinstance(value, str) or not _COMMIT_SHA.fullmatch(value):
         raise ValueError(f"{field} 40 karakterli küçük harf commit SHA olmalı")
@@ -109,6 +120,129 @@ def _validate_embedding(
         raise ValueError("dense artefakt embedding dtype float32 olmalı")
     if not np.isfinite(values).all():
         raise ValueError("dense artefakt embedding sonlu olmalı")
+
+
+def _atomic_json(path: Path, value: Mapping[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
+    ) as handle:
+        json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+        temporary = handle.name
+    os.replace(temporary, path)
+
+
+def read_dense_progress(checkpoint_dir: Path) -> dict[str, object]:
+    """Tamamlanmamış dense indeksin doğrulanabilir ilerleme kaydını okur."""
+    path = checkpoint_dir / "progress.json"
+    if not path.exists():
+        raise ValueError(f"dense ilerleme kaydı yok: {path}")
+    value = _read_manifest(path)
+    return value
+
+
+def _require_resume_identity(actual: object, expected: Mapping[str, str]) -> None:
+    if not isinstance(actual, dict) or actual != dict(expected):
+        raise ValueError("dense kontrol noktası kimliği uyuşmuyor")
+
+
+def resume_dense_embeddings(
+    encoder: Any,
+    texts: Sequence[str],
+    checkpoint_dir: Path,
+    identity: Mapping[str, str],
+    *,
+    batch_size: int,
+    max_batches: int | None = None,
+) -> np.ndarray | None:
+    """Sayfa batch'lerini güvenle sürdürür; final yalnız tüm satırlar yazılınca görünür."""
+    if batch_size < 1:
+        raise ValueError("dense batch_size en az 1 olmalı")
+    if max_batches is not None and max_batches < 1:
+        raise ValueError("dense batch bütçesi en az 1 olmalı")
+    if not texts:
+        raise ValueError("dense sayfa metinleri boş olamaz")
+    checkpoint_dir = Path(checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    final_path = checkpoint_dir / "embeddings.npy"
+    resume_path = checkpoint_dir / "resume.json"
+    partial_path = checkpoint_dir / "embeddings.partial.npy"
+    progress_path = checkpoint_dir / "progress.json"
+    identity_dict = dict(identity)
+    row_count = len(texts)
+    if final_path.exists():
+        if not resume_path.exists():
+            raise ValueError("dense final artefakt kontrol kaydı yok")
+        resume = _read_manifest(resume_path)
+        _require_resume_identity({key: resume.get(key) for key in identity_dict}, identity_dict)
+        values = np.load(final_path, mmap_mode="r", allow_pickle=False)
+        if values.ndim != 2 or values.shape[0] != row_count:
+            raise ValueError("dense final satır sayısı uyuşmuyor")
+        return np.asarray(values)
+
+    completed_rows = 0
+    matrix: np.memmap | None = None
+    if progress_path.exists() or partial_path.exists():
+        if not progress_path.exists() or not partial_path.exists():
+            raise ValueError("dense kontrol noktası eksik dosya içeriyor")
+        progress = read_dense_progress(checkpoint_dir)
+        _require_resume_identity(progress.get("identity"), identity_dict)
+        completed_value = progress.get("completed_rows")
+        dimension_value = progress.get("dimension")
+        if progress.get("row_count") != row_count or not isinstance(completed_value, int):
+            raise ValueError("dense kontrol noktası satır sayısı uyuşmuyor")
+        if not isinstance(dimension_value, int) or not 0 <= completed_value < row_count:
+            raise ValueError("dense kontrol noktası ilerlemesi geçersiz")
+        completed_rows = completed_value
+        matrix = np.lib.format.open_memmap(partial_path, mode="r+")
+        if matrix.shape != (row_count, dimension_value):
+            raise ValueError("dense kontrol noktası embedding şekli uyuşmuyor")
+
+    batches_done = 0
+    started = time.perf_counter()
+    for start in range(completed_rows, row_count, batch_size):
+        if max_batches is not None and batches_done >= max_batches:
+            return None
+        end = min(start + batch_size, row_count)
+        batch = np.asarray(encoder.encode_passages(list(texts[start:end])), dtype=np.float32)
+        if batch.ndim != 2 or batch.shape[0] != end - start or batch.shape[1] < 1:
+            raise ValueError("dense batch embedding şekli geçersiz")
+        if matrix is None:
+            matrix = np.lib.format.open_memmap(
+                partial_path, mode="w+", dtype=np.float32, shape=(row_count, batch.shape[1])
+            )
+        if batch.shape[1] != matrix.shape[1]:
+            raise ValueError("dense batch embedding boyutu değişti")
+        matrix[start:end] = batch
+        matrix.flush()
+        completed_rows = end
+        batches_done += 1
+        _atomic_json(
+            progress_path,
+            {
+                "identity": identity_dict,
+                "row_count": row_count,
+                "dimension": int(matrix.shape[1]),
+                "completed_rows": completed_rows,
+            },
+        )
+        elapsed = time.perf_counter() - started
+        print(
+            f"dense progress {checkpoint_dir.name}: {completed_rows}/{row_count}; "
+            f"elapsed={elapsed:.1f}s"
+        )
+
+    assert matrix is not None
+    matrix.flush()
+    _atomic_json(
+        resume_path,
+        {**identity_dict, "row_count": row_count, "dimension": int(matrix.shape[1])},
+    )
+    del matrix
+    os.replace(partial_path, final_path)
+    progress_path.unlink()
+    return np.load(final_path)
 
 
 def write_dense_manifest(
