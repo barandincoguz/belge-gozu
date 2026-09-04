@@ -51,7 +51,7 @@ def release_transformer_memory(torch_module: Any) -> None:
 
 
 def model_load_kwargs(device: str, torch_module: Any) -> dict[str, Any]:
-    return {"torch_dtype": torch_module.float16} if device == "mps" else {}
+    return {"torch_dtype": torch_module.float16} if device in {"cuda", "mps"} else {}
 
 
 def format_query(spec: DenseModelSpec, question: str) -> str:

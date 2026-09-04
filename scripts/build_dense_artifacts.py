@@ -98,6 +98,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", choices=sorted(DENSE_MODELS), required=True)
     parser.add_argument("--artifact-root", type=Path, default=Path("data/bench/dense-artifacts"))
     parser.add_argument("--device")
+    parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--max-batches", type=int)
     return parser.parse_args(argv)
 
@@ -106,10 +107,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.max_batches is not None and args.max_batches < 1:
         raise ValueError("--max-batches en az 1 olmalı")
+    if args.batch_size < 1:
+        raise ValueError("--batch-size en az 1 olmalı")
     page_texts_path = args.index_dir / "page_texts.parquet"
     page_texts = load_page_texts(args.index_dir)
     spec = DENSE_MODELS[args.model]
-    encoder = TransformerDenseEncoder(spec, device=args.device)
+    encoder = TransformerDenseEncoder(spec, batch_size=args.batch_size, device=args.device)
     try:
         encoder.preflight()
         artifact = build_model_artifact(

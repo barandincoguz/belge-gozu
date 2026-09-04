@@ -26,6 +26,23 @@ class _FakeEncoder:
         return np.array([[float(len(text)), float(index + 1)] for index, text in enumerate(texts)])
 
 
+def test_cli_defaults_to_single_page_batches_for_constrained_gpus() -> None:
+    args = builder._parse_args(
+        [
+            "--index-dir",
+            "index",
+            "--source-repo",
+            "user/index",
+            "--source-revision",
+            "a" * 40,
+            "--model",
+            "qwen3-embedding-4b",
+        ]
+    )
+
+    assert args.batch_size == 1
+
+
 def test_builder_writes_manifest_only_after_resumable_matrix_finishes(tmp_path: Path) -> None:
     spec = DenseModelSpec("test/model", "a" * 40, "instruction", 128)
     page_texts = {"p1": "bir", "p2": "iki"}

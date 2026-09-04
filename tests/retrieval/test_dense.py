@@ -97,6 +97,10 @@ def test_mps_dense_loader_uses_float16_weights() -> None:
     assert model_load_kwargs("cpu", torch) == {}
 
 
+def test_cuda_dense_loader_uses_float16_weights() -> None:
+    assert model_load_kwargs("cuda", torch)["torch_dtype"] is torch.float16
+
+
 class _FakeTokenizer:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
