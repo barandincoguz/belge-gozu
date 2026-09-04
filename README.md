@@ -313,6 +313,29 @@ BG_DEVICE=cpu uv run belge-gozu serve --port 7860  # http://localhost:7860
 `.env` içinde `GOOGLE_API_KEY` (rotasyon için isteğe bağlı `GOOGLE_API_KEY_2`) gerekir.
 Testler: `make test` · lint ve tipler: `make lint` · panolar: `make obs-up`
 
+### Colab dense artefaktları
+
+Offline semantic kapsam ölçümündeki Qwen dense sayfa vektörleri üretim indeksinden
+ayrı `barandincoguz/belge-gozu-semantic-artifacts` Dataset'inde tutulur. Colab için
+[`notebooks/build_dense_artifacts_colab.ipynb`](notebooks/build_dense_artifacts_colab.ipynb)
+dosyasını açın; `HF_TOKEN` değerini yalnız Colab Secrets'a yazın ve kaynak indeks ile
+kod için 40 karakterli commit SHA verin. 8B model en az 24 GiB GPU belleği ister.
+
+Notebook'un her tamamlanan model için bastığı Hub commit SHA'sını yerelde açıkça çekin:
+
+```bash
+uv run python scripts/pull_dense_artifacts.py \
+  --repo barandincoguz/belge-gozu-semantic-artifacts \
+  --revision <artifact-hub-commit-sha> \
+  --model qwen3-embedding-8b \
+  --index-dir "$BG_INDEX_DIR"
+uv run python scripts/eval_semantic_coverage.py --help
+```
+
+İndirici model, sayfa sırası, sayfa metni hash'i, vektör hash'i ve şekli
+uyuşmadığında durur. Dense artefakt üretimi veya indirilmesi üretim açılışı,
+cevap kanalı değişikliği ya da eşik kalibrasyonu değildir.
+
 G2 dev ölçümü gerçek API denemesi bütçesini açıkça ister:
 
 ```bash
