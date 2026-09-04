@@ -107,6 +107,135 @@ def _atomic_npy(path: Path, value: np.ndarray) -> None:
     os.replace(temporary, path)
 
 
+def read_dense_progress(checkpoint_dir: Path) -> dict[str, object]:
+    """Tamamlanmamış dense indeksin doğrulanabilir ilerleme kaydını okur."""
+    progress_path = checkpoint_dir / "progress.json"
+    if not progress_path.exists():
+        raise ValueError(f"dense ilerleme kaydı yok: {progress_path}")
+    value = json.loads(progress_path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("dense ilerleme kaydı nesne olmalı")
+    return value
+
+
+def _require_dense_identity(actual: object, expected: Mapping[str, str]) -> None:
+    if not isinstance(actual, dict) or actual != dict(expected):
+        raise ValueError("dense kontrol noktası kimliği uyuşmuyor")
+
+
+def resume_dense_embeddings(
+    encoder: Any,
+    texts: Sequence[str],
+    checkpoint_dir: Path,
+    identity: Mapping[str, str],
+    *,
+    batch_size: int,
+    max_batches: int | None = None,
+) -> np.ndarray | None:
+    """Dense sayfa batch'lerini diskten güvenle sürdürür.
+
+    `None`, invocation batch bütçesiyle bittiğinde döner. `embeddings.npy`
+    yalnız bütün satırlar yazıldıktan sonra görünür; kesinti halinde yalnız
+    `.partial.npy` ve atomik `progress.json` kalır.
+    """
+    if batch_size < 1:
+        raise ValueError("dense batch_size en az 1 olmalı")
+    if max_batches is not None and max_batches < 1:
+        raise ValueError("dense batch bütçesi en az 1 olmalı")
+    if not texts:
+        raise ValueError("dense sayfa metinleri boş olamaz")
+
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    final_path = checkpoint_dir / "embeddings.npy"
+    metadata_path = checkpoint_dir / "dense.json"
+    partial_path = checkpoint_dir / "embeddings.partial.npy"
+    progress_path = checkpoint_dir / "progress.json"
+    identity_dict = dict(identity)
+    row_count = len(texts)
+
+    if final_path.exists():
+        if not metadata_path.exists():
+            raise ValueError("dense final artefakt künyesi yok")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        _require_dense_identity(
+            {key: metadata.get(key) for key in identity_dict}, identity_dict
+        )
+        values = np.load(final_path)
+        if values.shape[0] != row_count:
+            raise ValueError("dense final satır sayısı uyuşmuyor")
+        return values
+
+    completed_rows = 0
+    matrix: np.memmap | None = None
+    if progress_path.exists() or partial_path.exists():
+        if not progress_path.exists() or not partial_path.exists():
+            raise ValueError("dense kontrol noktası eksik dosya içeriyor")
+        progress = read_dense_progress(checkpoint_dir)
+        _require_dense_identity(progress.get("identity"), identity_dict)
+        if progress.get("row_count") != row_count:
+            raise ValueError("dense kontrol noktası satır sayısı uyuşmuyor")
+        completed_value = progress.get("completed_rows")
+        dimension_value = progress.get("dimension")
+        if not isinstance(completed_value, int) or not isinstance(dimension_value, int):
+            raise ValueError("dense kontrol noktası sayısal alanları geçersiz")
+        completed_rows = completed_value
+        dimension = dimension_value
+        if not 0 <= completed_rows < row_count or dimension < 1:
+            raise ValueError("dense kontrol noktası ilerlemesi geçersiz")
+        matrix = np.lib.format.open_memmap(partial_path, mode="r+")
+        if matrix.shape != (row_count, dimension):
+            raise ValueError("dense kontrol noktası embedding şekli uyuşmuyor")
+
+    batches_done = 0
+    started = time.perf_counter()
+    for start in range(completed_rows, row_count, batch_size):
+        if max_batches is not None and batches_done >= max_batches:
+            return None
+        end = min(start + batch_size, row_count)
+        batch = np.asarray(encoder.encode_passages(list(texts[start:end])), dtype=np.float32)
+        if batch.ndim != 2 or batch.shape[0] != end - start or batch.shape[1] < 1:
+            raise ValueError("dense batch embedding şekli geçersiz")
+        if matrix is None:
+            matrix = np.lib.format.open_memmap(
+                partial_path, mode="w+", dtype=np.float32, shape=(row_count, batch.shape[1])
+            )
+        if batch.shape[1] != matrix.shape[1]:
+            raise ValueError("dense batch embedding boyutu değişti")
+        matrix[start:end] = batch
+        matrix.flush()
+        completed_rows = end
+        batches_done += 1
+        elapsed = time.perf_counter() - started
+        done_batches = (completed_rows + batch_size - 1) // batch_size
+        total_batches = (row_count + batch_size - 1) // batch_size
+        remaining = (elapsed / batches_done) * (total_batches - done_batches)
+        _atomic_json(
+            progress_path,
+            {
+                "identity": identity_dict,
+                "row_count": row_count,
+                "dimension": int(matrix.shape[1]),
+                "completed_rows": completed_rows,
+            },
+        )
+        print(
+            f"dense progress {checkpoint_dir.name}: {completed_rows}/{row_count} "
+            f"pages; elapsed={elapsed:.1f}s eta={remaining:.1f}s",
+            flush=True,
+        )
+
+    assert matrix is not None
+    matrix.flush()
+    _atomic_json(
+        metadata_path,
+        {**identity_dict, "dimension": int(matrix.shape[1]), "row_count": row_count},
+    )
+    del matrix
+    os.replace(partial_path, final_path)
+    progress_path.unlink()
+    return np.load(final_path)
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -150,12 +279,32 @@ def _dense_arm(
     baseline: Mapping[str, Mapping[str, list[str]]],
     artifact_root: Path,
     device: str | None,
+    max_batches: int | None = None,
 ) -> tuple[dict[str, object], dict[str, list[str]] | None]:
     started = time.perf_counter()
+    model_dir = artifact_root / spec.repo.rsplit("/", 1)[-1]
+    identity = {
+        "repo": spec.repo,
+        "revision": spec.revision,
+        "page_ids_sha256": hashlib.sha256("\n".join(page_ids).encode()).hexdigest(),
+    }
     encoder = TransformerDenseEncoder(spec, device=device)
     try:
         encoder.preflight()
-        embeddings = encoder.encode_passages([page_texts[page_id] for page_id in page_ids])
+        embeddings = resume_dense_embeddings(
+            encoder,
+            [page_texts[page_id] for page_id in page_ids],
+            model_dir,
+            identity,
+            batch_size=encoder.batch_size,
+            max_batches=max_batches,
+        )
+        if embeddings is None:
+            return {
+                "status": "in_progress",
+                "model": {"repo": spec.repo, "revision": spec.revision},
+                "progress": read_dense_progress(model_dir),
+            }, None
         index = DensePageIndex(page_ids, embeddings)
         dense_pages = {
             question.question: index.candidate_pages(encoder.encode_queries([question.question])[0])
@@ -173,18 +322,7 @@ def _dense_arm(
 
         release_transformer_memory(torch)
 
-    model_dir = artifact_root / spec.repo.rsplit("/", 1)[-1]
     embeddings_path = model_dir / "embeddings.npy"
-    _atomic_npy(embeddings_path, embeddings)
-    _atomic_json(
-        model_dir / "dense.json",
-        {
-            "repo": spec.repo,
-            "revision": spec.revision,
-            "page_ids_sha256": hashlib.sha256("\n".join(page_ids).encode()).hexdigest(),
-            "dimension": int(embeddings.shape[1]),
-        },
-    )
     report = evaluate_cached_sources(questions, {**baseline, "dense": dense_pages})
     report.update(
         {
@@ -255,11 +393,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--dense-artifacts", type=Path, default=Path("data/bench/dense-artifacts"))
+    parser.add_argument(
+        "--max-dense-batches",
+        type=int,
+        help="Her dense model kolunda bu invocation'ın yazacağı en fazla batch sayısı.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
+    if args.max_dense_batches is not None and args.max_dense_batches < 1:
+        raise ValueError("--max-dense-batches en az 1 olmalı")
     settings = Settings()
     device = None if settings.device == "auto" else settings.device
     questions = load_bench(args.bench, only_verified=True, min_verification=args.min_verification)
@@ -290,6 +435,7 @@ def main() -> int:
             baseline=baseline,
             artifact_root=args.dense_artifacts,
             device=device,
+            max_batches=args.max_dense_batches,
         )
         arms[f"dense:{name}"] = arm
         if dense_pages is not None:
