@@ -223,7 +223,7 @@ P0 tamamlandı; kapı raporu `docs/research/findings/2026-08-27-p0-gate.md` (KO�
 MEKANİK ölçek taşımasıyla geçirildi (kalibrasyon değil; binary@60 çalışma noktası birebir),
 int8'de de ayırmıyor (answerable medyan 0.6250 / unanswerable 0.6550 — örtüşme temsilden
 bağımsız), xfail kilidi int8 sayılarıyla duruyor. D3 güncellendi: uzun sorgu int8'de 1221→**664**
-(cırcır `retrieval_eval_expectations.json` quantization anahtarıyla 664'e çekildi); top-5 için hibrit
+(cırcır `retrieval_regression_expectations.json` quantization anahtarıyla 664'e çekildi); top-5 için hibrit
 kanal gereksinimi değişmedi. D5 güncellendi: 48/48 satır doğrulandı (3 insan + 45
 model-cross-check — insan-doğrulanmış SAYILMAZ, künye `retrieval_eval_v1.README.md`). Eşlik eden
 bağlaşım denetimi: `docs/research/findings/2026-08-29-config-coupling-audit.md`.

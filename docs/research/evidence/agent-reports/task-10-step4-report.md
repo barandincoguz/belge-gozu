@@ -4,7 +4,7 @@
 
 - `tests/retrieval/test_semantic_retrieval_eval.py` — 3 slow tests, module-scoped
   `prod_retriever` fixture.
-- `tests/retrieval/retrieval_eval_expectations.json` — seeded with
+- `tests/retrieval/retrieval_regression_expectations.json` — seeded with
   `{"long_query_gold_rank_max": 1221, "_measured": "2026-08-27, data/index-traincompat-1bit, exhaustive, retrieval_eval c001"}`.
 
 ## Design decisions / deviations from the brief's literal code sample
@@ -96,13 +96,13 @@ tests/retrieval/test_semantic_retrieval_eval.py::test_long_query_rank_ratchet PA
 ```
 a21a773 test: real-model semantic retrieval_eval regression locks (G0.1, G0.8, rank ratchet)
  2 files changed, 134 insertions(+)
- create mode 100644 tests/retrieval/retrieval_eval_expectations.json
+ create mode 100644 tests/retrieval/retrieval_regression_expectations.json
  create mode 100644 tests/retrieval/test_semantic_retrieval_eval.py
 ```
 
 Staged and committed only these two files (`git add
 tests/retrieval/test_semantic_retrieval_eval.py
-tests/retrieval/retrieval_eval_expectations.json`); no `git add -A`/`.` used.
+tests/retrieval/retrieval_regression_expectations.json`); no `git add -A`/`.` used.
 `.agents/`, `data/bench/results/`, and `skills-lock.json` remain untouched
 and untracked, as they were before this task started.
 

@@ -88,7 +88,7 @@ product answers essentially nothing, with no error anywhere. The same applies to
 This is the *same* silent-abstain failure mode the commit's own `>1.5` guard was written
 to prevent — the guard only covers the "threshold left far too high" direction, not
 "threshold measured on a different representation". The retrieval_eval ratchet already solves
-exactly this problem for ranks (`retrieval_eval_expectations.json` is keyed by `"quantization"`
+exactly this problem for ranks (`retrieval_regression_expectations.json` is keyed by `"quantization"`
 and `test_long_query_rank_ratchet` asserts the loaded manifest matches); the threshold
 deserves the same treatment.
 
@@ -242,7 +242,7 @@ README:77 says int8 is 474 MB; `data/bench/results/latency-by-representation.jso
 | 14 | `Quantization` StrEnum in `index/manifest.py` with `float16`; loader dispatches on it | ✅ | `manifest.py:79-91`, `loader.py:28-33`; `derive --quant float16` rejected (`cli.py:256-261`, `test_cli.py:162`) |
 | 15 | `build_retriever` extracted; retrieval_eval fixture uses it | ✅ | `main.py:60-122`; `test_semantic_retrieval_eval.py:44-66` (copy deleted) — M5 is a shape nit only |
 | 16 | `EMBED_DIM`/`INT8_MAX` single-sourced; `_as_u64` shape guard | ✅ (one leak, M1) | `chunking.py:16-25`, `store.py:24-35` + `test_store.py:130` |
-| 17 | `retrieval_eval_expectations.json` carries `"quantization":"int8"` + ratchet 664; slow test asserts manifest match | ✅ | `retrieval_eval_expectations.json`, `test_semantic_retrieval_eval.py:131-139`; 664 equals `c001` gold rank in the artifact; slow suite re-run green |
+| 17 | `retrieval_regression_expectations.json` carries `"quantization":"int8"` + ratchet 664; slow test asserts manifest match | ✅ | `retrieval_regression_expectations.json`, `test_semantic_retrieval_eval.py:131-139`; 664 equals `c001` gold rank in the artifact; slow suite re-run green |
 | 18 | Test updates (exhaustive /128, test_core /(n_q*128), harness equality, loader tests, threshold guard, two-stage-on-int8, healthz exact, config defaults, abstain xfail rewritten and still FAILING) | ✅ | 229 passed / 4 slow passed + **1 xfailed** (no XPASS) reproduced locally; nothing loosened |
 | 19 | README: quickstart int8, quantization paragraph, score scale + 0.58, mermaid neutral, n_tokens 3,759,994, stale-v0 keeps 60.0 | ✅ (with I3) | README:44-47, 61-89, 101-110, 144-152, 199-215, 236-239; n_tokens matches all three manifests; R@5 0.233, R@20 0.233 vs 0.302, 1.08/0.24/0.08 s all match artifacts. Mermaid S2 no longer names a binary algorithm (it does name "the int8 index", which is accurate and matches the IDX node) |
 

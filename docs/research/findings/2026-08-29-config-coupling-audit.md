@@ -48,7 +48,7 @@ Not: S/C/D numaraları yukarıdaki üç arşiv dosyasının tablo satırlarına 
 | UI metinleri | S16 kısmen, S29 | Dipnot temsil-nötr ("kalibre edilmemiş benzerlik ~[−1..1]"); "binary" ibaresi düştü |
 | /healthz kimliği | S17 kısmen, D17, S30 | `quantization`, `index_revision`, `top_k` eklendi; UI "ilk 5" top_k'dan |
 | EMBED_DIM / INT8_MAX | S37, S38, S39 | `EMBED_DIM=128`, `INT8_MAX=127` tek tanım; `_as_u64` şekil guard'ı; normalizasyon `/EMBED_DIM` |
-| Cırcır temsil anahtarı | S48, C32, D33 kısmen | `retrieval_eval_expectations.json` `quantization` alanı taşır; test yüklü manifest'le eşleştirir; 1221→664 |
+| Cırcır temsil anahtarı | S48, C32, D33 kısmen | `retrieval_regression_expectations.json` `quantization` alanı taşır; test yüklü manifest'le eşleştirir; 1221→664 |
 | xfail XPASS riski | S26, C17 | Abstain kilidi int8 sayılarıyla yeniden yazıldı; 0.58'de hâlâ FAIL (xfail geçerli) — korpus-dışı top1'ler eşik üstünde |
 | Config drift kilitleri | C21 | `test_defaults` artık index_dir + eşiği assert ediyor |
 | colpali-engine pin | C13 kısmen | `==0.3.18` (format sözleşmesinin asıl kilidi) |

@@ -305,8 +305,8 @@ importlarını) çekiyor. Gerekçe ("serve ile AYNI kurulum") sağlam ve yorumla
 belgelenmiş, ama fonksiyonun doğru evi `retrieval/` ya da `index/`; oradan
 hem serve hem bench çağırabilirdi.
 
-#### L9 — `retrieval_eval_expectations.json` hybrid bloğunda ölü anahtar
-`tests/retrieval/retrieval_eval_expectations.json`
+#### L9 — `retrieval_regression_expectations.json` hybrid bloğunda ölü anahtar
+`tests/retrieval/retrieval_regression_expectations.json`
 
 `"pipeline": "hybrid"` hiçbir yerde okunmuyor (exhaustive bloğunun
 `"quantization"`'ı okunuyor ve assert ediliyor — `test_semantic_retrieval_eval.py:141`).

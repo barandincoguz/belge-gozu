@@ -210,7 +210,7 @@ addendum'u (autoresearch round 2, exp8: yönlendirme penceresi 20 → 50).
 | **L6** | Artefakt VARLIK kontrolü `require_text_artifact` olarak ayrıldı ve `create_app`in en başına, eşik korkuluğunun yanına alındı — VLM + 474 MB indeks yüklenmeden. HİZALAMA kontrolü (page_ids gerektirdiği için) `load_text_channel`'da kalıyor ve orada da koşuyor. |
 | **L7** | `HybridDiagnosticAdapter` artık kompozisyonu yeniden kurmuyor, `HybridRetriever.rank` (public yapıldı) çağırıyor. `visual.latency_ms` `encode_query`'yi ARTIK İÇERMİYOR (üretimde ayrı aşama) ve bu docstring'de yazılı. |
 | **L8** | `build_text_channel` `app/main.py`'den `retrieval/hybrid.py`'ye taşındı (`load_text_channel` + `require_text_artifact`). `cli.py` artık `belge_gozu.app.main`'i import ETMİYOR; serve ve bench aynı getirim-katmanı fonksiyonunu çağırıyor. |
-| **L9** | `retrieval_eval_expectations.json`'daki `pipeline` anahtarı artık assert ediliyor (blok künyesi ↔ sözlük anahtarı tutarlılığı). |
+| **L9** | `retrieval_regression_expectations.json`'daki `pipeline` anahtarı artık assert ediliyor (blok künyesi ↔ sözlük anahtarı tutarlılığı). |
 | **L10** | Katalog §1'deki `detail` satırı gerçek şemayı sayıyor: `hits`, `threshold`, model/device/version, `stages`, `retrieval` (+ hibritte `bm25_top1`/`visual_top1`/`routed_docs`). Ayrıca Grafana iki-panel notu eklendi. |
 
 **İtiraz edilen bulgu yok.** Round 1'de "controller kararına bırakılan" `make lint`

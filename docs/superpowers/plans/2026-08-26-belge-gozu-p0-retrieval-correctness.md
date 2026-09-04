@@ -1341,7 +1341,7 @@ def test_scores_are_true_maxsim():
 
 **Files:**
 - Create: `data/bench/retrieval_eval_v1.jsonl` (30-50 soru; İNSAN doğrulama kapılı),
-  `tests/retrieval/test_semantic_retrieval_eval.py`, `tests/retrieval/retrieval_eval_expectations.json`
+  `tests/retrieval/test_semantic_retrieval_eval.py`, `tests/retrieval/retrieval_regression_expectations.json`
 
 **Interfaces:**
 - Consumes: T6 şeması, T5 üretim hattı, T8 harness.
@@ -1378,7 +1378,7 @@ pytestmark = pytest.mark.slow
 Q_SHORT = "Yerleşim yeri nedir?"
 Q_LONG = "Türk Medeni Kanunu'na göre yerleşim yeri nasıl tanımlanır?"
 GOLD = "k4721:4"
-EXPECT = json.loads(Path("tests/retrieval/retrieval_eval_expectations.json").read_text())
+EXPECT = json.loads(Path("tests/retrieval/retrieval_regression_expectations.json").read_text())
 
 
 @pytest.fixture(scope="module")
@@ -1420,7 +1420,7 @@ def test_long_query_rank_ratchet(prod_retriever):
     )
 ```
 
-`retrieval_eval_expectations.json` ilk değeri: `{"long_query_gold_rank_max": 1576}` (bugünkü
+`retrieval_regression_expectations.json` ilk değeri: `{"long_query_gold_rank_max": 1576}` (bugünkü
 ölçüm; format/kuantizasyon kararlarıyla İYİLEŞTİKÇE bilinçli commit'le düşürülür —
 cırcır asla sessizce gevşetilmez).
 Not: `test_short_query_gold_in_top5` mevcut v0 indeksinde exhaustive sıra 2 ölçüldüğü

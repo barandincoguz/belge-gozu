@@ -9,7 +9,7 @@ Beş kilit:
     kırılırsa P0 sessizce regresse olmuş demektir).
   * rank cırcırı — uzun sorgunun tam-korpus sırası yalnız SIKILAŞTIRILABİLİR
     (düşürülebilir), asla sessizce gevşetilemez (yükseltilemez). Cırcır
-    PIPELINE'a göre anahtarlı (`retrieval_eval_expectations.json`): sırayı hangi
+    PIPELINE'a göre anahtarlı (`retrieval_regression_expectations.json`): sırayı hangi
     kanalın kurduğu sonucu tamamen değiştirir.
   * yazım-değişmezlik — aynı sorunun AKSANSIZ yazımı üretim indeksinde AYNI
     sırayı vermeli (exp12'nin ürün vaadi; journal #11-#12).
@@ -44,7 +44,7 @@ Q_LONG_PLAIN = "Turk Medeni Kanunu'na gore yerlesim yeri nasil tanimlanir?"
 GOLD = "k4721:4"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RETRIEVAL_EVAL_PATH = REPO_ROOT / "data" / "bench" / "retrieval_eval_v1.jsonl"
-EXPECT_PATH = Path(__file__).resolve().parent / "retrieval_eval_expectations.json"
+EXPECT_PATH = Path(__file__).resolve().parent / "retrieval_regression_expectations.json"
 
 
 def _expectations() -> dict:
@@ -128,7 +128,7 @@ def test_long_query_rank_ratchet(prod_retriever):
     2/4222 — P0'ın exhaustive yolunda 664, ondan önce 1-bit'te 1221'di.
     ASCII katlaması (exp12) sonrası yeniden ölçüldü: HÂLÂ 2/4222, cırcır
     değişmedi.
-    `retrieval_eval_expectations.json`'daki eşik yalnızca bilinçli, ölçülmüş bir
+    `retrieval_regression_expectations.json`'daki eşik yalnızca bilinçli, ölçülmüş bir
     iyileşmeyle DÜŞÜRÜLEBİLİR; asla sessizce YÜKSELTİLMEMELİDİR.
 
     Cırcır PIPELINE'a göre anahtarlanmıştır: sırayı hangi kanalın kurduğu
@@ -141,12 +141,12 @@ def test_long_query_rank_ratchet(prod_retriever):
     if block is None:
         pytest.skip(
             f"cırcır bu pipeline'da ölçülmemiş: {s.retrieval_pipeline} "
-            "(tests/retrieval/retrieval_eval_expectations.json)"
+            "(tests/retrieval/retrieval_regression_expectations.json)"
         )
     # Bloğun kendi `pipeline` künyesi anahtarıyla tutarlı olmalı (review L9:
     # aksi halde alan "kontrol ediliyor" izlenimi verip hiç okunmuyordu).
     assert block["pipeline"] == s.retrieval_pipeline, (
-        f"retrieval_eval_expectations.json anahtarı ({s.retrieval_pipeline}) ile bloğun "
+        f"retrieval_regression_expectations.json anahtarı ({s.retrieval_pipeline}) ile bloğun "
         f"künyesi ({block['pipeline']}) çelişiyor — cırcır yanlış kola uygulanır"
     )
     if s.retrieval_pipeline == "hybrid":
@@ -161,7 +161,7 @@ def test_long_query_rank_ratchet(prod_retriever):
             f"yüklü={manifest.quantization if manifest else None}. Sıra kuantizasyona "
             "bağlıdır (int8 664 vs 1-bit 1221); eşiği başka bir temsile uygulamak "
             "ölçülmemiş bir iddiadır. Temsil bilinçli değiştiyse cırcır yeniden "
-            "ölçülüp tests/retrieval/retrieval_eval_expectations.json güncellenmelidir."
+            "ölçülüp tests/retrieval/retrieval_regression_expectations.json güncellenmelidir."
         )
         q_emb = prod_retriever.encoder.encode_query(Q_LONG)
         rank = rank_of(prod_retriever.score_all(q_emb), prod_retriever.index.page_ids, GOLD)
@@ -169,7 +169,7 @@ def test_long_query_rank_ratchet(prod_retriever):
     assert rank <= max_allowed, (
         f"uzun sorgu için gold {GOLD} tam-korpus sırası {rank} > cırcır {max_allowed} "
         f"(pipeline={s.retrieval_pipeline}). Bu cırcır yalnızca BİLİNÇLİ bir commit'le "
-        "(tests/retrieval/retrieval_eval_expectations.json) DÜŞÜRÜLEBİLİR; asla sessizce "
+        "(tests/retrieval/retrieval_regression_expectations.json) DÜŞÜRÜLEBİLİR; asla sessizce "
         "YÜKSELTİLMEMELİDİR."
     )
 
