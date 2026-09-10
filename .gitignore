@@ -23,3 +23,14 @@ requests.sqlite
 # Archify visual-check kanıtı: ~3 MB ekran görüntüsü, tek komutla yeniden
 # üretilebilir (`archify visual-check <figür>.html`). Depoya girmesi gereksiz.
 docs/diagrams/evidence/
+
+# Serena önbelleği: 5,6 MB dil sunucusu indeksi, açılışta yeniden kuruluyor.
+.serena/
+
+# Dense artefakt üretim çıktısı: model başına 69 MB vektör matrisi + yarım
+# kalmış checkpoint. Kalıcı kopya `belge-gozu-semantic-artifacts` Dataset'inde
+# değişmez commit'le durur; depoya girmesi köken kaydını zayıflatır.
+data/bench/dense-artifacts/
+
+# Kökeni belirsiz, yarım inmiş safetensors başlığı (100 KB).
+st.bin

@@ -1,3 +1,8 @@
+> **SUPERSEDED (2026-09-10):** Colab taşıyıcısı kaldırıldı; üretim yolu artık
+> `scripts/build_dense_artifacts_local.py`. Gerekçe ve ölçüm:
+> `docs/research/findings/2026-09-10-dense-uretimi-apple-silicon.md`.
+> Task 1-4'teki artefakt sözleşmesi aynen geçerlidir; yalnız Task 5 düştü.
+
 # Colab Dense Artefacts Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

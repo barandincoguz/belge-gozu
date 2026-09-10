@@ -313,15 +313,29 @@ BG_DEVICE=cpu uv run belge-gozu serve --port 7860  # http://localhost:7860
 `.env` içinde `GOOGLE_API_KEY` (rotasyon için isteğe bağlı `GOOGLE_API_KEY_2`) gerekir.
 Testler: `make test` · lint ve tipler: `make lint` · panolar: `make obs-up`
 
-### Colab dense artefaktları
+### Dense artefaktlar (Apple Silicon)
 
 Offline semantic kapsam ölçümündeki Qwen dense sayfa vektörleri üretim indeksinden
-ayrı `barandincoguz/belge-gozu-semantic-artifacts` Dataset'inde tutulur. Colab için
-[`notebooks/build_dense_artifacts_colab.ipynb`](notebooks/build_dense_artifacts_colab.ipynb)
-dosyasını açın; `HF_TOKEN` değerini yalnız Colab Secrets'a yazın ve kaynak indeks ile
-kod için 40 karakterli commit SHA verin. 8B model en az 24 GiB GPU belleği ister.
+ayrı `barandincoguz/belge-gozu-semantic-artifacts` Dataset'inde tutulur. Üretim
+yerel Apple Silicon GPU'sunda koşar:
 
-Notebook'un her tamamlanan model için bastığı Hub commit SHA'sını yerelde açıkça çekin:
+```bash
+uv run python scripts/build_dense_artifacts_local.py \
+  --index-dir "$BG_INDEX_DIR" \
+  --source-revision 700ac324fffefb22de02c8e90347b31185547948
+```
+
+Betik tek sayfa kodlamadan önce PyTorch'un Metal bütçesini okur ve sığmayan
+modeli reddeder: `qwen3-embedding-4b` 12 GiB, `qwen3-embedding-8b` 24 GiB ister.
+Bütçe toplam RAM değildir — macOS, PyTorch'a fiziksel belleğin bir oranını verir
+(24 GiB'lık bir makinede 17,8 GiB). Her model ayrı süreçte kodlanır, çünkü MPS
+8B ağırlıklarını süreç içinde tam bırakmıyor. Koşum kesilirse aynı komut
+`--artifact-root` altındaki checkpoint'ten sürer; manifest yalnız matris
+tamamlanınca yazılır.
+
+Yayım isteğe bağlıdır (`--push`, write yetkili `HF_TOKEN` ister) ve yalnız yerel
+doğrulama geçtikten sonra çalışır. Başka bir makinede üretilen artefaktı çekmek
+için basılan Hub commit SHA'sı açıkça verilir:
 
 ```bash
 uv run python scripts/pull_dense_artifacts.py \
