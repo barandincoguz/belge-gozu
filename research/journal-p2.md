@@ -196,3 +196,28 @@ hazır, kod yolu hazır. Eksik olan tek şey kota.
 bir alternatif ölçülür — korpusun kendi madde başlıklarından üretilmiş
 günlük-dil → kanun-dili sözlüğü (exp4'ün başlık kanalı BİRLEŞİM üyesi olarak
 başarısızdı, ama SORGU GENİŞLETME kaynağı olarak denenmedi).
+
+---
+
+## exp5'in kapanışı — 2026-09-10, döngü DIŞI ölçüm (deney değil)
+
+exp5 "eksik olan tek şey kota" diye kapanmıştı. Kotasız yol ölçüldü: Mac Studio
+(M3 Ultra, 96 GB) üzerinde YEREL Qwen3-8B ile sorgu genişletme, resmî anlamsal
+kapsama harness'ında (`scripts/eval_semantic_coverage.py`, insan-doğrulanmış
+v2, n=47). Bu bir `retrieve.py` deneyi değildir — KEPT/DISCARDED kararı yok,
+birincil metrik R@5 kıpırdamadı; kayıt olarak buraya düşülüyor.
+
+- taban (BM25+Mogan+Colmm birleşimi) coverage 0,9574 · paraphrase 0,9048
+- + dense (Qwen3-4B) 0,9787 · paraphrase 0,9524 — **c206'yı yalnız dense getirdi**
+- + genişletme 1,0000 · paraphrase 1,0000 — **c404'ü genişletme getirdi**
+- 8B, 4B'yi hiçbir metrikte geçmedi (aynı coverage, aynı R@k)
+- R@5/R@20/R@50 üç kolda AYNI: şartname füzyonu yasakladığı için kazanım
+  havuzun derininde kaldı, sıralamaya dönüşmedi
+
+Sondanın teşhisi doğrulandı: kalan `paraphrase` ıskaları kayıt uyuşmazlığıdır.
+Genişletmenin 47 varyantından 6'sı bozuk (özgün sorgunun aynısı) çıktı.
+Tam kayıt: `docs/research/findings/2026-09-10-semantik-kapsama-dense-genisletme.md`.
+
+**Bu döngüye bıraktığı iş:** kapsama artışını sıralamaya çeviren füzyon
+denemesi (RRF; dense ve/veya kayıt-çevirisi adayı) — izin verilen yüzey
+`research/retrieve.py`.

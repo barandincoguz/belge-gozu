@@ -9,7 +9,7 @@ Colab hattı ölçüm üretmeden tıkandı. T4 16 GiB'dir; `qwen3-embedding-8b` 
 ağırlıkları oraya sığmıyor, notebook da bu yüzden 8B için ≥24 GiB istiyordu.
 Yerel denemede 24 GiB'lık makinede PyTorch'un Metal bütçesi 17,8 GiB çıktı ve
 koşum 4.222 sayfanın **192'sinde** yarım kaldı (`embeddings.partial.npy`).
-Donanım 96 GB birleşik bellekli M3 Max'e taşınınca Colab'ın tek gerekçesi —
+Donanım 96 GB birleşik bellekli M3 Ultra'ya taşınınca Colab'ın tek gerekçesi —
 yeterli GPU belleği — ortadan kalktı.
 
 Colab'ın kalan maliyeti gerçekti: kodun ayrı bir commit'e klonlanması, Drive
