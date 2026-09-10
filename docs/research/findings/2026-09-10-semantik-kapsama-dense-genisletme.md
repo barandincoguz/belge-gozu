@@ -110,27 +110,60 @@ gerçekten koştu, bir soruda model özgün sorgunun aynısını üretti ve
 2. Üretilen her varyant anında diske yazılır. Toplu yazım, 40'ıncı soruda düşen
    bir koşumda tamamlanmış 39 üretimi de kaybediyordu.
 
+## Uçtan uca deney: dense'li havuz + BGE yeniden sıralama (aynı gün, n=47)
+
+Yukarıdaki bölüm "sıradaki dar deney" diye tarif ediyordu; deney aynı gün
+koştu. `scripts/eval_candidate_reranker.py`'a dense opsiyonel dördüncü havuz
+kaynağı olarak eklendi (`--dense-model`; `run_comparison` DEĞİŞMEDİ, dense
+zaten kanal protokolüne uyuyor). İki kol, tek fark dense:
+
+| kol | havuz kapsaması | P R@5 | P R@20 | P R@50 | P nDCG@5 | rerank p50 |
+|---|---|---|---|---|---|---|
+| A — dense yok | 0,9574 | 0,7766 | 0,8617 | 0,9468 | 0,5709 | 3.319 ms |
+| B — dense 4B | **0,9787** | **0,7766** | **0,8830** | **0,9681** | **0,5709** | 4.038 ms |
+
+**A kolu 2026-09-03 koşumunu beş metrikte de dört haneye kadar tekrar üretti**
+(havuz 0,6277/0,7660/0,8085, P 0,7766/0,8617/0,9468, U 0,7553/…/0,6937,
+kapsama 0,9574). Farklı Python (3.11 ↔ 3.12), farklı torch (2.11 ↔ 2.13),
+farklı numpy (2.4 ↔ 2.5) ve sıfırdan üretilmiş indeks/sidecar zinciriyle: hat
+deterministik. Tek fark donanım — yeniden sıralama p50 8.690 → **3.319 ms**
+(M3 Ultra, 2,6×).
+
+**Sonuç: dense ilk beşi HİÇ kıpırdatmıyor.** R@5 iki kolda da 0,7766 ve %95
+güven aralığı bile aynı: [0,6596, 0,8830]. nDCG@5 dördüncü haneye kadar aynı —
+sunulan liste değişmiyor. Dense'in getirdiği tek sayfa (c206 → `k6698:3`;
+havuzda A'da YOK, B'de VAR, havuz 127 → 159) yeniden sıralamada yalnız
+**6–20 arasına** çıkabildi: R@20 ve R@50 tam +0,0213 (= 1/47) arttı, R@5 sıfır.
+
+**Üstelik bir guardrail geriledi.** Serbest (U) kolunda dense, `c407`'ye yeni
+bir aday soktu: BGE `k5411:84`'ü eski top-1 `k5941:8`'in üstüne koydu, ama yeni
+top-1'in BM25 skoru **8,9** — 10,6 eşiğinin altında. `would_abstain` sayısı
+5 → **6**: sistem daha önce cevapladığı bir soruda çekimserliğe düşüyor.
+(BM25 top-1'i sabitleyen P kolu bu arızayı yapısal olarak önlüyor; 2026-09-03
+kaydının P'yi güvenli bulması burada da doğrulanıyor.)
+
+Uçtan uca bilanço: **+0 R@5, +1 soru R@20/R@50'de, +%22 yeniden sıralama
+gecikmesi (3,32 → 4,04 s), +8 GB yerleşik gömme modeli, +127 ms sorgu
+kodlama, +41 MB artefakt, 64 dk üretim, ve U kolunda +1 çekimserlik.**
+
 ## Karar ve sıradaki adım
 
-Dense kanal üretime girmez: ürünün gördüğü ilk beşe etkisi ÖLÇÜLEN sıfır,
-tek getirdiği soru (c206) için sorgu başına GPU'da yerleşik bir gömme modeli
-gerekiyor — üretim ise CPU int8 + BM25 üzerinde koşuyor — ve o sorunun kök
-nedeni için envanterde daha ucuz aday var (exp9: başlıktan türetilmiş kısaltma
-alias'ı, çıkarım maliyeti sıfır).
+Dense kanal üretime girmez. Bu artık proxy metrik değil, uçtan uca ölçüm:
+ilk beşe etkisi tam olarak sıfır (R@5 ve GA'sı iki kolda birebir aynı),
+karşılığında +%22 yeniden sıralama gecikmesi, 8 GB yerleşik ağırlık ve U
+kolunda bir çekimserlik daha. Getirdiği tek soru (c206) rank 6–20 bandında
+kalıyor ve o sorunun kök nedeni için envanterde çıkarım maliyeti sıfır olan bir
+aday zaten var (exp9: başlıktan türetilmiş kısaltma alias'ı).
 
-Kapsamayı sıralamaya çeviren mekanizma zaten ÖLÇÜLDÜ ve dense'siz hâliyle
-çalışıyor: 2026-09-03 koşumunda BGE reranker havuzun derinini yukarı taşıyıp
-R@5'i 0,6277 → **0,7766**'ya çıkardı (P kolu, BM25 top-1 sabit; +7 soru). Yani
-"havuzda olmak" ile "ilk beşte görünmek" arasındaki köprü var — ama bedeli
-sorgu başına p50 **8.690 ms**'dir ve o koşum da üretim isteğine eklenmedi.
+Dense için soru kapandı (yukarıdaki uçtan uca deney). Açık kalan tek umut
+verici kol **genişletme**: kapsamayı 1,0000'e çıkaran o, ve rescue ettiği soru
+(c404) yeniden sıralamada ilk beşe çıkıyor mu, ÖLÇÜLMEDİ. Deney aynı harness'la
+yapılabilir ama bir tasarım kararı gerektirir — reranker özgün soruyu mu yoksa
+genişletilmiş sorguyu mu skorlasın? Program-p2 kuralı "yeniden yazım EK
+kanaldır, orijinali İKAME EDEMEZ" diyor; sadık kurulum, havuzu iki sorguyla da
+besleyip **özgün soruyla** yeniden sıralamaktır ve bu, `run_comparison`'a
+sorgu-başına ek aday listesi geçirmeyi gerektirir. Karar kullanıcıya bırakıldı.
 
-Bu, dense sorusunu tek ve dar bir deneye indiriyor: **dense'li havuz + aynı BGE
-P kolu**, n=47, bootstrap GA ile dense'siz kola karşı. Dense'in getirdiği tek
-sayfa (`k6698:3`) yeniden sıralamada ilk beşe tırmanıyorsa dense'in değeri
-"8 GB yerleşik ağırlık + 127 ms karşılığında bir soru"dur; tırmanmıyorsa
-uçtan uca ölçülebilir katkısı **sıfırdır**. Vasıta `research/retrieve.py`
-DEĞİLDİR: o döngünün `QueryContext`i yalnız `query_text`, `page_ids`,
-`visual_scores` ve `page_texts` taşıyor (dense/ColBERT adayı yok) ve deney
-bütçesi "saniyeler, model yükü yok" diyor. Doğru vasıta, üç kanallı havuzu
-zaten kuran `scripts/eval_candidate_reranker.py`dir (bench-only, şartnamenin
-izin verdiği yüzey).
+Not: vasıta `research/retrieve.py` DEĞİLDİR — o döngünün `QueryContext`i yalnız
+`query_text`, `page_ids`, `visual_scores`, `page_texts` taşıyor (dense/ColBERT
+adayı yok) ve deney bütçesi "saniyeler, model yükü yok" diyor.

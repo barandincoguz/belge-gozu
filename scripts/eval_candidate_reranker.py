@@ -21,11 +21,21 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from belge_gozu.answer.calibrate import git_blob_sha, sha256_file  # noqa: E402
 from belge_gozu.bench.dataset import load_bench  # noqa: E402
+from belge_gozu.bench.dense_artifacts import (  # noqa: E402
+    DenseArtifactExpectation,
+    dense_model_key,
+    validate_dense_artifact,
+)
 from belge_gozu.bench.metrics import bootstrap_ci, mrr, ndcg_at_k, recall_at_k  # noqa: E402
 from belge_gozu.config import Settings  # noqa: E402
 from belge_gozu.index.manifest import index_revision, read_manifest  # noqa: E402
 from belge_gozu.provenance import git_commit  # noqa: E402
 from belge_gozu.retrieval.candidates import build_candidate_pool  # noqa: E402
+from belge_gozu.retrieval.dense import (  # noqa: E402
+    DENSE_MODELS,
+    DensePageIndex,
+    TransformerDenseEncoder,
+)
 from belge_gozu.retrieval.hybrid import load_page_texts, load_text_channel  # noqa: E402
 from belge_gozu.retrieval.late import load_late_channel  # noqa: E402
 from belge_gozu.retrieval.rerank import (  # noqa: E402
@@ -113,6 +123,30 @@ def _pool_coverage(rows: ArmRows) -> dict[str, object]:
             for slice_name, slice_values in sorted(by_slice.items())
         },
     }
+
+
+class DenseQueryEncoder(Protocol):
+    def encode_queries(self, texts: Sequence[str]) -> np.ndarray: ...
+
+
+class _DenseCandidateChannel:
+    """Doğrulanmış dense sayfa matrisini aday kanalı protokolüne uydurur.
+
+    NEDEN. 2026-09-10 kapsama ölçümü dense'in havuza tam BİR sayfa eklediğini
+    gösterdi (c206 -> `k6698:3`, koşumdaki tek "yalnız dense" gold'u). Kapsama
+    metriği sıraya duyarsız olduğu için o sayfanın ilk beşe çıkıp çıkmadığını
+    söylemez; bunu ancak P/U yeniden sıralaması ölçebilir. Kanal protokolü
+    (`candidate_pages`) geç kanallarla aynı olduğundan `run_comparison`
+    DEĞİŞMEZ — dense yalnız kaynak listesine eklenir.
+    """
+
+    def __init__(self, index: DensePageIndex, encoder: DenseQueryEncoder) -> None:
+        self._index = index
+        self._encoder = encoder
+
+    def candidate_pages(self, query: str, limit: int) -> list[str]:
+        embedding = self._encoder.encode_queries([query])[0]
+        return self._index.candidate_pages(embedding, limit)
 
 
 def run_comparison(
@@ -230,6 +264,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bench", type=Path, required=True)
     parser.add_argument("--min-verification", default="human")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--dense-model", choices=sorted(DENSE_MODELS))
+    parser.add_argument("--dense-artifacts", type=Path, default=Path("data/bench/dense-artifacts"))
     parser.add_argument("--final", action="store_true")
     parser.add_argument("--yes-final-gate", action="store_true")
     return parser.parse_args()
@@ -251,6 +287,29 @@ def main() -> int:
         load_late_channel(settings.late_mogan_index_dir, chunk_pages, device=device),
         load_late_channel(settings.late_colmm_index_dir, chunk_pages, device=device),
     )
+    dense_provenance: dict[str, object] | None = None
+    if args.dense_model:
+        spec = DENSE_MODELS[args.dense_model]
+        artifact_dir = args.dense_artifacts / dense_model_key(spec)
+        validate_dense_artifact(
+            artifact_dir,
+            DenseArtifactExpectation(
+                model=spec,
+                page_ids=page_ids,
+                page_texts_sha256=sha256_file(index_dir / "page_texts.parquet"),
+            ),
+        )
+        embeddings = np.load(artifact_dir / "embeddings.npy", allow_pickle=False)
+        dense_encoder = TransformerDenseEncoder(spec, device=device)
+        dense_encoder.preflight()
+        late_channels = (
+            *late_channels,
+            _DenseCandidateChannel(DensePageIndex(page_ids, embeddings), dense_encoder),
+        )
+        dense_provenance = {
+            "model": {"repo": spec.repo, "revision": spec.revision},
+            "artifact": _provenance(artifact_dir / "embeddings.npy"),
+        }
     reranker = TransformerPageReranker(device=device)
     questions = load_bench(args.bench, only_verified=True, min_verification=args.min_verification)
     answerable_questions = sum(question.answerable for question in questions)
@@ -275,6 +334,7 @@ def main() -> int:
                 "page_texts": _provenance(index_dir / "page_texts.parquet"),
                 "chunks": _provenance(index_dir / "chunks.parquet"),
             },
+            "dense": dense_provenance,
             "model": {
                 "repo": reranker.repo,
                 "revision": reranker.revision,

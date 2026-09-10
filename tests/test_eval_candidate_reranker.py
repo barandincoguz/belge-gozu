@@ -9,7 +9,12 @@ import numpy as np
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from eval_candidate_reranker import run_comparison  # pyright: ignore[reportMissingImports]
+from eval_candidate_reranker import (  # pyright: ignore[reportMissingImports]
+    _DenseCandidateChannel,
+    run_comparison,
+)
+
+from belge_gozu.retrieval.dense import DensePageIndex
 
 
 @dataclass(frozen=True)
@@ -64,3 +69,39 @@ def test_run_comparison_reports_both_arms_and_bm25_top1_rank():
     assert report["candidate_pool"]["coverage"]["overall"] >= report["pinned"]["overall"][
         "recall_at"
     ][50]
+
+
+class FakeDenseEncoder:
+    """Sorguyu sabit bir yöne kodlar; dense sıralamasını deterministik yapar."""
+
+    def encode_queries(self, texts: list[str]) -> np.ndarray:
+        assert len(texts) == 1
+        return np.array([[1.0, 0.0]], dtype=np.float32)
+
+
+def _dense_channel() -> _DenseCandidateChannel:
+    index = DensePageIndex(
+        ["a1", "b1", "a2"],
+        np.array([[0.0, 1.0], [1.0, 0.0], [0.7, 0.7]], dtype=np.float32),
+    )
+    return _DenseCandidateChannel(index, FakeDenseEncoder())
+
+
+def test_dense_channel_returns_the_dense_index_top_pages():
+    assert _dense_channel().candidate_pages("soru", 2) == ["b1", "a2"]
+
+
+def test_dense_channel_pages_enter_the_reranked_pool():
+    """Dense kanalı ekli koşumda havuz dense adaylarını da taşır."""
+    report = run_comparison(
+        questions=[Question()],
+        text=FixedText(),
+        doc_names={},
+        page_texts={"b1": "bm25", "a1": "en iyi", "a2": "orta"},
+        late_channels=[FixedLate(["a1"]), _dense_channel()],
+        reranker=FixedReranker(),
+    )
+
+    pool = report["unpinned"]["diagnostics"][0]["candidate_pool"]
+    assert set(pool) == {"b1", "a1", "a2"}
+    assert report["pinned"]["overall"]["recall_at"][5] == 1.0
