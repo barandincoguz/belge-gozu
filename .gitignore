@@ -34,3 +34,8 @@ data/bench/dense-artifacts/
 
 # Kökeni belirsiz, yarım inmiş safetensors başlığı (100 KB).
 st.bin
+
+# Ortak lab venv'i (/opt/llm-lab/.venv) üstündeki ince overlay: ~55 MB delta
+# paket + editable bağlantı, `scripts/setup_lab_env.sh` ile tek komutta
+# yeniden kurulur. Makineye özgüdür, depoya girmez.
+.venv-lab/

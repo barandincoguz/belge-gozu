@@ -70,6 +70,15 @@ uv run pyright
 git diff --check
 ```
 
+Ortak lab ortamında (`make lab-setup`, bkz. README) aynı kapılar `uv run`
+olmadan koşar; araçlar `uv.lock` sürümlerine sabitlidir:
+
+```bash
+.venv-lab/bin/pytest <ilgili-testler> -q
+.venv-lab/bin/ruff check .
+.venv-lab/bin/pyright --pythonpath .venv-lab/bin/python
+```
+
 Veri kümesi veya CLI değiştiyse ilgili doğrulayıcının `--help` çıktısını ve veri kümesi
 doğrulamasını da çalıştırın. Gerçek model koşumları pahalı veya beklemedeyse bunu açıkça
 raporlayın; tahmini sonucu ölçülmüş gibi sunmayın.

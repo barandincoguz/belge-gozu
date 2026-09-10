@@ -313,6 +313,36 @@ BG_DEVICE=cpu uv run belge-gozu serve --port 7860  # http://localhost:7860
 `.env` içinde `GOOGLE_API_KEY` (rotasyon için isteğe bağlı `GOOGLE_API_KEY_2`) gerekir.
 Testler: `make test` · lint ve tipler: `make lint` · panolar: `make obs-up`
 
+#### Ortak lab ortamı (Mac Studio · M3 Ultra, 96 GB)
+
+Lab makinesinde ikinci bir tam venv KURULMAZ: torch, transformers ve 170 GB'lık
+model önbelleği `/opt/llm-lab/.venv` + `/opt/llm-lab/hf-cache` altında ORTAKTIR
+(zsh alias'ı `lab`). Kurulum tek komut ve ~55 MB'dır:
+
+```bash
+make lab-setup                    # veya: bash scripts/setup_lab_env.sh
+source .venv-lab/bin/activate     # belge-gozu, pytest, ruff, pyright
+```
+
+Betik ortak `site-packages`'ı bir `.pth` ile zincirler ve overlay'e yalnız
+EKSİK olanı koyar: numpy 2 (ortak ortamda 1.26 var; `np.bitwise_count` ikili
+MaxSim'in sıcak yolunda ve 2.0'da geldi — altında 84 test düşüyor) ve gate
+araçları `uv.lock` sürümlerine sabitlenmiş hâlde. `make lint`/`make test`
+overlay'i kendi bulur; yoksa `uv run`a düşer, yani CI ve Docker etkilenmez.
+
+Bilerek kabul edilen, kilitli çözümden üç sapma:
+
+| Sapma | Neden | Karşılığı |
+|---|---|---|
+| Python 3.11.15 (pyproject `>=3.12`) | ortak venv'in sürümü | proje `--ignore-requires-python` ile kurulur; kaynakta 3.12'ye özgü çalışma zamanı API'si yok, 857 test geçiyor. CI/Docker 3.12'de kalır |
+| torch 2.11 · transformers 5.3 (kilit: 2.13 · 5.15) | ortak venv'in sürümleri | ikisi de pyproject aralığında; `colpali-engine==0.3.18` pini kilitli yığında doğrulanmıştı — görsel kodlama koşulacaksa revalidasyon borcu |
+| numpy 2.4.6 (kilit: 2.5.2) | 2.5.x yalnız `>=3.12` tekerleği yayımlıyor | aynı ana sürüm; kırılan API `bitwise_count` mevcut |
+
+`colpali-engine` KURULU DEĞİLDİR — yalnız görsel kodlama (`index encode`)
+ister, dense/semantic kollarında kullanılmaz. Gerekirse önce etkisine bakın:
+`.venv-lab/bin/pip install --dry-run colpali-engine==0.3.18` (kilitli torch'u
+çekmeye kalkarsa bedeli birkaç GB'dır).
+
 ### Dense artefaktlar (Apple Silicon)
 
 Offline semantic kapsam ölçümündeki Qwen dense sayfa vektörleri üretim indeksinden
@@ -328,7 +358,8 @@ uv run python scripts/build_dense_artifacts_local.py \
 Betik tek sayfa kodlamadan önce PyTorch'un Metal bütçesini okur ve sığmayan
 modeli reddeder: `qwen3-embedding-4b` 12 GiB, `qwen3-embedding-8b` 24 GiB ister.
 Bütçe toplam RAM değildir — macOS, PyTorch'a fiziksel belleğin bir oranını verir
-(24 GiB'lık bir makinede 17,8 GiB). Her model ayrı süreçte kodlanır, çünkü MPS
+(24 GiB'lık bir makinede 17,8 GiB). Mac Studio'da (96 GB) ölçülen bütçe 77,8 GiB'dir:
+her iki model de kapıdan geçer. Her model ayrı süreçte kodlanır, çünkü MPS
 8B ağırlıklarını süreç içinde tam bırakmıyor. Koşum kesilirse aynı komut
 `--artifact-root` altındaki checkpoint'ten sürer; manifest yalnız matris
 tamamlanınca yazılır.
@@ -664,6 +695,10 @@ BG_DEVICE=cpu uv run belge-gozu serve --port 7860  # http://localhost:7860
 
 Requires `GOOGLE_API_KEY` (optionally `GOOGLE_API_KEY_2` for rotation) in `.env`.
 Tests: `make test` · lint and types: `make lint` · dashboards: `make obs-up`
+
+On the shared lab machine there is no second full venv: `make lab-setup` builds
+a ~55 MB overlay on top of the shared `/opt/llm-lab/.venv` (see the Turkish
+section above for the three deliberate deviations from `uv.lock`).
 
 Answer-gate evaluation requires an explicit real-attempt budget:
 
