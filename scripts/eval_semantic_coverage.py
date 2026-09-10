@@ -347,42 +347,70 @@ def _dense_arm(
     return report, dense_pages
 
 
+def _release_torch_memory() -> None:
+    import torch
+
+    release_transformer_memory(torch)
+
+
 def _expansions(
     questions: Sequence[BenchQuestion], cache_path: Path, device: str | None
-) -> dict[str, str]:
+) -> tuple[dict[str, str], list[str]]:
+    """Genişletmeleri döndürür; üretilemeyeni özgün sorguya düşürüp KAYDEDER.
+
+    İki ölçülmüş dayanıklılık kuralı:
+
+    1. Bozuk varyant (boş ya da özgün sorgunun aynısı) kolu düşürmez. Bu yol
+       ilk kez 96 GB'lık makinede koştu — 24 GiB'ta kol zaten `skipped_oom`
+       oluyordu — ve 47 sorunun BİRİ özgün sorgunun aynısını üretince
+       `validate_expansion` haklı olarak reddetti, ama hata bütün ölçümü
+       (dense kolları dahil, ~18 dk) çöpe attı. Sözleşme sıkı kalır: geçersiz
+       varyant kullanılmaz, o soru özgün sorgusuyla ölçülür ve kimliği raporda
+       durur. Sessiz düzeltme yok — sayı yorumlanabilir olmalı.
+    2. Üretilen her varyant ANINDA diske yazılır. Toplu yazım, 40'ıncı soruda
+       düşen bir koşumda tamamlanmış 39 üretimi de kaybediyordu; her biri
+       16 GB'lık checkpoint'ten bir generate çağrısıdır.
+    """
     records = load_expansion_cache(cache_path)
     pending = [
         question
         for question in questions
         if question.answerable and question.question_id not in records
     ]
+    invalid: list[str] = []
     if pending:
         expander = LocalQueryExpander(device=device)
         try:
             expander.preflight()
             for question in pending:
+                try:
+                    expansion = expander.expand(question.question)
+                except ValueError:
+                    invalid.append(question.question_id)
+                    continue
                 records[question.question_id] = ExpansionRecord(
                     question_id=question.question_id,
                     question_sha256=question_fingerprint(question.question),
                     prompt_fingerprint=expander_prompt_fingerprint(),
                     model_revision=expander_revision(),
-                    expansion=expander.expand(question.question),
+                    expansion=expansion,
                 )
+                write_expansion_cache(cache_path, list(records.values()))
         finally:
             del expander
-            import torch
-
-            release_transformer_memory(torch)
-        write_expansion_cache(cache_path, list(records.values()))
+            _release_torch_memory()
     result: dict[str, str] = {}
     for question in questions:
         if not question.answerable:
             continue
         record = records.get(question.question_id)
+        if record is None and question.question_id in invalid:
+            result[question.question] = question.question
+            continue
         if record is None or record.question_sha256 != question_fingerprint(question.question):
             raise ValueError(f"genişletme önbellek soru hash'i uyuşmuyor: {question.question_id}")
         result[question.question] = record.expansion
-    return result
+    return result, invalid
 
 
 def expander_prompt_fingerprint() -> str:
@@ -455,7 +483,7 @@ def main() -> int:
         arms["expand"] = {"status": "skipped_no_dense"}
     else:
         try:
-            expanded_queries = _expansions(questions, args.cache, device)
+            expanded_queries, invalid_expansions = _expansions(questions, args.cache, device)
         except ExpansionModelOutOfMemory:
             arms[f"dense:{winner}+expand"] = {"status": "skipped_oom"}
         else:
@@ -508,6 +536,7 @@ def main() -> int:
                 arms[f"dense:{winner}+expand"] = {
                     "status": "ok",
                     "model": {"repo": spec.repo, "revision": spec.revision},
+                    "invalid_expansions": invalid_expansions,
                     **evaluate_cached_sources(questions, expansion_sources),
                 }
             finally:

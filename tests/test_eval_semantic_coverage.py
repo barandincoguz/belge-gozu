@@ -7,7 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from belge_gozu.bench.dataset import BenchQuestion
 from belge_gozu.bench.dense_artifacts import write_dense_manifest
+from belge_gozu.retrieval.expand import load_expansion_cache
+from tests.bench.test_dataset import q_dict
 
 REPO = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
@@ -110,3 +113,63 @@ def test_verified_embeddings_reject_another_page_text_artifact(tmp_path: Path) -
 
     with pytest.raises(ValueError, match="page_texts"):
         esc._load_verified_embeddings(spec, ["p1"], "e" * 64, tmp_path)
+
+
+class _FakeExpander:
+    """Soru metnine göre hata fırlatabilen sahte genişletici."""
+
+    def __init__(self, raises: dict[str, Exception] | None = None) -> None:
+        self._raises = raises or {}
+        self.calls: list[str] = []
+
+    def preflight(self) -> None:
+        return None
+
+    def expand(self, question: str) -> str:
+        self.calls.append(question)
+        error = self._raises.get(question)
+        if error is not None:
+            raise error
+        return f"{question} genisletilmis"
+
+
+def _expansion_questions() -> list[BenchQuestion]:
+    return [
+        BenchQuestion(**q_dict(question_id="q1", question="Birinci soru?")),
+        BenchQuestion(**q_dict(question_id="q2", question="Ikinci soru?")),
+    ]
+
+
+def _install_fake_expander(monkeypatch: pytest.MonkeyPatch, fake: _FakeExpander) -> None:
+    monkeypatch.setattr(esc, "LocalQueryExpander", lambda **kwargs: fake)
+    monkeypatch.setattr(esc, "_release_torch_memory", lambda: None)
+
+
+def test_invalid_expansion_falls_back_to_the_original_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tek bozuk varyant bütün ölçümü düşürmez; kol koşar, kayıt raporda kalır."""
+    fake = _FakeExpander({"Ikinci soru?": ValueError("genişletme özgün sorguyla aynı")})
+    _install_fake_expander(monkeypatch, fake)
+    cache = tmp_path / "expansion-cache.jsonl"
+
+    expansions, invalid = esc._expansions(_expansion_questions(), cache, None)
+
+    assert expansions["Birinci soru?"] == "Birinci soru? genisletilmis"
+    assert expansions["Ikinci soru?"] == "Ikinci soru?"
+    assert invalid == ["q2"]
+    assert set(load_expansion_cache(cache)) == {"q1"}
+
+
+def test_completed_expansions_survive_a_hard_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Üretilmiş varyantlar ANINDA diske yazılır: çöken koşum onları çöpe atmaz."""
+    fake = _FakeExpander({"Ikinci soru?": RuntimeError("cihaz düştü")})
+    _install_fake_expander(monkeypatch, fake)
+    cache = tmp_path / "expansion-cache.jsonl"
+
+    with pytest.raises(RuntimeError):
+        esc._expansions(_expansion_questions(), cache, None)
+
+    assert set(load_expansion_cache(cache)) == {"q1"}
