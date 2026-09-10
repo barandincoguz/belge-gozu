@@ -36,6 +36,13 @@ Diğer bütün dilimler (`dogrudan-madde` 13, `madde-numarali` 6,
 `ayni-kanun-hard-negative` 5, `tarihi-tarama` 2) tabanda **zaten 1,000**.
 Kazanım yalnız `paraphrase` diliminde.
 
+**Ortam sağlaması (asıl kanıt).** Taban satırı, 2026-09-03 reranker teşhisinin
+aynı 47 soruda ölçtüğü havuzla **birebir** aynı: kapsama 0,9574, paraphrase
+0,9048, havuzun ilk-50 sırası R@5 0,6277 · R@20 0,7660 · R@50 0,8085 · MRR
+0,4242 (`docs/research/findings/2026-09-03-candidate-pool-reranker-experiment.md`).
+Yeni makinede sıfırdan üretilen chunk/sidecar/indeks zinciri eski ölçümü dört
+haneye kadar tekrar üretiyor.
+
 Atıf, soru düzeyinde:
 
 - Tabanın ıskaladığı iki soru: **c206** (KVKK saklama süresi) ve **c404**
@@ -111,8 +118,19 @@ gerekiyor — üretim ise CPU int8 + BM25 üzerinde koşuyor — ve o sorunun k�
 nedeni için envanterde daha ucuz aday var (exp9: başlıktan türetilmiş kısaltma
 alias'ı, çıkarım maliyeti sıfır).
 
-Sıradaki ölçüm, bu döngünün izin verdiği yüzeyde: **kapsama artışını sıralamaya
-çeviren füzyon** (`research/retrieve.py`, RRF) — dense ve/veya kayıt-çevirisi
-adaylarını ağırlıklandırıp insan-doğrulanmış kümede R@5'i kıpırdatıyor mu?
-Kıpırdatmıyorsa dense kanalın hikâyesi burada biter; kıpırdatıyorsa bedeli
-(GPU, gecikme, ikinci retrieval turu) o zaman tartışılır.
+Kapsamayı sıralamaya çeviren mekanizma zaten ÖLÇÜLDÜ ve dense'siz hâliyle
+çalışıyor: 2026-09-03 koşumunda BGE reranker havuzun derinini yukarı taşıyıp
+R@5'i 0,6277 → **0,7766**'ya çıkardı (P kolu, BM25 top-1 sabit; +7 soru). Yani
+"havuzda olmak" ile "ilk beşte görünmek" arasındaki köprü var — ama bedeli
+sorgu başına p50 **8.690 ms**'dir ve o koşum da üretim isteğine eklenmedi.
+
+Bu, dense sorusunu tek ve dar bir deneye indiriyor: **dense'li havuz + aynı BGE
+P kolu**, n=47, bootstrap GA ile dense'siz kola karşı. Dense'in getirdiği tek
+sayfa (`k6698:3`) yeniden sıralamada ilk beşe tırmanıyorsa dense'in değeri
+"8 GB yerleşik ağırlık + 127 ms karşılığında bir soru"dur; tırmanmıyorsa
+uçtan uca ölçülebilir katkısı **sıfırdır**. Vasıta `research/retrieve.py`
+DEĞİLDİR: o döngünün `QueryContext`i yalnız `query_text`, `page_ids`,
+`visual_scores` ve `page_texts` taşıyor (dense/ColBERT adayı yok) ve deney
+bütçesi "saniyeler, model yükü yok" diyor. Doğru vasıta, üç kanallı havuzu
+zaten kuran `scripts/eval_candidate_reranker.py`dir (bench-only, şartnamenin
+izin verdiği yüzey).
