@@ -12,13 +12,38 @@
 
 - **Ölçüm kümesi:** `data/bench/retrieval_eval_v2.jsonl`, `--min-verification human`, cevaplanabilir **n=47**. Sorular ve gold'lar DEĞİŞTİRİLEMEZ.
 - **Birincil metrik:** P kolu (BM25 top-1 sabit) **R@5**. Taban: **0,7766** (`data/bench/results/20260911-rerank-nodense-diag.json`).
-- **Guardrail'ler:** P R@20 (0,8617), P R@50 (0,9468), nDCG@5 (0,5709), `would_abstain` sayısı (5), rerank p50 (3.319 ms). Hiçbiri kesin gerilememeli.
+- **Guardrail'ler (E2'den itibaren REVİZE — gerekçe aşağıda):** P R@20 (0,8617), P R@50 (0,9468), nDCG@5 (0,5709). Hiçbiri kesin gerilememeli. `would_abstain` ve rerank p50 **raporlanır, veto etmez**.
 - **Tutma kuralı:** R@5 **+2 soru (+0,0426) veya fazlası → KEPT**. +1 soru ise YALNIZ (a) hiçbir guardrail gerilemiyorsa VE (b) kazanan soru soru-düzeyi teşhisle açıklanabiliyorsa KEPT. Eşitlik veya gerileme → DISCARDED, `git checkout --` ile geri al.
 - **Üretim yüzeyi DONUK:** `retrieval/text.py` skorlama ifadesi, `recipe_fingerprint()`, `HybridRetriever.search()`, `/search`, `/ask`, `min_score_threshold=10.6`. Bütün deneyler bench-only bayraklarla koşar; hiçbir üretim varsayılanı değişmez.
 - **Bir seferde bir değişken.** Bileşik kol yalnız bileşenleri tek tek ölçüldükten sonra.
 - **Test disiplini (bu planda bilinçli sapma):** yalnız **sözleşme kilitleyen** test yazılır — davranış sınırı (MaxP'nin max alması, cascade'in kuyruğu koruması, kalibrasyonun monotonluğu). Bayrak bağlama (plumbing) için test YAZILMAZ; onun yerine koşum çıktısının künyesi (`report["model"]`, `report["rerank_unit"]`) kontrol edilir. Gerekçe: kullanıcı talimatı — ölçüm zamanını deneye harcamak, scaffolding'e değil.
 - **Her koşum künyeli JSON yazar** (`data/bench/results/YYYYMMDD-HHMM-<ad>.json`), `git_commit` alanı dolu olur, commit mesajı `exp(rerank): R@5 <eski>-><yeni> <KEPT|DISCARDED> — <tek cümle>` biçimindedir.
 - **Aşırı-uyum uyarısı:** n=47 ve her karar 1-2 soruluk. Bootstrap %95 GA her raporda basılır (`ci_recall5`). Test bölmesi AYRI DURUR; bu plandaki hiçbir sonuç üretim seçimi değildir.
+
+### Kural revizyonu (2026-09-11 15:0x — E2 KOŞULMADAN ÖNCE ilan edildi)
+
+İlk ilan edilen guardrail listesi iki şartname hatası taşıyordu. Düzeltme E2'den
+itibaren geçerlidir; **E1'in hükmü GERİYE DÖNÜK DEĞİŞTİRİLMEZ** (DISCARDED
+kalır, artefaktı da öyle kaydedildi) — sonucu görüp kural değiştirmek bu
+döngünün yasakladığı şeydir. Değişiklik, sonucu HENÜZ GÖRÜLMEMİŞ deneyler için
+yapılıyor ve gerekçesiyle burada duruyor.
+
+1. **`would_abstain` yanlış kolda ölçülüyordu.** Birincil metrik P kolu (BM25
+   top-1 SABİT). P'de top-1 tanım gereği BM25'in top-1'idir, yani P'nin
+   çekimserlik davranışı yeniden sıralamayla HİÇ değişmez; rapordaki
+   `would_abstain` yalnız U kolunu (serbest) ölçer. 2026-09-03 kaydı U'yu zaten
+   "eşik sözleşmesini ihlal ediyor" diye reddetmişti. Sevk edilmeyecek bir kolun
+   yan etkisini, sevk edilecek kolun kararına veto olarak bağlamak şartname
+   hatasıdır. Bundan sonra **raporlanır, veto etmez**.
+2. **Gecikme tavan yapıyordu.** Daha derin/kapsamlı skorlama her zaman daha
+   pahalıdır; gecikmeyi veto yapmak, bütün kalite çalışmasını baştan yasaklar.
+   Üstelik repo kaydı zaten "yeniden sıralama (3,3-8,7 s) üretim isteğine
+   eklenmedi" diyor — bu kollar ZATEN offline. Gecikme bir **maliyet** olarak
+   raporlanır; veto yetkisi yalnız **üretime aday** kollarda (doc2query,
+   cascade) geçerlidir.
+
+Değişmeyen: birincil metrik P R@5, +2 soru eşiği, +1 sorunun mekanizma şartı,
+tek değişken kuralı, test bölmesinin ayrılığı.
 
 ---
 

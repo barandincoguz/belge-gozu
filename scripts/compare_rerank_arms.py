@@ -55,8 +55,8 @@ def compare(base: dict, arm: dict) -> str:
         f"çekimser     {before_abstain} -> {after_abstain}"
         + ("  GERİLEME" if after_abstain > before_abstain else "")
     )
-    if after_abstain > before_abstain:
-        regressed.append("çekimserlik")
+    # çekimserlik ve gecikme RAPORLANIR, veto ETMEZ (plan, kural revizyonu):
+    # çekimserlik yalnız U kolunda ölçülür, birincil metrik ise P kolundadır.
     print(
         f"rerank p50   {base['latency_ms']['rerank_p50']:.0f}"
         f" -> {arm['latency_ms']['rerank_p50']:.0f} ms"
