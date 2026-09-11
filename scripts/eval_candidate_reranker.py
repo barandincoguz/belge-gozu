@@ -359,7 +359,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bench", type=Path, required=True)
     parser.add_argument("--min-verification", default="human")
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--rerank-max-length", type=int, default=512)
+    parser.add_argument("--rerank-max-length", type=int, default=4096)
     parser.add_argument("--rerank-unit", choices=("page", "chunk"), default="page")
     parser.add_argument("--expansion-cache", type=Path)
     parser.add_argument("--dense-model", choices=sorted(DENSE_MODELS))

@@ -17,7 +17,21 @@ class PageReranker(Protocol):
 
 
 class TransformerPageReranker:
-    """Sabit bir Hugging Face cross-encoder ile sayfa çiftlerini skorlar."""
+    """Sabit bir Hugging Face cross-encoder ile sayfa çiftlerini skorlar.
+
+    ``max_length`` 2026-09-11'de 512'den 4096'ya çıkarıldı. 512 sessiz bir
+    ÖLÇÜM HATASIYDI: korpusun sayfa token uzunluğu medyan 617, p99 1.886, maks
+    4.022 — yani sayfaların **%80,36'sı kesiliyordu** ve ilgili madde metnin
+    ikinci yarısındaysa cross-encoder onu hiç görmüyordu (c203: BM25 havuzda
+    2. sıraya koyuyor, reranker 40'a itiyor). 4096'da kesilme %0,00.
+
+    Bedeli yalnız gerçekten uzun sayfalar öder: tokenizer ``padding=True`` ile
+    DİNAMİK dolgu yapar, yani tavanı yükseltmek kısa girdilerin maliyetini
+    değiştirmez; batch her zaman kendi en uzun örneğine kadar dolar.
+
+    Karar (proje sahibi, 2026-09-11): gecikme yerine doğruluk tercih edilir;
+    kalite kazancı ölçülebilir olduğu sürece gecikme veto değildir.
+    """
 
     def __init__(
         self,
@@ -25,7 +39,7 @@ class TransformerPageReranker:
         repo: str = BGE_RERANKER_REPO,
         revision: str = BGE_RERANKER_REVISION,
         device: str | None = None,
-        max_length: int = 512,
+        max_length: int = 4096,
         batch_size: int = 8,
     ) -> None:
         if batch_size < 1:

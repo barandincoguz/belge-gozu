@@ -20,6 +20,30 @@
 - **Her koşum künyeli JSON yazar** (`data/bench/results/YYYYMMDD-HHMM-<ad>.json`), `git_commit` alanı dolu olur, commit mesajı `exp(rerank): R@5 <eski>-><yeni> <KEPT|DISCARDED> — <tek cümle>` biçimindedir.
 - **Aşırı-uyum uyarısı:** n=47 ve her karar 1-2 soruluk. Bootstrap %95 GA her raporda basılır (`ci_recall5`). Test bölmesi AYRI DURUR; bu plandaki hiçbir sonuç üretim seçimi değildir.
 
+### Proje sahibi kararı (2026-09-11): gecikme yerine DOĞRULUK
+
+> "latency yerine doğruluğu tercih ediyoruz ... windowu 1024 hatta mümkünse max
+> örnekten biraz daha fazla yapacağız ... bir daha çok çok fazla gecikme
+> yaratmıyor ise doğruluğu ve kaliteyi tercih edeceğiz."
+
+Bu karar E1'in hükmünü **sahibinin talimatıyla** çevirir: pencere kısıtı
+kaldırılır, gecikme kalite kazancının önünde veto değildir. Kayıt disiplini
+gereği not: hüküm kuralın kendiliğinden değişmesiyle değil, AÇIK BİR KARARLA
+değişti ve E1 artefaktı DISCARDED etiketiyle depoda duruyor.
+
+**Pencere 4096 seçildi, ölçümle:** ilk örneklem (1.200 sayfa) yanıltıcıydı;
+TÜM korpusta sayfa token uzunluğu medyan **617**, p99 **1.886**, maks **4.022**.
+Kesilme oranı: 512'de **%80,36**, 1024'te %4,12, 2048'de %0,69, **4096'da
+%0,00**. Tokenizer dinamik dolgu yaptığı için (``padding=True``) tavanı
+yükseltmek kısa sayfaların maliyetini DEĞİŞTİRMEZ — bedeli yalnız gerçekten
+uzun sayfalar öder.
+
+`TransformerPageReranker.max_length` varsayılanı 512 -> **4096**. Bu bir
+davranış tercihi değil, sessiz bir ölçüm hatasının düzeltmesidir.
+
+**Taban yeniden ölçülüyor:** bundan sonraki bütün kollar `20260911-base-w4096.json`
+ile kıyaslanır; 0,7766'lık eski taban artık "kesilmiş pencere" tabanıdır.
+
 ### Kural revizyonu (2026-09-11 15:0x — E2 KOŞULMADAN ÖNCE ilan edildi)
 
 İlk ilan edilen guardrail listesi iki şartname hatası taşıyordu. Düzeltme E2'den
