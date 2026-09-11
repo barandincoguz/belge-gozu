@@ -36,11 +36,45 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from belge_gozu.config import Settings  # noqa: E402
 
+#: Pilot v1 (155 chunk) bu prompt'un ilk halini ÇÜRÜTTÜ: üretimin üçte biri
+#: "Bu maddede ne yazıyor?", "Bu maddeyi nasıl bulabilirim?" gibi İÇİ BOŞ
+#: meta-sorulardı. Böyle bir soru BM25'e hiçbir ayırt edici terim eklemez,
+#: üstelik "madde/bulabilirim" gürültüsü katar. v2 üç şeyi ekliyor: metne atıf
+#: yasağı (soru tek başına anlaşılmalı), yasaklı kelime listesi ve TEK ÖRNEK
+#: (few-shot) — bu arıza sınıfında en etkili kaldıraç örnektir.
 PROMPT = (
-    "Aşağıdaki kanun maddesini okuyan sıradan bir vatandaşın, bu maddeyi bulmak için "
-    "günlük Türkçeyle soracağı 3 farklı soru yaz. Hukuk terimi KULLANMA; maddeden "
-    "kelime kopyalama. Her satıra bir soru yaz, başka hiçbir şey yazma."
+    "Sana bir Türk kanunu maddesi vereceğim. Bu maddenin cevapladığı, SIRADAN BİR "
+    "VATANDAŞIN günlük Türkçeyle soracağı 3 farklı soru yaz.\n"
+    "KURALLAR:\n"
+    "- Soruda 'madde', 'kanun', 'fıkra', 'bent' kelimelerini KULLANMA.\n"
+    "- 'Bu madde', 'bu kanun', 'yukarıdaki metin' gibi atıf YAPMA; soru tek başına "
+    "anlaşılmalı.\n"
+    "- Somut durumu anlat: kim, ne yaptığında, ne olur.\n"
+    "- Metinden cümle kopyalama; kendi günlük kelimelerinle yaz.\n"
+    "- Her soru en fazla 15 kelime olsun.\n"
+    "ÖRNEK metin: 'İşveren, yıllık ücretli iznini kullanan işçiye izin süresine ilişkin "
+    "ücretini izne başlamasından önce peşin olarak ödemek zorundadır.'\n"
+    "ÖRNEK sorular:\n"
+    "İzne çıkmadan önce iznimin parasını alabilir miyim?\n"
+    "Patron yıllık izin ücretini izin bitince ödeyebilir mi?\n"
+    "Yıllık izin parası ne zaman ödenir?\n"
+    "Şimdi vereceğim metin için 3 soru yaz. Sadece soruları yaz, başka hiçbir şey yazma."
 )
+
+#: Kural tabanlı ön filtre (Doc2Query-- disiplininin ucuz yarısı): metne atıf
+#: yapan ya da kanun-dili iskeleti taşıyan üretim indekse GİRMEZ.
+_BANNED = ("madde", "kanun", "fıkra", "fikra", "bent", "yukarıda", "bu metin", "metinde")
+
+
+def keep_questions(questions: list[str]) -> list[str]:
+    """Ayırt edici olmayan üretimleri eler; kalanları döndürür."""
+    kept: list[str] = []
+    for question in questions:
+        folded = question.casefold()
+        if len(question) < 15 or any(word in folded for word in _BANNED):
+            continue
+        kept.append(question)
+    return kept
 
 
 def prompt_sha256() -> str:
@@ -118,6 +152,7 @@ def main() -> int:
                     {
                         "chunk_id": chunk_id,
                         "questions": questions,
+                        "kept": keep_questions(questions),
                         "model_repo": args.repo,
                         "model_revision": args.revision,
                         "prompt_sha256": prompt_sha256(),
