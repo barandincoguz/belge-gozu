@@ -30,9 +30,11 @@ jobs:
       - run: make test
       # Cevaplanamaz set makine kapısı: çapaların "korpusta yok" iddiası,
       # dilim sayıları, split türetimi ve yakın-tekrarlar (bkz.
-      # data/bench/unans_v1.README.md). Model/ağ gerektirmez.
+      # data/bench/abstention_eval_v1.README.md). Model/ağ gerektirmez.
+      # Yol 78135b0'da yeniden adlandırıldı (unans -> abstention_eval); bu adım
+      # eski adı çağırmaya devam ettiği için o günden beri kırıktı.
       - name: cevaplanamaz veri kümesi doğrulaması
-        run: uv run python scripts/validate_unans.py
+        run: uv run python scripts/validate_abstention_eval.py
 
   docker:
     runs-on: ubuntu-latest
