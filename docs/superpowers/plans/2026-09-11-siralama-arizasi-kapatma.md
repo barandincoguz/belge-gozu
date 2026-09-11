@@ -841,3 +841,50 @@ veriliyor.
 doğrulandı, yani E2 "kesme sebep değildi" diye değil, **aynı kökün daha ucuz
 ilacı** olduğu için koşulur: chunk'lar ~200 token, sayfa başına 3,19 chunk ->
 ~640 token; 1024'lük padded pencereden ucuz ve kesme yok.
+
+
+### Yeni taban — sayfa birimi, pencere 4096 (2026-09-11 15:35)
+
+Artefakt: `data/bench/results/20260911-base-w4096.json`. Eski (kesilmiş) tabana
+göre R@5 0,7766 -> **0,8085**, R@20 0,8617 -> **0,9362**. Bundan sonraki bütün
+kollar bununla kıyaslanır.
+
+### E2 — MaxP (madde chunk'ları, max toplama) @4096 · **KEPT** (15:58)
+
+Artefakt: `data/bench/results/20260911-maxp-w4096.json`
+
+| metrik | taban@4096 | MaxP@4096 |
+|---|---|---|
+| **P R@5** | 0,8085 | **0,8511** (+2 soru) |
+| %95 GA | [0,7021; 0,9149] | [0,7447; 0,9362] |
+| P R@20 | 0,9362 | 0,9574 |
+| P R@50 | 0,9574 | 0,9574 |
+| nDCG@5 | 0,5809 | 0,5914 |
+| çekimser | 6 | **4** |
+| rerank p50 | 6.087 ms | 24.742 ms |
+
+Soru düzeyinde: **kazanan 4** (c203 7->5, c207 11->5, c407 7->4, c412 10->4),
+**kaybeden 2** (c111 5->15, c406 2->11), net +2. Çekimserlik de düzeldi (6 -> 4).
+
+İlk 512-pencere tabanından kümülatif: **R@5 0,7766 -> 0,8511 (+3,5 soru,
++0,0745)**; mod B'nin üç sorusu (c203, c407, c408) ve mod A'nın ikisi (c207,
+c412) artık ilk beşte.
+
+**Kaybedenlerin mekanizması (not, henüz ölçülmedi):** MaxP çok-chunk'lı sayfaya
+daha fazla "bilet" verir — maksimum, daha çok örnekten alındığı için yukarı
+sapar. c111 ve c406 muhtemelen az chunk'lı sayfalar. Olası rafinasyon: chunk
+sayısına göre normalize etmek ya da en iyi iki chunk'ın ortalaması. Bu, E2'yi
+DÜŞÜRMEZ (net +2), sıradaki iyileştirme adayı olarak not edilir.
+
+### E3 — uzak kodlu çok-dilli reranker'lar · **KOŞULAMADI**
+
+`Alibaba-NLP/gte-multilingual-reranker-base@8215cf04...` pinli olarak yüklendi
+ama ilk forward'da çöktü: `index <çöp sayı> is out of bounds ... size 732`.
+MPS'e özgü değil — **CPU'da da aynı hata**. Yani uzak kod transformers 5.3 ile
+uyumsuz; `jinaai/jina-reranker-v2` ile aynı sınıf arıza (o da xlm_roberta'nın
+kaldırılmış private fonksiyonunu import ediyordu). trust_remote_code politikası
+açık olmasına rağmen bu iki model bu yığında koşamıyor.
+
+Kalan E3 adayı: **Qwen3-Reranker-4B** — uzak kod YOK, standart `AutoModelForCausalLM`
+üzerinde yes/no logit farkı; skorlayıcısını kendimiz yazarız (colbert_encode.py
+deseni). Taban MaxP@4096 olur, tek değişken model.
