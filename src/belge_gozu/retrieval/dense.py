@@ -98,9 +98,7 @@ class TransformerDenseEncoder:
         self.spec = spec
         self.batch_size = batch_size
         self._torch = torch_module
-        self._device = device or (
-            "mps" if self._torch.backends.mps.is_available() else "cpu"
-        )
+        self._device = device or ("mps" if self._torch.backends.mps.is_available() else "cpu")
         if tokenizer is None:
             from transformers import AutoModel, AutoTokenizer
 

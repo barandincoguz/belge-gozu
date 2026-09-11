@@ -107,8 +107,8 @@ class LateSearchResult:
 class LateInteractionChannel:
     """MaxSim ile chunk sıralar; sayfa kimlikleri döndürür."""
 
-    embeddings: np.ndarray          # (n_vector, dim) — fp16 diskte, fp32 skorlamada
-    offsets: np.ndarray             # (n_chunk + 1,) chunk sınırları
+    embeddings: np.ndarray  # (n_vector, dim) — fp16 diskte, fp32 skorlamada
+    offsets: np.ndarray  # (n_chunk + 1,) chunk sınırları
     chunk_ids: Sequence[str]
     chunk_pages: Mapping[str, tuple[str, ...]]
     encoder: QueryEncoder
@@ -121,8 +121,7 @@ class LateInteractionChannel:
         q = np.asarray(self.encoder.encode_query_vectors(query), dtype=np.float32)
         if q.ndim != 2 or q.shape[0] == 0:
             raise ValueError(
-                "sorgu vektörü matrisi boş olamaz ve (n_token, dim) biçiminde olmalı: "
-                f"{q.shape}"
+                f"sorgu vektörü matrisi boş olamaz ve (n_token, dim) biçiminde olmalı: {q.shape}"
             )
         if q.shape[1] != self.embeddings.shape[1]:
             raise ValueError(

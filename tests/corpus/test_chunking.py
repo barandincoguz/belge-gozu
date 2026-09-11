@@ -87,14 +87,12 @@ def test_extract_heading_empty_when_article_is_first_line():
 
 
 def test_find_article_markers_handles_plain_ek_gecici_mukerrer():
-    text = (
-        "Madde 19- gövde\n"
-        "EK MADDE 3- gövde\n"
-        "GEÇİCİ MADDE 5 – gövde\n"
-        "Mükerrer Madde 355- gövde\n"
-    )
+    text = "Madde 19- gövde\nEK MADDE 3- gövde\nGEÇİCİ MADDE 5 – gövde\nMükerrer Madde 355- gövde\n"
     assert [m.article_id for m in find_article_markers(text)] == [
-        "m19", "ek3", "gecici5", "mukerrer355",
+        "m19",
+        "ek3",
+        "gecici5",
+        "mukerrer355",
     ]
 
 
@@ -187,8 +185,9 @@ def test_chunk_text_is_footnote_free():
 
 
 def test_chunk_is_hashable_and_frozen():
-    c = Chunk(chunk_id="k1:m1", doc_id="k1", kind="article", heading="H", text="T",
-              page_ids=("k1:1",))
+    c = Chunk(
+        chunk_id="k1:m1", doc_id="k1", kind="article", heading="H", text="T", page_ids=("k1:1",)
+    )
     assert hash(c)
 
 

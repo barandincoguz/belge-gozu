@@ -162,9 +162,7 @@ def resume_dense_embeddings(
         if not metadata_path.exists():
             raise ValueError("dense final artefakt künyesi yok")
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        _require_dense_identity(
-            {key: metadata.get(key) for key in identity_dict}, identity_dict
-        )
+        _require_dense_identity({key: metadata.get(key) for key in identity_dict}, identity_dict)
         values = np.load(final_path)
         if values.shape[0] != row_count:
             raise ValueError("dense final satır sayısı uyuşmuyor")

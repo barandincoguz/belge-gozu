@@ -89,9 +89,7 @@ class ReviewState:
         self.prechecks: dict[str, dict] = {}
 
     def queue_ids(self) -> list[str]:
-        selected = select_review_queue(
-            self.rows, slices=set(self.slices) if self.slices else None
-        )
+        selected = select_review_queue(self.rows, slices=set(self.slices) if self.slices else None)
         return [r["question_id"] for r in selected]
 
     def build_prechecks(self) -> None:

@@ -265,7 +265,9 @@ class ColBERTEncoder:
         rows = [
             build_query_ids(
                 self.tokenizer(t, add_special_tokens=True)["input_ids"],
-                self.q_id, self.mask_id, self.cfg,
+                self.q_id,
+                self.mask_id,
+                self.cfg,
             )
             for t in texts
         ]
@@ -280,7 +282,9 @@ class ColBERTEncoder:
         vecs = self.encode_queries([text])[0]
         _, attn = build_query_ids(
             self.tokenizer(text, add_special_tokens=True)["input_ids"],
-            self.q_id, self.mask_id, self.cfg,
+            self.q_id,
+            self.mask_id,
+            self.cfg,
         )
         return vecs[content_token_mask(attn)]
 

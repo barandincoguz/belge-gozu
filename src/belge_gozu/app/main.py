@@ -273,8 +273,7 @@ def load_configured_late_channels(s: Settings, page_ids: list[str]):
     )
     if unknown_pages:
         raise IndexCompatibilityError(
-            "chunks.parquet ana indeksin bilmediği sayfalar taşıyor: "
-            f"{unknown_pages[:3]}"
+            f"chunks.parquet ana indeksin bilmediği sayfalar taşıyor: {unknown_pages[:3]}"
         )
     device = None if s.device == "auto" else s.device
     try:
@@ -350,9 +349,7 @@ def build_retriever(s: Settings, encoder) -> tuple[Retriever, IndexManifest | No
     if s.retrieval_pipeline == "hybrid":
         bm25, doc_names = load_text_channel(s.index_dir, list(index.page_ids))
         late_channels = (
-            load_configured_late_channels(s, list(index.page_ids))
-            if s.late_channel_enabled
-            else ()
+            load_configured_late_channels(s, list(index.page_ids)) if s.late_channel_enabled else ()
         )
         retriever = HybridRetriever(
             index,

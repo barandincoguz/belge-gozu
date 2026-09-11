@@ -86,9 +86,7 @@ def _metrics(rows: ArmRows) -> dict[str, object]:
         for k in KS
     }
     mrr_values = [mrr(gold, pages) for gold, pages in zip(relevant, ranked, strict=True)]
-    ndcg5_values = [
-        ndcg_at_k(gold, pages, 5) for gold, pages in zip(relevant, ranked, strict=True)
-    ]
+    ndcg5_values = [ndcg_at_k(gold, pages, 5) for gold, pages in zip(relevant, ranked, strict=True)]
     return {
         "recall_at": {k: float(np.mean(values)) for k, values in recalls.items()},
         "mrr": float(np.mean(mrr_values)),

@@ -40,9 +40,7 @@ def _summary(
         raise ValueError("semantic kapsama için cevaplanabilir soru yok")
     relevant = [gold for gold, _ in rows]
     return {
-        "coverage": float(
-            np.mean([recall_at_k(gold, pages, len(pages)) for gold, pages in rows])
-        ),
+        "coverage": float(np.mean([recall_at_k(gold, pages, len(pages)) for gold, pages in rows])),
         "recall_at": {
             k: float(np.mean([recall_at_k(gold, pages, k) for gold, pages in rows]))
             for k in (5, 20, 50)

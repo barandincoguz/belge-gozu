@@ -54,9 +54,13 @@ _ARTICLE = re.compile(
 # için var; burada arama zaten sonlu bir küme olduğundan biçimleri açıkça
 # listelemek daha ucuz ve daha az kırılgan.
 _KIND = {
-    "EK": "ek", "Ek": "ek",
-    "GEÇİCİ": "gecici", "Geçici": "gecici", "GECICI": "gecici",
-    "MÜKERRER": "mukerrer", "Mükerrer": "mukerrer",
+    "EK": "ek",
+    "Ek": "ek",
+    "GEÇİCİ": "gecici",
+    "Geçici": "gecici",
+    "GECICI": "gecici",
+    "MÜKERRER": "mukerrer",
+    "Mükerrer": "mukerrer",
 }
 
 # Dipnot BAŞI: satır başında çıplak dipnot numarası + mevzuat tarihi.

@@ -125,15 +125,11 @@ class LocalQueryExpander:
 
             torch_module = torch
         self._torch = torch_module
-        self._device = device or (
-            "mps" if self._torch.backends.mps.is_available() else "cpu"
-        )
+        self._device = device or ("mps" if self._torch.backends.mps.is_available() else "cpu")
         if tokenizer is None:
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            tokenizer = AutoTokenizer.from_pretrained(
-                EXPANDER_REPO, revision=EXPANDER_REVISION
-            )
+            tokenizer = AutoTokenizer.from_pretrained(EXPANDER_REPO, revision=EXPANDER_REVISION)
             model = AutoModelForCausalLM.from_pretrained(
                 EXPANDER_REPO,
                 revision=EXPANDER_REVISION,
@@ -156,9 +152,7 @@ class LocalQueryExpander:
         inputs = {name: value.to(self._device) for name, value in encoded.items()}
         try:
             with self._torch.inference_mode():
-                generated = self._model.generate(
-                    **inputs, do_sample=False, max_new_tokens=64
-                )
+                generated = self._model.generate(**inputs, do_sample=False, max_new_tokens=64)
         except RuntimeError as exc:
             if "out of memory" not in str(exc).casefold():
                 raise

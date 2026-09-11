@@ -46,8 +46,11 @@ PAGES = {"d:m1": ("d:1",), "d:m2": ("d:2", "d:3")}
 
 def channel(vec):
     return LateInteractionChannel(
-        embeddings=EMBS, offsets=OFFSETS, chunk_ids=CIDS,
-        chunk_pages=PAGES, encoder=FakeEncoder(vec),
+        embeddings=EMBS,
+        offsets=OFFSETS,
+        chunk_ids=CIDS,
+        chunk_pages=PAGES,
+        encoder=FakeEncoder(vec),
     )
 
 
@@ -71,7 +74,9 @@ def test_candidate_pages_expands_multi_page_chunks_in_order():
 
 def test_candidate_pages_deduplicates():
     ch = LateInteractionChannel(
-        embeddings=EMBS, offsets=OFFSETS, chunk_ids=CIDS,
+        embeddings=EMBS,
+        offsets=OFFSETS,
+        chunk_ids=CIDS,
         chunk_pages={"d:m1": ("d:1",), "d:m2": ("d:1", "d:2")},
         encoder=FakeEncoder([[0.0, 1.0]]),
     )

@@ -27,8 +27,8 @@ from belge_gozu.index.colbert_encode import (
 CFG = ColbertConfig(
     query_prefix="[unused0]",
     document_prefix="[unused1]",
-    query_length=8,          # testte kısa; üretimde 32
-    document_length=16,      # testte kısa; üretimde 512
+    query_length=8,  # testte kısa; üretimde 32
+    document_length=16,  # testte kısa; üretimde 512
     do_query_expansion=True,
     attend_to_expansion_tokens=False,
     skiplist_ids=frozenset({91, 92}),
@@ -62,9 +62,15 @@ def test_load_colbert_config_reads_the_models_own_contract():
 
 def test_load_colbert_config_rejects_unknown_marker():
     """İşaret token'ı sözlükte yoksa UNK'a düşer ve getirim sessizce çöker."""
-    raw = {"query_prefix": "[Q]", "document_prefix": "[D]", "query_length": 32,
-           "document_length": 512, "do_query_expansion": True,
-           "attend_to_expansion_tokens": False, "skiplist_words": []}
+    raw = {
+        "query_prefix": "[Q]",
+        "document_prefix": "[D]",
+        "query_length": 32,
+        "document_length": 512,
+        "do_query_expansion": True,
+        "attend_to_expansion_tokens": False,
+        "skiplist_words": [],
+    }
     with pytest.raises(ValueError, match="skiplist"):
         load_colbert_config(raw, skiplist_to_ids=None)
 

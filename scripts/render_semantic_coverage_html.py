@@ -14,7 +14,11 @@ from typing import Any
 
 
 def _coverage(arm: Mapping[str, Any], slice_name: str | None = None) -> str:
-    source = arm.get("overall", {}) if slice_name is None else arm.get("per_slice", {}).get(slice_name, {})
+    source = (
+        arm.get("overall", {})
+        if slice_name is None
+        else arm.get("per_slice", {}).get(slice_name, {})
+    )
     value = source.get("coverage")
     return "—" if value is None else f"{float(value):.4f}"
 
@@ -23,7 +27,7 @@ def _row(name: str, arm: Mapping[str, Any]) -> str:
     status = str(arm.get("status", "unknown"))
     if status != "ok":
         return (
-            f"<tr><th>{html.escape(name)}</th><td colspan=\"3\" class=\"muted\">"
+            f'<tr><th>{html.escape(name)}</th><td colspan="3" class="muted">'
             f"{html.escape(status)} — {html.escape(str(arm.get('reason', '')))}</td></tr>"
         )
     overall = _coverage(arm)
@@ -31,7 +35,7 @@ def _row(name: str, arm: Mapping[str, Any]) -> str:
     bar_width = float(arm.get("overall", {}).get("coverage", 0.0)) * 100
     return (
         f"<tr><th>{html.escape(name)}</th><td>{overall}</td><td>{paraphrase}</td>"
-        f"<td><span class=\"bar\" style=\"--value:{bar_width:.2f}%\"></span></td></tr>"
+        f'<td><span class="bar" style="--value:{bar_width:.2f}%"></span></td></tr>'
     )
 
 
@@ -52,7 +56,7 @@ def _diagnostics(arms: Mapping[str, Any]) -> str:
                 f"<td><code>{html.escape(pool)}</code></td>"
                 "</tr>"
             )
-    return "".join(rows) or "<tr><td colspan=\"4\" class=\"muted\">Tanı satırı yok.</td></tr>"
+    return "".join(rows) or '<tr><td colspan="4" class="muted">Tanı satırı yok.</td></tr>'
 
 
 def render_report(report: Mapping[str, Any]) -> str:

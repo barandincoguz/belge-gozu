@@ -300,9 +300,7 @@ def apply_decision(raw_row: dict, letter: str, note: str, by: str) -> dict:
     return updated
 
 
-def select_review_queue(
-    raw_rows: list[dict], slices: set[str] | None = None
-) -> list[dict]:
+def select_review_queue(raw_rows: list[dict], slices: set[str] | None = None) -> list[dict]:
     """İnsan doğrulaması BEKLEYEN ham satırlar (giriş sırası korunur).
 
     Ölçüt tek: `verification_kind != "human"`. `verification_status` bilerek

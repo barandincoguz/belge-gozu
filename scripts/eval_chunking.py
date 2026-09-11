@@ -52,8 +52,14 @@ def page_ranking_from_chunks(
     return out
 
 
-def evaluate(name: str, ids: list[str], texts: list[str], rows: list[dict],
-             doc_names, chunk_pages: dict[str, tuple[str, ...]] | None) -> dict:
+def evaluate(
+    name: str,
+    ids: list[str],
+    texts: list[str],
+    rows: list[dict],
+    doc_names,
+    chunk_pages: dict[str, tuple[str, ...]] | None,
+) -> dict:
     bm = BM25Index(ids, texts)
     per_slice: dict[str, list[dict]] = defaultdict(list)
     overall: list[dict] = []
@@ -99,27 +105,45 @@ def main() -> int:
 
     arms = [
         evaluate("A  sayfa (taban)", page_ids, list(df.text), rows, doc_names, None),
-        evaluate("B  madde chunk'ı", [c.chunk_id for c in chunks],
-                 [c.text for c in chunks], rows, doc_names, cmap),
-        evaluate("B+ chunk + başlık", [c.chunk_id for c in chunks],
-                 [(f"{c.heading}\n{c.text}" if c.heading else c.text) for c in chunks],
-                 rows, doc_names, cmap),
+        evaluate(
+            "B  madde chunk'ı",
+            [c.chunk_id for c in chunks],
+            [c.text for c in chunks],
+            rows,
+            doc_names,
+            cmap,
+        ),
+        evaluate(
+            "B+ chunk + başlık",
+            [c.chunk_id for c in chunks],
+            [(f"{c.heading}\n{c.text}" if c.heading else c.text) for c in chunks],
+            rows,
+            doc_names,
+            cmap,
+        ),
     ]
 
-    print(f"{'kol':22}{'birim':>8}" + "".join(f"{'R@'+str(k):>9}" for k in KS))
+    print(f"{'kol':22}{'birim':>8}" + "".join(f"{'R@' + str(k):>9}" for k in KS))
     for a in arms:
-        print(f"{a['name']:22}{a['chunks']:>8}"
-              + "".join(f"{a['overall'][f'R@{k}']:>9.4f}" for k in KS))
+        print(
+            f"{a['name']:22}{a['chunks']:>8}"
+            + "".join(f"{a['overall'][f'R@{k}']:>9.4f}" for k in KS)
+        )
     base = arms[0]["overall"]
     for a in arms[1:]:
-        print(f"{'  fark (A->' + a['name'][:2] + ')':22}{'':>8}"
-              + "".join(f"{a['overall'][f'R@{k}'] - base[f'R@{k}']:>+9.4f}" for k in KS))
+        print(
+            f"{'  fark (A->' + a['name'][:2] + ')':22}{'':>8}"
+            + "".join(f"{a['overall'][f'R@{k}'] - base[f'R@{k}']:>+9.4f}" for k in KS)
+        )
 
     print(f"\n{'dilim':28}" + "".join(f"{n:>12}" for n in ("A R@5", "B R@5", "B+ R@5", "n")))
     for sl in sorted(arms[0]["per_slice"]):
         vals = [a["per_slice"].get(sl, {}).get("R@5", float("nan")) for a in arms]
-        print(f"{sl:28}" + "".join(f"{v:>12.4f}" for v in vals)
-              + f"{arms[0]['per_slice'][sl]['n']:>12}")
+        print(
+            f"{sl:28}"
+            + "".join(f"{v:>12.4f}" for v in vals)
+            + f"{arms[0]['per_slice'][sl]['n']:>12}"
+        )
 
     out = REPO_ROOT / "data/bench/results/chunking-arms.json"
     out.write_text(json.dumps(arms, ensure_ascii=False, indent=1))
