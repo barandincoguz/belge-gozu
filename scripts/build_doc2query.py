@@ -88,6 +88,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--repo", default="Qwen/Qwen3-8B")
     parser.add_argument("--revision", default="b968826d9c46dd6066d109eabc6255188de91218")
     parser.add_argument("--max-new-tokens", type=int, default=96)
+    parser.add_argument("--batch-size", type=int, default=8)
     return parser.parse_args()
 
 
@@ -125,46 +126,65 @@ def main() -> int:
     ]
     print(f"{len(pending)} chunk üretilecek", flush=True)
 
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
     started = time.perf_counter()
     out.parent.mkdir(parents=True, exist_ok=True)
+    done_count = 0
+    # Toplu üretim: tek tek generate 0,39 chunk/s veriyordu (10.531 chunk = 7,5 saat).
+    # Tokenizer zaten sol dolgulu, yani tamamlama her satırda AYNI indekste başlar.
     with out.open("a", encoding="utf-8") as handle:
-        for index, (chunk_id, text) in enumerate(pending, start=1):
-            messages = [
-                {"role": "system", "content": PROMPT},
-                {"role": "user", "content": text[:4000]},
+        for start in range(0, len(pending), args.batch_size):
+            group = pending[start : start + args.batch_size]
+            prompts = [
+                tokenizer.apply_chat_template(
+                    [
+                        {"role": "system", "content": PROMPT},
+                        {"role": "user", "content": text[:4000]},
+                    ],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+                for _, text in group
             ]
-            prompt = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
-            )
-            encoded = tokenizer(prompt, return_tensors="pt")
+            encoded = tokenizer(prompts, return_tensors="pt", padding=True)
             batch = {name: value.to("mps") for name, value in encoded.items()}
             with torch.inference_mode():
                 generated = model.generate(
-                    **batch, do_sample=False, max_new_tokens=args.max_new_tokens
+                    **batch,
+                    do_sample=False,
+                    max_new_tokens=args.max_new_tokens,
+                    pad_token_id=tokenizer.pad_token_id,
                 )
-            decoded = tokenizer.decode(
-                generated[0, batch["input_ids"].shape[1] :], skip_special_tokens=True
-            )
-            questions = [line.strip(" -•\t0123456789.") for line in decoded.splitlines()]
-            questions = [question for question in questions if len(question) > 10][:3]
-            handle.write(
-                json.dumps(
-                    {
-                        "chunk_id": chunk_id,
-                        "questions": questions,
-                        "kept": keep_questions(questions),
-                        "model_repo": args.repo,
-                        "model_revision": args.revision,
-                        "prompt_sha256": prompt_sha256(),
-                    },
-                    ensure_ascii=False,
+            width = batch["input_ids"].shape[1]
+            for offset, (chunk_id, _) in enumerate(group):
+                decoded = tokenizer.decode(generated[offset, width:], skip_special_tokens=True)
+                questions = [line.strip(" -•\t0123456789.") for line in decoded.splitlines()]
+                questions = [question for question in questions if len(question) > 10][:3]
+                handle.write(
+                    json.dumps(
+                        {
+                            "chunk_id": chunk_id,
+                            "questions": questions,
+                            "kept": keep_questions(questions),
+                            "model_repo": args.repo,
+                            "model_revision": args.revision,
+                            "prompt_sha256": prompt_sha256(),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
                 )
-                + "\n"
-            )
             handle.flush()
-            if index % 25 == 0:
-                rate = index / (time.perf_counter() - started)
-                print(f"  {index}/{len(pending)}  {rate:.2f} chunk/s", flush=True)
+            done_count += len(group)
+            rate = done_count / (time.perf_counter() - started)
+            remaining = (len(pending) - done_count) / rate / 60 if rate else 0
+            print(
+                f"  {done_count}/{len(pending)}  {rate:.2f} chunk/s  kalan ~{remaining:.0f} dk",
+                flush=True,
+            )
     print(f"-> {out}", flush=True)
     return 0
 
