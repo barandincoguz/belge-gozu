@@ -70,6 +70,13 @@ uv run pyright
 git diff --check
 ```
 
+Yerel pyright torch'lu ortamda koşar, CI ise yalnız `dev` extra'sını kurar:
+`ml` paketlerini (torch/transformers/safetensors) TEMBEL import eden her satır
+`# type: ignore[import-not-found]` taşımalıdır, yoksa CI'da pyright kırılır ve
+bu yerelde GÖRÜNMEZ. Aynı sınıfı yerelde yakalamak için:
+`pyright --pythonpath /opt/homebrew/bin/python3.11` (torch'suz yorumlayıcı;
+yalnız `Import "torch|transformers|safetensors"` satırlarına bakın).
+
 Ortak lab ortamında (`make lab-setup`, bkz. README) aynı kapılar `uv run`
 olmadan koşar; araçlar `uv.lock` sürümlerine sabitlidir:
 

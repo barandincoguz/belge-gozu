@@ -193,10 +193,10 @@ class ColBERTEncoder:
     ) -> None:
         import json as _json
 
-        import torch
+        import torch  # type: ignore[import-not-found]
         from huggingface_hub import snapshot_download
-        from safetensors.torch import load_file
-        from transformers import AutoModel, AutoTokenizer
+        from safetensors.torch import load_file  # type: ignore[import-not-found]
+        from transformers import AutoModel, AutoTokenizer  # type: ignore[import-not-found]
 
         path = snapshot_download(repo, revision=revision)
         self.path = path

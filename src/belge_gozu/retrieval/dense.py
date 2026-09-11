@@ -61,7 +61,7 @@ def format_query(spec: DenseModelSpec, question: str) -> str:
 
 def last_token_pool(last_hidden_states: object, attention_mask: object) -> object:
     """Qwen3 kartındaki sağ/sol dolguyla uyumlu son-token pooling."""
-    import torch
+    import torch  # type: ignore[import-not-found]
 
     states = torch.as_tensor(last_hidden_states)
     mask = torch.as_tensor(attention_mask, device=states.device)
@@ -92,7 +92,7 @@ class TransformerDenseEncoder:
             raise ValueError("dense tokenizer ve model birlikte verilmelidir")
 
         if torch_module is None:
-            import torch
+            import torch  # type: ignore[import-not-found]
 
             torch_module = torch
         self.spec = spec
@@ -100,7 +100,7 @@ class TransformerDenseEncoder:
         self._torch = torch_module
         self._device = device or ("mps" if self._torch.backends.mps.is_available() else "cpu")
         if tokenizer is None:
-            from transformers import AutoModel, AutoTokenizer
+            from transformers import AutoModel, AutoTokenizer  # type: ignore[import-not-found]
 
             tokenizer = AutoTokenizer.from_pretrained(
                 spec.repo, revision=spec.revision, padding_side="left"

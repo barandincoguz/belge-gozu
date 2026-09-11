@@ -121,13 +121,16 @@ class LocalQueryExpander:
         if (tokenizer is None) != (model is None):
             raise ValueError("genişletme tokenizer ve model birlikte verilmelidir")
         if torch_module is None:
-            import torch
+            import torch  # type: ignore[import-not-found]
 
             torch_module = torch
         self._torch = torch_module
         self._device = device or ("mps" if self._torch.backends.mps.is_available() else "cpu")
         if tokenizer is None:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            from transformers import (  # type: ignore[import-not-found]
+                AutoModelForCausalLM,
+                AutoTokenizer,
+            )
 
             tokenizer = AutoTokenizer.from_pretrained(EXPANDER_REPO, revision=EXPANDER_REVISION)
             model = AutoModelForCausalLM.from_pretrained(

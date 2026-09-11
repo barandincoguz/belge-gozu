@@ -33,8 +33,11 @@ class TransformerPageReranker:
         if max_length < 1:
             raise ValueError("max_length en az 1 olmalı")
 
-        import torch
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        import torch  # type: ignore[import-not-found]
+        from transformers import (  # type: ignore[import-not-found]
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+        )
 
         self.repo = repo
         self.revision = revision
