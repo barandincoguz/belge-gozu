@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, TypedDict
 
@@ -127,6 +127,56 @@ def _pool_coverage(rows: ArmRows) -> dict[str, object]:
     }
 
 
+def _chunk_texts_by_page(index_dir: Path, page_ids: Sequence[str]) -> dict[str, list[str]]:
+    """Sayfa -> o sayfaya değen madde chunk'larının metinleri (sayfa başına ort. 3,19)."""
+    chunks = pd.read_parquet(index_dir / "chunks.parquet")
+    out: dict[str, list[str]] = {page_id: [] for page_id in page_ids}
+    for text, pages in zip(chunks["text"], chunks["page_ids"], strict=True):
+        for page_id in pages:
+            key = str(page_id)
+            if key in out:
+                out[key].append(str(text))
+    return out
+
+
+class _MaxPScorer:
+    """Sayfayı madde chunk'larıyla skorlar; sayfa skoru = chunk'ların MAKSİMUMU.
+
+    NEDEN. Sayfa token uzunluğu medyan 552, reranker penceresi 512: sayfaların
+    %67,8'i kesiliyor ve ilgili madde metnin ikinci yarısındaysa cross-encoder
+    onu HİÇ görmüyor (2026-09-11 ölçümü; c203 havuz 2 -> rerank 40). Pencereyi
+    1024'e açmak bu arızayı düzeltti ama gecikmeyi %72 artırdı. MaxP aynı kökü
+    daha ucuza kapatır: chunk'lar kısa, kesme yok, ve alaka zaten madde
+    kapsamlıdır — sayfa düzeyinde skorlamak sinyali komşu maddelerle seyreltir.
+
+    Chunk'ı olmayan sayfa (saf tablo/görsel) sayfa metnine düşer; aksi halde
+    -inf alıp havuzdan sessizce düşerdi.
+    """
+
+    def __init__(
+        self,
+        reranker: PageReranker,
+        chunk_texts: Mapping[str, list[str]],
+        page_texts: Mapping[str, str],
+    ) -> None:
+        self._reranker = reranker
+        self._chunk_texts = chunk_texts
+        self._page_texts = page_texts
+
+    def __call__(self, query: str, pages: Sequence[str]) -> np.ndarray:
+        flat: list[str] = []
+        owner: list[int] = []
+        for index, page_id in enumerate(pages):
+            texts = self._chunk_texts.get(page_id) or [self._page_texts[page_id]]
+            flat.extend(texts)
+            owner.extend([index] * len(texts))
+        raw = np.asarray(self._reranker.score(query, flat), dtype=np.float64)
+        scores = np.full(len(pages), -np.inf, dtype=np.float64)
+        for index, value in zip(owner, raw.tolist(), strict=True):
+            scores[index] = max(scores[index], value)
+        return scores
+
+
 class DenseQueryEncoder(Protocol):
     def encode_queries(self, texts: Sequence[str]) -> np.ndarray: ...
 
@@ -173,6 +223,7 @@ def run_comparison(
     threshold: float = 10.6,
     candidate_limit: int = CANDIDATE_LIMIT,
     query_for_channels: Mapping[str, str] | None = None,
+    page_scorer: Callable[[str, Sequence[str]], np.ndarray] | None = None,
 ) -> dict[str, object]:
     """Tek skor füzyonu yapmadan P/U sıralamalarını ölçer; dosya/model yüklemez.
 
@@ -218,7 +269,13 @@ def run_comparison(
 
         started = time.perf_counter()
         comparison = compare_rerankings(
-            question.question, pool, page_texts, bm25_scores, reranker, threshold=threshold
+            question.question,
+            pool,
+            page_texts,
+            bm25_scores,
+            reranker,
+            threshold=threshold,
+            page_scorer=page_scorer,
         )
         rerank_ms.append((time.perf_counter() - started) * 1000)
         relevant = set(question.gold_page_ids)
@@ -302,6 +359,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bench", type=Path, required=True)
     parser.add_argument("--min-verification", default="human")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--rerank-max-length", type=int, default=512)
+    parser.add_argument("--rerank-unit", choices=("page", "chunk"), default="page")
     parser.add_argument("--expansion-cache", type=Path)
     parser.add_argument("--dense-model", choices=sorted(DENSE_MODELS))
     parser.add_argument("--dense-artifacts", type=Path, default=Path("data/bench/dense-artifacts"))
@@ -349,7 +408,7 @@ def main() -> int:
             "model": {"repo": spec.repo, "revision": spec.revision},
             "artifact": _provenance(artifact_dir / "embeddings.npy"),
         }
-    reranker = TransformerPageReranker(device=device)
+    reranker = TransformerPageReranker(device=device, max_length=args.rerank_max_length)
     questions = load_bench(args.bench, only_verified=True, min_verification=args.min_verification)
     answerable_questions = sum(question.answerable for question in questions)
     expansion_provenance: dict[str, object] | None = None
@@ -376,6 +435,9 @@ def main() -> int:
             "expanded_questions": len(query_for_channels),
             "questions_without_expansion": missing,
         }
+    page_scorer = None
+    if args.rerank_unit == "chunk":
+        page_scorer = _MaxPScorer(reranker, _chunk_texts_by_page(index_dir, page_ids), page_texts)
     report = run_comparison(
         questions=questions,
         text=text,
@@ -384,6 +446,7 @@ def main() -> int:
         late_channels=late_channels,
         reranker=reranker,
         query_for_channels=query_for_channels,
+        page_scorer=page_scorer,
     )
     manifest = read_manifest(index_dir)
     report.update(
@@ -398,6 +461,7 @@ def main() -> int:
                 "page_texts": _provenance(index_dir / "page_texts.parquet"),
                 "chunks": _provenance(index_dir / "chunks.parquet"),
             },
+            "rerank_unit": args.rerank_unit,
             "dense": dense_provenance,
             "expansion": expansion_provenance,
             "model": {

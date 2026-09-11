@@ -1,6 +1,6 @@
 """Aday havuzu için offline, skor-füzyonsuz rerank karşılaştırması."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -119,11 +119,19 @@ def compare_rerankings(
     reranker: PageReranker,
     *,
     threshold: float = 10.6,
+    page_scorer: Callable[[str, Sequence[str]], np.ndarray] | None = None,
 ) -> RerankComparison:
-    """Aynı havuzun P (BM25 sabit) ve U (tam serbest) sıralamasını üretir."""
+    """Aynı havuzun P (BM25 sabit) ve U (tam serbest) sıralamasını üretir.
+
+    ``page_scorer`` verilirse skorlama birimi sayfa metni DEĞİLDİR: çağrılan
+    fonksiyon sayfa kimliklerini alır ve kendi birimiyle (ör. madde chunk'ları,
+    MaxP) sayfa skoru üretir. Hizalama guard'ı yine koşar — skorlama birimi
+    değişse de havuzun sayfa/metin/BM25 üçlüsü hizalı olmak zorundadır.
+    """
     pages = list(pool)
     documents = _require_aligned_pages(pages, page_texts, bm25_scores)
-    scores = _validate_scores(reranker.score(query, documents), len(pages))
+    raw = reranker.score(query, documents) if page_scorer is None else page_scorer(query, pages)
+    scores = _validate_scores(raw, len(pages))
     unpinned = tuple(pages[int(i)] for i in np.argsort(-scores, kind="stable"))
     bm25_top1 = pages[0]
     pinned = (bm25_top1, *(page_id for page_id in unpinned if page_id != bm25_top1))

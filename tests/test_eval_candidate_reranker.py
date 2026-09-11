@@ -11,6 +11,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from eval_candidate_reranker import (  # pyright: ignore[reportMissingImports]
     _DenseCandidateChannel,
+    _MaxPScorer,
     run_comparison,
 )
 
@@ -183,3 +184,30 @@ def test_diagnostics_carry_the_gold_rank_in_every_ranking():
     assert expanded["pool"] == 4
     # sahte reranker havuz sırasını koruyor: gold yeniden sıralamada da 4'üncü
     assert expanded["pinned"] == 4
+
+
+class CountingReranker:
+    """Skorladığı belgeleri kaydeder; MaxP'nin chunk gönderdiğini kanıtlar."""
+
+    def __init__(self, scores: dict[str, float]) -> None:
+        self.scores = scores
+        self.seen: list[str] = []
+
+    def score(self, query: str, documents: list[str]) -> np.ndarray:
+        self.seen.extend(documents)
+        return np.array([self.scores[document] for document in documents])
+
+
+def test_maxp_scores_chunks_and_takes_the_page_maximum():
+    """Sayfa skoru chunk'ların MAKSİMUMU; chunk'sız sayfa sayfa metnine düşer."""
+    reranker = CountingReranker({"m1": 0.1, "m2": 0.9, "tablo sayfası": 0.5})
+    scorer = _MaxPScorer(
+        reranker,
+        {"a1": ["m1", "m2"], "b1": []},
+        {"a1": "a1 sayfa metni", "b1": "tablo sayfası"},
+    )
+
+    scores = scorer("soru", ["a1", "b1"])
+
+    assert scores.tolist() == [0.9, 0.5]
+    assert reranker.seen == ["m1", "m2", "tablo sayfası"], "sayfa metni DEĞİL chunk skorlanır"

@@ -749,3 +749,46 @@ Kapı: sorular günlük dilde mi, maddeden kelime kopyalamış mı, Türkçe mi?
 - **Kanıt kapsaması:** mod A (4 soru) → Görev 2/3/6; mod B (3 soru) → Görev 1/2; seyreltme (c308) → Görev 4; kapsama (c206/c404) → zaten ölçüldü, dense+genişletme; kayıt boşluğu üretim yolu → Görev 5; eşik sözleşmesi → Görev 7. Açık kalan yok.
 - **Placeholder taraması:** her adımda çalıştırılabilir kod veya tam komut var; "uygun hata yönetimi ekle" türü ifade yok. Görev 6 adımları kasten üst düzey — açılma koşulu sağlanmadan detaylandırmak israf olur ve o koşul Görev 3'ün sonucuna bağlı.
 - **Tip tutarlılığı:** `page_scorer: Callable[[str, Sequence[str]], np.ndarray] | None` üç yerde aynı imzayla geçiyor (`compare_rerankings`, `run_comparison`, `_MaxPScorer.__call__`). `--rerank-max-length` Görev 1'de tanımlanıp Görev 2-5'te kullanılıyor. `chunk_questions.jsonl` şeması Görev 5 Adım 1'de tanımlanıp Adım 4'te aynı alan adlarıyla okunuyor.
+
+
+---
+
+## Koşum kaydı
+
+### E1 — pencere 512 -> 1024 · **DISCARDED** (2026-09-11 14:48)
+
+Artefakt: `data/bench/results/20260911-rerank-w1024.json`
+
+| metrik | taban | E1 |
+|---|---|---|
+| P R@5 | 0,7766 | **0,8085** (+1 soru) |
+| P R@20 | 0,8617 | **0,9362** (+3,5 soru) |
+| P R@50 | 0,9468 | 0,9574 |
+| nDCG@5 | 0,5709 | 0,5809 |
+| çekimser | 5 | **6** (gerileme) |
+| rerank p50 | 3.241 ms | **5.577 ms** (+%72) |
+
+**Kök neden DOĞRULANDI.** Mod B'nin üç sorusu da fırladı: c203 **40 -> 7**,
+c407 **23 -> 6**, c408 **27 -> 3** (tek gerçek ilk-beş kazancı). Kesme gerçekten
+reranker'ı kör ediyormuş.
+
+**Ama ilaç pahalı ve yan etkili.** Gecikme %72 arttı; çekimserlik 5 -> 6 çünkü
+c412'nin U kolundaki top-1'i `k213:87` (BM25 16,2) yerine `k5271:13` (BM25 8,2)
+oldu — yeni top-1 10,6 eşiğinin altında. Ayrıca bazı sorular geriledi
+(c405 8 -> 17, c411 23 -> 41, c207 7 -> 11): daha uzun pencere her soruda daha
+iyi skor demek değil.
+
+İlan edilmiş kural uygulandı: +1 soru YALNIZ hiçbir guardrail gerilemezse
+tutulur; iki guardrail geriledi -> **DISCARDED**. Kural sonuç görüldükten sonra
+DEĞİŞTİRİLMEDİ. `--rerank-max-length` bayrağı depoda kalıyor (varsayılan 512,
+davranış aynı) çünkü E2 ile birlikte yeniden denenecek.
+
+**Yan çıktı — ölçüm aracında hata bulundu ve düzeltildi.** `compare_rerank_arms.py`
+ilk-beş İÇİNDEKİ yer değiştirmeleri (2 -> 3, 4 -> 5) "KAYIP" diye etiketliyordu;
+altı deneyin kararını yanıltacaktı. Etiket artık yalnız ilk beşten ÇIKAN soruya
+veriliyor.
+
+**Sonraki adım (karar ağacının gerekçesi değişti):** E1 düştü ama hipotez
+doğrulandı, yani E2 "kesme sebep değildi" diye değil, **aynı kökün daha ucuz
+ilacı** olduğu için koşulur: chunk'lar ~200 token, sayfa başına 3,19 chunk ->
+~640 token; 1024'lük padded pencereden ucuz ve kesme yok.
