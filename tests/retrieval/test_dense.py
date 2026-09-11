@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-import torch
 
 from belge_gozu.retrieval.dense import (
     DENSE_MODELS,
@@ -11,6 +10,8 @@ from belge_gozu.retrieval.dense import (
     last_token_pool,
     model_load_kwargs,
 )
+
+torch = pytest.importorskip("torch")  # CI `ml` extra'sını kurmaz: orada atlanır
 
 
 def test_dense_index_returns_stable_descending_page_ids() -> None:

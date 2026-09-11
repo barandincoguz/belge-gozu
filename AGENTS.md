@@ -72,10 +72,20 @@ git diff --check
 
 Yerel pyright torch'lu ortamda koşar, CI ise yalnız `dev` extra'sını kurar:
 `ml` paketlerini (torch/transformers/safetensors) TEMBEL import eden her satır
-`# type: ignore[import-not-found]` taşımalıdır, yoksa CI'da pyright kırılır ve
-bu yerelde GÖRÜNMEZ. Aynı sınıfı yerelde yakalamak için:
-`pyright --pythonpath /opt/homebrew/bin/python3.11` (torch'suz yorumlayıcı;
-yalnız `Import "torch|transformers|safetensors"` satırlarına bakın).
+`# type: ignore[import-not-found]` taşımalıdır ve `ml` gerektiren test modülü
+`torch = pytest.importorskip("torch")` ile açılmalıdır (modül düzeyinde
+`import torch` CI'da TOPLAMA aşamasını kırar; `slow` işareti kurtarmaz, çünkü
+deselect toplamadan sonra olur). İki arıza da yerel kapılarda GÖRÜNMEZ — ortak
+lab venv'i torch taşıyor. Yerelde CI'ı taklit etmek için:
+
+```bash
+pyright --pythonpath /opt/homebrew/bin/python3.11   # torch'suz yorumlayıcı
+# ml paketlerini gölgeleyip testleri koş:
+d=$(mktemp -d); for m in torch transformers safetensors colpali_engine \
+  sentence_transformers accelerate; do
+  printf 'raise ModuleNotFoundError("No module named %s")\n' "'$m'" > "$d/$m.py"; done
+PYTHONPATH=$d pytest tests -q -m "not slow"
+```
 
 Ortak lab ortamında (`make lab-setup`, bkz. README) aynı kapılar `uv run`
 olmadan koşar; araçlar `uv.lock` sürümlerine sabitlidir:

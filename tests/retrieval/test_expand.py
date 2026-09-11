@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-import torch
 
 from belge_gozu.retrieval.expand import (
     EXPANDER_REVISION,
@@ -12,6 +11,8 @@ from belge_gozu.retrieval.expand import (
     validate_expansion,
     write_expansion_cache,
 )
+
+torch = pytest.importorskip("torch")  # CI `ml` extra'sını kurmaz: orada atlanır
 
 
 def test_expansion_rejects_empty_and_identity_text() -> None:
