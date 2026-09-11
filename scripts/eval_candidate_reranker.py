@@ -36,6 +36,10 @@ from belge_gozu.retrieval.dense import (  # noqa: E402
     DensePageIndex,
     TransformerDenseEncoder,
 )
+from belge_gozu.retrieval.expand import (  # noqa: E402
+    load_expansion_cache,
+    question_fingerprint,
+)
 from belge_gozu.retrieval.hybrid import load_page_texts, load_text_channel  # noqa: E402
 from belge_gozu.retrieval.late import load_late_channel  # noqa: E402
 from belge_gozu.retrieval.rerank import (  # noqa: E402
@@ -159,8 +163,16 @@ def run_comparison(
     reranker: PageReranker,
     threshold: float = 10.6,
     candidate_limit: int = CANDIDATE_LIMIT,
+    query_for_channels: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
-    """Tek skor füzyonu yapmadan P/U sıralamalarını ölçer; dosya/model yüklemez."""
+    """Tek skor füzyonu yapmadan P/U sıralamalarını ölçer; dosya/model yüklemez.
+
+    ``query_for_channels`` (question_id -> sorgu) verilirse kanallar İKİNCİ kez
+    o sorguyla da sorgulanır ve adaylar havuza EKLENİR; özgün sorgunun adayları
+    her zaman önce gelir. Yeniden sıralama ve BM25 eşik tanısı DEĞİŞMEZ: ikisi
+    de ÖZGÜN soruyu kullanır. Kural program-p2'den: yeniden yazım ek kanaldır,
+    orijinali ikame edemez — burada da ikame etmiyor, yalnız havuzu besliyor.
+    """
     answerable = [question for question in questions if question.answerable]
     if not answerable:
         raise ValueError("rerank karşılaştırması için cevaplanabilir soru yok")
@@ -181,6 +193,18 @@ def run_comparison(
         late_pages = [
             channel.candidate_pages(question.question, candidate_limit) for channel in late_channels
         ]
+        expanded_query = (query_for_channels or {}).get(question.question_id)
+        if expanded_query is not None:
+            expanded_scores = np.asarray(text.scores(expanded_query), dtype=np.float64)
+            expanded_order = [text.page_ids[int(index)] for index in rank_order(expanded_scores)]
+            late_pages = [
+                *late_pages,
+                route_window(expanded_order, routed_docs(expanded_query, doc_names)),
+                *(
+                    channel.candidate_pages(expanded_query, candidate_limit)
+                    for channel in late_channels
+                ),
+            ]
         pool = build_candidate_pool(bm25_routed, late_pages, limit=candidate_limit)
 
         started = time.perf_counter()
@@ -264,6 +288,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bench", type=Path, required=True)
     parser.add_argument("--min-verification", default="human")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--expansion-cache", type=Path)
     parser.add_argument("--dense-model", choices=sorted(DENSE_MODELS))
     parser.add_argument("--dense-artifacts", type=Path, default=Path("data/bench/dense-artifacts"))
     parser.add_argument("--final", action="store_true")
@@ -313,6 +338,30 @@ def main() -> int:
     reranker = TransformerPageReranker(device=device)
     questions = load_bench(args.bench, only_verified=True, min_verification=args.min_verification)
     answerable_questions = sum(question.answerable for question in questions)
+    expansion_provenance: dict[str, object] | None = None
+    query_for_channels: dict[str, str] | None = None
+    if args.expansion_cache:
+        records = load_expansion_cache(args.expansion_cache)
+        query_for_channels = {}
+        for question in questions:
+            record = records.get(question.question_id)
+            if record is None:
+                continue
+            if record.question_sha256 != question_fingerprint(question.question):
+                raise ValueError(
+                    f"genişletme önbellek soru hash'i uyuşmuyor: {question.question_id}"
+                )
+            query_for_channels[question.question_id] = record.expansion
+        missing = [
+            question.question_id
+            for question in questions
+            if question.answerable and question.question_id not in query_for_channels
+        ]
+        expansion_provenance = {
+            "cache": _provenance(args.expansion_cache),
+            "expanded_questions": len(query_for_channels),
+            "questions_without_expansion": missing,
+        }
     report = run_comparison(
         questions=questions,
         text=text,
@@ -320,6 +369,7 @@ def main() -> int:
         page_texts=page_texts,
         late_channels=late_channels,
         reranker=reranker,
+        query_for_channels=query_for_channels,
     )
     manifest = read_manifest(index_dir)
     report.update(
@@ -335,6 +385,7 @@ def main() -> int:
                 "chunks": _provenance(index_dir / "chunks.parquet"),
             },
             "dense": dense_provenance,
+            "expansion": expansion_provenance,
             "model": {
                 "repo": reranker.repo,
                 "revision": reranker.revision,

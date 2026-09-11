@@ -105,3 +105,66 @@ def test_dense_channel_pages_enter_the_reranked_pool():
     pool = report["unpinned"]["diagnostics"][0]["candidate_pool"]
     assert set(pool) == {"b1", "a1", "a2"}
     assert report["pinned"]["overall"]["recall_at"][5] == 1.0
+
+
+class TwoQueryText:
+    """Özgün ve genişletilmiş sorguya FARKLI skor veren metin kanalı."""
+
+    page_ids = ["b1", "a1", "a2", "x9"]
+
+    def scores(self, query: str) -> np.ndarray:
+        if query == "soru":
+            return np.array([12.0, 7.0, 11.0, 0.0])
+        assert query == "kanun dilinde soru"
+        return np.array([0.0, 1.0, 2.0, 9.0])
+
+
+class TwoQueryLate:
+    """Her iki sorguyu da kabul eder; geç kanal İKİ kez sorgulanır."""
+
+    def __init__(self, pages: list[str]) -> None:
+        self.pages = pages
+        self.queries: list[str] = []
+
+    def candidate_pages(self, query: str, limit: int) -> list[str]:
+        self.queries.append(query)
+        return self.pages[:limit]
+
+
+class OriginalOnlyReranker:
+    """Yeniden sıralamanın ÖZGÜN soruyla yapıldığını sözleşme olarak kilitler."""
+
+    def score(self, query: str, documents: list[str]) -> np.ndarray:
+        assert query == "soru"
+        return np.array([float(len(documents) - index) for index in range(len(documents))])
+
+
+def _run_with(query_for_channels: dict[str, str] | None, late: TwoQueryLate | None = None) -> dict:
+    late = late or TwoQueryLate(["a1"])
+    return run_comparison(
+        questions=[Question(gold_page_ids=["x9"])],
+        text=TwoQueryText(),
+        doc_names={},
+        page_texts={"b1": "bm25", "a1": "orta", "a2": "iyi", "x9": "kanun dili"},
+        late_channels=[late],
+        reranker=OriginalOnlyReranker(),
+        candidate_limit=2,
+        query_for_channels=query_for_channels,
+    )
+
+
+def test_expansion_only_pages_are_absent_without_the_expanded_query():
+    pool = _run_with(None)["unpinned"]["diagnostics"][0]["candidate_pool"]
+
+    assert "x9" not in pool
+
+
+def test_expanded_query_feeds_the_pool_while_reranking_stays_on_the_original():
+    late = TwoQueryLate(["a1"])
+    report = _run_with({"q1": "kanun dilinde soru"}, late)
+
+    assert late.queries == ["soru", "kanun dilinde soru"]
+    pool = report["unpinned"]["diagnostics"][0]["candidate_pool"]
+    assert "x9" in pool
+    assert pool[:3] == ["b1", "a2", "a1"], "özgün sorgunun adayları ÖNCE gelir"
+    assert report["pinned"]["overall"]["recall_at"][5] == 1.0

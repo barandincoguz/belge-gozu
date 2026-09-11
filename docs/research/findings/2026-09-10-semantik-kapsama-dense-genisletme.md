@@ -146,6 +146,53 @@ Uçtan uca bilanço: **+0 R@5, +1 soru R@20/R@50'de, +%22 yeniden sıralama
 gecikmesi (3,32 → 4,04 s), +8 GB yerleşik gömme modeli, +127 ms sorgu
 kodlama, +41 MB artefakt, 64 dk üretim, ve U kolunda +1 çekimserlik.**
 
+## 2x2 tamamlandı: genişletme özgün soruyla sıralandı (2026-09-11, n=47)
+
+Kullanıcı kararı: havuz iki sorguyla beslenir, **yeniden sıralama özgün soruyla**
+yapılır (program-p2: yeniden yazım ek kanaldır, ikame edemez). Harness'a
+`--expansion-cache` eklendi; kanalların iki kez sorgulandığı ve reranker'ın
+yalnız özgün soruyu gördüğü testle kilitlendi. 41/47 soruda genişletme var
+(6 bozuk varyant: c107, c203, c205, c208, c313, c407).
+
+| kol | kapsama | paraphrase | P R@5 | P R@20 | P R@50 | nDCG@5 | havuz ort. | rerank p50 | çekimser |
+|---|---|---|---|---|---|---|---|---|---|
+| A taban | 0,9574 | 0,9048 | **0,7766** | 0,8617 | 0,9468 | **0,5709** | 111,3 | 3.319 ms | 5 |
+| B dense | 0,9787 | 0,9524 | 0,7766 | 0,8830 | 0,9681 | 0,5709 | 137,0 | 4.038 ms | 6 |
+| C genişletme | 0,9574 | 0,9048 | 0,7553 | 0,8617 | 0,9468 | 0,5626 | 146,4 | 4.255 ms | 5 |
+| D dense+gen. | **1,0000** | **1,0000** | 0,7553 | 0,8830 | 0,9681 | 0,5626 | 173,6 | 4.933 ms | 6 |
+
+**Mekanizma, soru düzeyinde çözüldü.** Havuzda gold var mı:
+
+| soru | gold | A | B | C | D |
+|---|---|---|---|---|---|
+| c206 | `k6698:3` | yok | **VAR** | yok | **VAR** |
+| c404 | `k6502:7` | yok | yok | yok | **VAR** |
+
+c206 yalnız dense ile geliyor. c404 ise **yalnız D'de** — yani dense'in
+GENİŞLETİLMİŞ sorguyla sorgulanması gerekiyor; ne dense tek başına (B) ne de
+sözlüksel kanalların genişletilmiş sorguyla ikinci turu (C) onu buluyor. Kayıt
+çevirisi + anlamsal getirim, ikisi birlikte. Kapsama ölçümündeki 1,0000 işte
+buradan geliyordu.
+
+**Ve hiçbiri ilk beşe ulaşmıyor.** En iyi P R@5 **tabanda**: 0,7766. Dense
+nötr (+0), genişletme ise **bir soru kaybettiriyor** (0,7553; nDCG@5 0,5709 →
+0,5626). Mekanizma journal-p2'nin öz-düzeltmesinin ta kendisi: havuz 111 → 146
+adaya çıkınca BGE'ye 35 fazla belge giriyor ve ilk beşte olan bir gold yeni bir
+çeldirici tarafından dışarı itiliyor. Sabit pencereli her sıralamada zayıf
+kanal eklemek bu riski taşıyor. Bedel tarafı monoton: rerank p50 3,32 → 4,04 →
+4,26 → **4,93 s** (+%49), çekimserlik dense'li kollarda 5 → 6.
+
+**Asıl sonuç — darboğaz aday üretimi DEĞİL, sıralama.** Kapsama 0,9574'ten
+1,0000'e çıkarılabiliyor (iki soru, ikisi de mekanizmasıyla açıklanmış) ve bu
+kazanımın **sıfırı** ilk beşe dönüşüyor. Yani reranker, kayıt uyuşmazlıklı gold
+sayfaları havuzda DURURKEN bile ilk beşe koyamıyor. Projenin sıradaki hamlesi
+yeni kanal değil, `paraphrase`/kayıt-uyuşmazlığı sorularında **skorlama**dır.
+
+Açık ayrıntı: C/D kollarında ilk beşten düşen sorunun kimliği rapor şemasından
+okunamıyor (diagnostics yeniden sıralanmış sıraları taşımıyor, yalnız top-1'i).
+Adlandırmak için diagnostics'e soru-başına gold rank eklemek + C kolunu yeniden
+koşmak yeterli (~5 dk).
+
 ## Karar ve sıradaki adım
 
 Dense kanal üretime girmez. Bu artık proxy metrik değil, uçtan uca ölçüm:

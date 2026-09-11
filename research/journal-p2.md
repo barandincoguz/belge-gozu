@@ -218,6 +218,15 @@ Sondanın teşhisi doğrulandı: kalan `paraphrase` ıskaları kayıt uyuşmazl�
 Genişletmenin 47 varyantından 6'sı bozuk (özgün sorgunun aynısı) çıktı.
 Tam kayıt: `docs/research/findings/2026-09-10-semantik-kapsama-dense-genisletme.md`.
 
-**Bu döngüye bıraktığı iş:** kapsama artışını sıralamaya çeviren füzyon
-denemesi (RRF; dense ve/veya kayıt-çevirisi adayı) — izin verilen yüzey
-`research/retrieve.py`.
+**2026-09-11 eki — 2x2 kapandı.** Aynı harness'ta dört kol ölçüldü (BGE
+yeniden sıralama, özgün soruyla): kapsama 0,9574 (taban) → 0,9787 (dense) →
+0,9574 (genişletme) → **1,0000** (dense+genişletme), ama P R@5 sırasıyla
+0,7766 → 0,7766 → 0,7553 → 0,7553. Kapsama kazanımının SIFIRI ilk beşe
+dönüştü; genişletme bir soru kaybettirdi (havuz 111 → 146 aday, çeldirici
+ilk beşten gold itiyor — bu günlükteki öz-düzeltmenin yeniden sıralanmış
+pencerede de geçerli olduğu). c404'ün gold'u yalnız dense+genişletme
+birleşiminde havuza giriyor.
+
+**Bu döngüye bıraktığı iş:** darboğaz aday üretimi değil SKORLAMA. Yeni kanal
+eklemek yerine `paraphrase`/kayıt-uyuşmazlığı sorularında sıralama sinyali
+aranmalı; izin verilen yüzey `research/retrieve.py`.
