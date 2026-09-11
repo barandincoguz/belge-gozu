@@ -151,6 +151,17 @@ class _DenseCandidateChannel:
         return self._index.candidate_pages(embedding, limit)
 
 
+def _gold_rank(ranking: Sequence[str], gold: set[str]) -> int | None:
+    """Gold sayfanın en iyi 1-tabanlı sırası; listede yoksa None.
+
+    Toplu metrikler "ilk beşte var mı" diyor ama "kaçıncı sırada" demiyordu;
+    sıralama arızasını teşhis etmek (havuzda 40'ıncı mı, yeniden sıralamada
+    7'nci mi) bu alan olmadan rapordan OKUNAMIYORDU.
+    """
+    ranks = [index + 1 for index, page_id in enumerate(ranking) if page_id in gold]
+    return min(ranks) if ranks else None
+
+
 def run_comparison(
     *,
     questions: Sequence[Question],
@@ -222,6 +233,11 @@ def run_comparison(
         diagnostics.append(
             {
                 "question_id": question.question_id,
+                "gold_rank": {
+                    "pool": _gold_rank(pool, relevant),
+                    "pinned": _gold_rank(list(comparison.pinned_pages), relevant),
+                    "unpinned": _gold_rank(list(comparison.unpinned_pages), relevant),
+                },
                 "slice": question.slice,
                 "candidate_pool_size": len(pool),
                 "candidate_pool": pool,

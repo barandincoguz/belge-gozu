@@ -169,3 +169,17 @@ def test_expanded_query_feeds_the_pool_while_reranking_stays_on_the_original():
     assert "x9" in pool
     assert pool[:3] == ["b1", "a2", "a1"], "özgün sorgunun adayları ÖNCE gelir"
     assert report["pinned"]["overall"]["recall_at"][5] == 1.0
+
+
+def test_diagnostics_carry_the_gold_rank_in_every_ranking():
+    """Sıralama arızası teşhisi için gold'un KAÇINCI sırada olduğu raporlanır."""
+    report = _run_with(None)
+
+    ranks = report["unpinned"]["diagnostics"][0]["gold_rank"]
+    assert ranks["pool"] is None, "x9 havuza girmiyor"
+    assert ranks["pinned"] is None and ranks["unpinned"] is None
+
+    expanded = _run_with({"q1": "kanun dilinde soru"})["unpinned"]["diagnostics"][0]["gold_rank"]
+    assert expanded["pool"] == 4
+    # sahte reranker havuz sırasını koruyor: gold yeniden sıralamada da 4'üncü
+    assert expanded["pinned"] == 4
