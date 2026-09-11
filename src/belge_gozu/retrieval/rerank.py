@@ -41,6 +41,7 @@ class TransformerPageReranker:
         device: str | None = None,
         max_length: int = 4096,
         batch_size: int = 8,
+        trust_remote_code: bool = False,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size en az 1 olmalı")
@@ -59,9 +60,21 @@ class TransformerPageReranker:
         self.batch_size = batch_size
         self._torch = torch
         self._device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
-        self._tokenizer: Any = AutoTokenizer.from_pretrained(repo, revision=revision)
+        # `trust_remote_code` uzak depodaki kodu ÇALIŞTIRIR. Proje sahibi 2026-09-11'de
+        # açtı; güvenlik buradaki tek şeye bağlı: revizyon 40 karakterlik commit
+        # SHA'sına PİNLİ olmalı. `main`den yüklemek, çalıştırılan kodun altımızda
+        # değişmesi demektir — pin disiplininin tam olarak engellediği şey.
+        if trust_remote_code and len(revision) != 40:
+            raise ValueError(
+                "trust_remote_code yalnız 40 karakterlik commit SHA'sıyla kullanılabilir: "
+                f"{repo}@{revision}"
+            )
+        self.trust_remote_code = trust_remote_code
+        self._tokenizer: Any = AutoTokenizer.from_pretrained(
+            repo, revision=revision, trust_remote_code=trust_remote_code
+        )
         self._model: Any = AutoModelForSequenceClassification.from_pretrained(
-            repo, revision=revision
+            repo, revision=revision, trust_remote_code=trust_remote_code
         ).to(self._device)
         self._model.eval()
 

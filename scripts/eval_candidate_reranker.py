@@ -43,6 +43,8 @@ from belge_gozu.retrieval.expand import (  # noqa: E402
 from belge_gozu.retrieval.hybrid import load_page_texts, load_text_channel  # noqa: E402
 from belge_gozu.retrieval.late import load_late_channel  # noqa: E402
 from belge_gozu.retrieval.rerank import (  # noqa: E402
+    BGE_RERANKER_REPO,
+    BGE_RERANKER_REVISION,
     PageReranker,
     TransformerPageReranker,
     compare_rerankings,
@@ -360,6 +362,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--min-verification", default="human")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--rerank-max-length", type=int, default=4096)
+    parser.add_argument("--reranker-repo", default=BGE_RERANKER_REPO)
+    parser.add_argument("--reranker-revision", default=BGE_RERANKER_REVISION)
+    parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--rerank-unit", choices=("page", "chunk"), default="page")
     parser.add_argument("--expansion-cache", type=Path)
     parser.add_argument("--dense-model", choices=sorted(DENSE_MODELS))
@@ -408,7 +413,13 @@ def main() -> int:
             "model": {"repo": spec.repo, "revision": spec.revision},
             "artifact": _provenance(artifact_dir / "embeddings.npy"),
         }
-    reranker = TransformerPageReranker(device=device, max_length=args.rerank_max_length)
+    reranker = TransformerPageReranker(
+        repo=args.reranker_repo,
+        revision=args.reranker_revision,
+        device=device,
+        max_length=args.rerank_max_length,
+        trust_remote_code=args.trust_remote_code,
+    )
     questions = load_bench(args.bench, only_verified=True, min_verification=args.min_verification)
     answerable_questions = sum(question.answerable for question in questions)
     expansion_provenance: dict[str, object] | None = None
@@ -469,6 +480,7 @@ def main() -> int:
                 "revision": reranker.revision,
                 "device": reranker._device,
                 "max_length": reranker.max_length,
+                "trust_remote_code": reranker.trust_remote_code,
                 "batch_size": reranker.batch_size,
             },
             "selection": {
