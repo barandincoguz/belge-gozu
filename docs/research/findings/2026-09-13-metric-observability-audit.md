@@ -19,6 +19,7 @@ gönderildi:
 - `b75c8d9` — verifier LLM kullanım metadata'sı, süre, toplam maliyet ve amaç-bazlı Prometheus serisi eklenir.
 - `ea220b0` — telemetri yazma kaybı ve rejected trafik monitoring panelleri eklenir.
 - `90b3fed` — persisted answer/retrieval raporları için tamper/aggregate doğrulayıcı eklenir.
+- `fc148bd` — custom reranker raporlarına per-question ranked evidence ve doğrulama desteği eklenir.
 
 Veri ve artefakt iddiaları, koşumun kendi künye alanlarıyla birlikte okunmalıdır;
 model cache'i veya kullanıcı artefaktları silinmemiştir.
@@ -97,13 +98,14 @@ benchmark, aynı index revision, aynı recipe fingerprint ve aynı seçim filtre
 | Yeni verifier telemetry | **tamamlandı**; verifier token/süre/maliyet amaç bazında ve toplamda izleniyor | [#22](https://github.com/barandincoguz/belge-gozu/issues/22) (kapatıldı) |
 | Yeni monitoring | **tamamlandı**; telemetry write loss ve rejected trafik ayrı Prometheus/dashboard popülasyonları olarak izleniyor | [#24](https://github.com/barandincoguz/belge-gozu/issues/24) (kapatıldı) |
 | Reranker artefaktı | aggregate + minimum rank saklanıyor; nDCG/paired delta tam yeniden üretilemiyor | [#25](https://github.com/barandincoguz/belge-gozu/issues/25) |
+| Reranker artefaktı güncel üretim | per-question üç kol ranking’i artık saklanıyor; eski JSON’lar legacy/unverifiable | [#25](https://github.com/barandincoguz/belge-gozu/issues/25) |
 
 ## Uygulama sırası
 
 1. **Ölçüm güvenliği:** canonical artifact verifier (#23), verifier usage (#22)
    ve telemetry loss/rejected monitoring (#24) kapandı. Yeni G2/G1 sayıları
    yine yalnız doğrulanmış veri/identity ile yayınlanmalı; custom reranker
-   artefaktlarının tam self-audit'i #25'te.
+   artefaktlarının eski dosyalara uygulanması/legacy işareti #25'te.
 2. **Kanıt kapıları:** #2 quota-backed dev smoke → #1 güncel G1 gate raporu →
    #8 K18/oracle sınırı → #9 gate policy → #10 tek seferlik test final gate.
 3. **Kalite katmanı:** #13 insan doğrulama → #12 bench v2 → #11 dense/fusion
