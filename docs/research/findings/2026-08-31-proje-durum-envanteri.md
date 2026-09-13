@@ -251,12 +251,12 @@ RESOLVED turları).
 | 5 | **Y17/Y31** honest-miss API sözleşmesinde görünmez | **KAPANMIŞ** | `app/main.py:781` yanıtta `"honest_miss"` alanı; `index.html:805,811,818` ayrı CSS sınıfı |
 | 6 | **Y20** `degraded` olaylarında hata sınıfı yok (114/114 NULL) | **KAPANMIŞ** | `answer/base.py:194-202` `error_type` hesaplanıp `annotate` ediliyor; `gemini.py:149-198` `classify_error()` taksonomisi |
 | 7 | **Y28/K17** Enter/çip tıklaması çift-gönderim korumasını atlıyor | **KAPANMIŞ** | `index.html:728,737` `let inFlight = false` + tek giriş noktası |
-| 8 | **Y29** UI'da "43 soruluk **insan-doğrulamalı** retrieval_eval" | **HÂLÂ AÇIK — KRİTİK (itibar)** | `app/static/index.html:454` birebir duruyor. Gerçek: 3/48 insan. E2 bunu KRİTİK/#7 diye işaretlemiş, düzeltme metnini de vermiş; uygulanmamış (`git blame` → `6d5b345`, sonrasında değişmemiş) |
-| 9 | **Y30** "6 çipin hepsi retrieval_eval'den" iddiası | **HÂLÂ AÇIK — ÖNEMLİ (itibar)** | `index.html:347` birebir duruyor; 6 çipin 2'si için yanlış (biri ayarlama hedefi olmuş vitrin sorgusu, biri retrieval_eval'de olmayan bir sorunun ASCII varyantı) |
+| 8 | **Y29** UI'da "43 soruluk **insan-doğrulamalı** retrieval_eval" | **KAPANMIŞ** | `app/static/index.html` artık 3/48 insan + 45 model-cross-check ayrımını açıkça gösteriyor; `tests/app/test_api.py::test_ui_never_claims_the_retrieval_eval_is_human_verified` kilitliyor |
+| 9 | **Y30** "6 çipin hepsi retrieval_eval'den" iddiası | **KAPANMIŞ** | `index.html` artık dört retrieval_eval + iki vitrin sorgusu ayrımını söylüyor; UI doğruluk testi güncel metni kilitliyor |
 | 10 | **K18** `stage1_ms`/`stage2_ms` üretimde daima NULL | **HÂLÂ AÇIK** | `app/main.py:544-545` hâlâ `col.stages.get("stage1_hamming")` / `("stage2_maxsim")` okuyor; hibrit hat bu adları hiç yaymıyor (`query_encode`, `exhaustive_maxsim`, `text_bm25`, `route_fuse`) |
 | 11 | **K9/K10** `candidate_survival` aslında kayıt penceresiydi; `gold_ranks=-1` teşhis sinyalini yok ediyordu | **KAPANMIŞ** | `bench/harness.py`, survival üyeliğini gerçek nihai aday sırasından hesaplıyor; aşamalar tam sırayı yalnız hesap sırasında taşıyıp gerçek 1-tabanlı gold rank veya `None` yazıyor. Geçici tam sıra rapor JSON'una girmez; record penceresi dışındaki gold regresyon testiyle kapsanır. |
 | 12 | **K21** `hub.pull_index` hedef dizini temizlemiyor | **HÂLÂ AÇIK** | `index/hub.py:43-45` `mkdir(exist_ok=True)` + doğrudan `shutil.copy` döngüsü; `delete_patterns` yok → karma kuantizasyon artığı riski |
-| 13 | **Y5** `/search` OOV sorguda "hepsi sıfır" listeyi geçerli sonuç gibi döndürüyor | **HÂLÂ AÇIK** | `app/main.py:713` hâlâ düz `{"hits": hits}`; `no_match`/`status` alanı yok |
+| 13 | **Y5** `/search` OOV sorguda "hepsi sıfır" listeyi geçerli sonuç gibi döndürüyor | **KAPANMIŞ** | `/search` artık `status`/`no_match` taşıyor; UI eşleşme yok kartı gösteriyor; `tests/app/test_api.py` OOV/boş sorgu yolunu kilitliyor |
 | 14 | **K3** Eşik cevaplanabilir/cevaplanamazı ayırmıyor | **HÂLÂ AÇIK (bilinçli, kilitli)** | `tests/retrieval/test_semantic_retrieval_eval.py:202-235` `xfail(strict=True)` — hibrit/BM25 ölçeğinde de ayırmıyor. Çözüm P2 kapı 1 (varsayılan kapalı) |
 | 15 | **NEW-1** `_evict_oldest` boş dict'te `ValueError` | **HÂLÂ AÇIK ama GEÇERSİZ (ulaşılamaz)** | `app/main.py:178-183` guard yok; ama `max_clients` Settings alanı değil, daima `RATE_LIMITER_MAX_CLIENTS=10_000` |
 
@@ -362,9 +362,10 @@ kalibrasyon fitinde negatif örnek olarak kullanılıyor.
 ### 6.3 bench_v2 yokluğu
 
 Spec §5.1 ≥120 answerable + ≥30 unanswerable, insan-doğrulamalı bir set istiyor.
-`data/bench/bench_v2.jsonl` **hiçbir yerde yok**. Yerine geçen `retrieval_eval_v1 + abstention_eval_v1`
-kombinasyonu **43 answerable** taşıyor (hedefin ~1/3'ü) ve 378 satırın **3'ü (%0,8)**
-insan onaylı → spec'in "insan-doğrulamalı" şartını da karşılamıyor.
+`data/bench/bench_v2.jsonl` **hiçbir yerde yok**. Yerine geçen `retrieval_eval_v2 + abstention_eval_v1`
+kombinasyonu 57 verified answerable ve 5 verified unanswerable taşıyor; retrieval v2'nin
+47 satırı insan onaylı, abstention kümesinin insan onayı ise **0**. Spec'in 120+30 tam
+benchmark şartı ve tüm birleşik set için insan doğrulaması hâlâ karşılanmıyor.
 
 ### 6.4 "İnsan doğrulaması" iddiası taraması (repo geneli)
 
@@ -372,20 +373,17 @@ insan onaylı → spec'in "insan-doğrulamalı" şartını da karşılamıyor.
 |---|---|---|
 | `README.md:358`, `:382`, `:161-169` | "3/48 rows human-verified, 45 model-cross-checked" | **DOĞRU** — üç ayrı yerde tekrarlanan çekince |
 | `data/bench/retrieval_eval_v1.README.md` | "Bu set insan-doğrulanmış DEĞİLDİR… 3'ü insan" | **DOĞRU** |
-| `data/bench/abstention_eval_v1.README.md` | "0'ı insan onayından geçmiştir" | **DOĞRU** (ama üstteki özet tablo bayat: 300/286/14 diyor, dosya bugün 330/309/21) |
+| `data/bench/abstention_eval_v1.README.md` | "0'ı insan onayından geçmiştir" | **DOĞRU** (üst özet tablo 330/309/21 ile hizalı) |
 | `2026-08-27-p0-gate.md:35-48, 449-452` | "insan-doğrulanmış olarak alıntılanamaz" | **DOĞRU** |
 | `p0-decision-log.md:278` | "yalnız 3/48 insan onaylı" | **DOĞRU** |
-| **`src/belge_gozu/app/static/index.html:454`** | **"43 soruluk insan-doğrulamalı retrieval_eval"** | **YANLIŞ — canlı serviste duruyor.** 43 answerable satırın yalnız 3'ü (aslında hepsi de değil: 3 insan satırının 3'ü de answerable) insan onaylı |
-| `index.html:347` | "6 çipin hepsi retrieval_eval setinden ya da yazım varyantından" | **YANLIŞ** — 2 çip için doğru değil |
+| **`src/belge_gozu/app/static/index.html`** | **"43 soruluk insan-doğrulamalı retrieval_eval"** | **DÜZELTİLDİ.** UI artık retrieval_eval/vitrin ayrımını ve insan/model-cross-check künye farkını açıkça taşıyor |
+| `index.html` | "6 çipin hepsi retrieval_eval setinden ya da yazım varyantından" | **DÜZELTİLDİ** — dört retrieval_eval, iki vitrin sorgusu olarak ayrılıyor |
 
-**Ek bulgu (bu denetimde ortaya çıktı):** `--only-verified` bayrağı bugünkü veride
-**etkisiz**. `bench/dataset.py:114-132` yalnız `verification_status != "verified"`
-filtreliyor, `verification_kind`'a bakmıyor; retrieval_eval'nin 48/48'i `verified` olduğundan
-`--only-verified` hiçbir satırı elemiyor. Kanıt: `verified-production-exhaustive.json`
-(only_verified=True) ile `a2-traincompat-1bit-exhaustive.json` (False) **birebir aynı**
-overall sayıları veriyor. p0-gate'in "doğrulanmış set üzerinde sayılar DEĞİŞMEDİ"
-gözlemi bu yüzden ampirik bir teyit değil, **totolojidir** — bu çerçeveleme başka bir
-yerde tekrar kullanılmamalıdır.
+**Güncel doğrulama notu:** `--only-verified` hâlâ yalnız `verification_status` filtresidir;
+insan/model ayrımı için `--min-verification human` kullanılmalıdır. Bu sözleşme #3 ile
+uygulanmış ve `retrieval_eval_v2` üzerinde doğrulanmıştır: 66 satırdan 62 verified,
+47 human + 15 model-cross-check, 4 draft. `--only-verified` ile insan-doğrulanmış
+iddiası kurulamaz; yalnız insan altkümesi açıkça seçilmelidir.
 
 ---
 
@@ -446,8 +444,8 @@ Büyüklük: **S** ≤ yarım gün · **M** 1-3 gün · **L** > 3 gün (tek geli
 
 ### 7.1 En kritik 5 eksik (tek cümlelik)
 
-1. **Proje GitHub'da değil (0 remote, main 85 commit geride)** — 147 commit / 666 test / 3 faz görünmez; CI hiç koşmadı.
-2. **Canlı UI'da yanlış iddia** (`index.html:454` "insan-doğrulamalı retrieval_eval") — projenin kendi dürüstlük standardını ihlal ediyor ve iç incelemede KRİTİK işaretlenmiş olmasına rağmen düzeltilmemiş.
-3. **G1 hiç adjudike edilmemiş, G2 koşumu yok** — hibrit üretimde default açık; ölçülü sayılar (R@50 0,9302 < %95; paraphrase 0,5714 < %90) bir kapı raporunda kayıtlı değil.
-4. **Dağıtım zinciri hiç doğrulanmamış** — Docker imajı bir kez bile build edilmedi, `--pull` sessiz no-op, HF'teki indeks P1 öncesi (metin artefaktı yok), Space PRO nedeniyle yok.
-5. **P2'nin kota-destekli ölçümü ve kapı raporu eksik** — `bench/answer_eval.py` + `bench answers` hazır; fakat gerçek-model dev/test artefaktı ve G2.1/G2.2 hükmü yok, dolayısıyla verifier/kalibre kapıları henüz meşru biçimde açılamıyor.
+1. **G1'in güncel kapı raporu FAIL/kısmi** — v2 insan n=47'de G1.1/G1.2 PASS, MaxP G1.3 paired-CI FAIL, G1.7 ölçülmedi; supersession raporu ayrı dosyada.
+2. **Gerçek Gemini G2 koşumu yok** — answer harness ve metrikler hazır, fakat kota-backed dev/test artifact'i için anahtar ve çalışma kaydı bekliyor.
+3. **Benchmark doğrulama gücü sınırlı** — retrieval v2 insan n=47 olsa da abstention insan n=0 ve spec'in 120+30 tam seti yok; #12/#13 açık.
+4. **Ölçüm artefaktı sınırı sürüyor** — canonical raporlar doğrulanıyor; custom reranker raporlarının tam self-audit'i #25'te, legacy stage/oracle sınırı #8'de.
+5. **Dağıtım zinciri doğrulanmamış** — Docker/Hub/Space smoke ve canlı G1.7 bütçeleri yok; #5/#6/#7 açık.

@@ -1,8 +1,8 @@
 # `abstention_eval_v1.jsonl` — köken ve doğrulama künyesi
 
-**Bu set insan-doğrulanmış DEĞİLDİR. 300 satırın 0'ı insan onayından geçmiştir.**
+**Bu set insan-doğrulanmış DEĞİLDİR. 330 satırın 0'ı insan onayından geçmiştir.**
 Sorular bir model ajanı tarafından yazıldı; hiçbiri bir insan tarafından
-okunup onaylanmadı. Bu yüzden 300 satırın tamamı
+okunup onaylanmadı. Bu yüzden 330 satırın tamamı
 `source_type: "ajan-taslak"` taşır — mevcut `ajan-taslak-insan-onayli`
 değerinden bilerek ayrı bir değer, aksi halde onaysız satırlar künyede
 onaylı gibi sayılırdı.
@@ -16,10 +16,10 @@ Künye, **2026-08-30 çapraz-kontrol turundan sonraki** hâliyle (bkz. §3):
 
 | Dilim | Satır | `verification_status` | `verification_kind` | `verified_by` |
 |---|---|---|---|---|
-| `korpus-disi` | 200 | 195 `verified` / 5 `rejected` | `mechanical:manifest-absence` (+40'ı çapraz-kontrollü) | `script:validate_abstention_eval` |
+| `korpus-disi` | 230 | 218 `verified` / 12 `rejected` | `mechanical:manifest-absence` (+40'ı çapraz-kontrollü) | `script:validate_abstention_eval` |
 | `anlamsiz-ood` | 60 | 60 `verified` | `model-cross-check` | `model-cross-check:claude-fable-5-checker` |
 | `eksik-kanit` | 40 | 31 `verified` / 9 `rejected` | `model-cross-check` | `model-cross-check:claude-fable-5-checker` |
-| **toplam** | **300** | 286 verified / **14 rejected** | | |
+| **toplam** | **330** | 309 verified / **21 rejected** | | |
 
 `rejected` satırlar dosyadan SİLİNMEDİ; tüketiciler onları
 `verification_status` üzerinden dışlar (`load_bench(..., only_verified=True)`
@@ -36,7 +36,7 @@ oranının güven aralığı işe yaramayacak kadar geniştir.
 Hedef sayı aritmetikten gelir: test kümesinde **n=150** cevaplanamaz soruda
 **0 hata** gözlenirse, Clopper-Pearson %95 üst sınırı ≈ **%2.0**'dir. G2.1
 kapısının istediği eşik budur; 150 bu eşiğin **aritmetik asgarisidir**, keyfi
-bir yuvarlama değil. 300 üretilip ~yarısı test'e düştüğünde bu sayı sağlanır
+bir yuvarlama değil. 330 üretilip ~yarısı test'e düştüğünde bu sayı sağlanır
 (fiilî: **test'te 151 cevaplanamaz**, bkz. §5; çapraz-kontrol sonrası 144, bkz. §3).
 
 ## 2. Dilimler ve her birinin ne kadarına güvenilebilir
