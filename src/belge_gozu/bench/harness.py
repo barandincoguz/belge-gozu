@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Protocol
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from belge_gozu.bench.dataset import BenchQuestion
 from belge_gozu.bench.metrics import bootstrap_ci, mrr, ndcg_at_k, recall_at_k
@@ -19,16 +19,20 @@ class StageRecord(BaseModel):
     # "exhaustive-binary" | "stage1" | "stage2" | P1 kanalları:
     # "visual" | "text_bm25" | "route_fuse"
     stage: str
-    gold_ranks: dict[str, int]  # page_id -> 1-tabanlı sıra; listede yoksa -1
+    gold_ranks: dict[str, int | None]  # page_id -> gerçek 1-tabanlı sıra; aşamada yoksa None
     top_ids: list[str]  # ilk record_top eleman
     top_scores: list[float]
     latency_ms: float
+    # Tanı hesabına özel tam sıra: gold rank çıkarıldıktan sonra temizlenir ve
+    # rapor JSON'una hiçbir zaman yazılmaz. `top_ids` küçük, okunabilir pencere
+    # olarak kalırken -1 ile gerçek tam-korpus sırasını kaybetmeyi önler.
+    full_ranked: list[str] = Field(default_factory=list, exclude=True, repr=False)
 
 
 class QuestionDiagnostic(BaseModel):
     question_id: str
     stages: list[StageRecord]
-    candidate_survival: dict[str, bool]  # gold page_id -> nihai aday havuzunda mı
+    candidate_survival: dict[str, bool]  # gold page_id -> gerçek nihai aday kümesinde mi
     final_ranked: list[str]  # ilk record_top
 
 
@@ -96,6 +100,7 @@ class ExhaustiveDiagnosticAdapter:
             top_ids=[page_ids[i] for i in top],
             top_scores=[float(scores[i]) for i in top],
             latency_ms=latency_ms,
+            full_ranked=ranked,
         )
         return ranked, [rec]
 
@@ -138,24 +143,28 @@ class HybridDiagnosticAdapter:
         t0 = time.perf_counter()  # encode HARİÇ: üretimde ayrı aşama
         visual = self.retriever.index.score_all(q_emb, chunk_tokens=self.retriever.CHUNK_TOKENS)
         t1 = time.perf_counter()
-        vis_order = np.argsort(-visual, kind="stable")[: self.record_top]
+        vis_order = np.argsort(-visual, kind="stable")
+        visual_ranked = [page_ids[i] for i in vis_order]
         visual_rec = StageRecord(
             stage="visual",
             gold_ranks={},
-            top_ids=[page_ids[i] for i in vis_order],
-            top_scores=[float(visual[i]) for i in vis_order],
+            top_ids=visual_ranked[: self.record_top],
+            top_scores=[float(visual[i]) for i in vis_order[: self.record_top]],
             latency_ms=(t1 - t0) * 1000,
+            full_ranked=visual_ranked,
         )
 
         bm25 = self.retriever.text.scores(question)
         t2 = time.perf_counter()
-        bm_top = np.argsort(-bm25, kind="stable")[: self.record_top]
+        bm_order = np.argsort(-bm25, kind="stable")
+        bm25_ranked = [page_ids[i] for i in bm_order]
         text_rec = StageRecord(
             stage="text_bm25",
             gold_ranks={},
-            top_ids=[page_ids[i] for i in bm_top],
-            top_scores=[float(bm25[i]) for i in bm_top],
+            top_ids=bm25_ranked[: self.record_top],
+            top_scores=[float(bm25[i]) for i in bm_order[: self.record_top]],
             latency_ms=(t2 - t1) * 1000,
+            full_ranked=bm25_ranked,
         )
 
         ranked, _routed = self.retriever.rank(question, bm25)
@@ -167,6 +176,7 @@ class HybridDiagnosticAdapter:
             top_ids=ranked[: self.record_top],
             top_scores=[by_id[pid] for pid in ranked[: self.record_top]],
             latency_ms=(t3 - t2) * 1000,
+            full_ranked=ranked,
         )
         return ranked, [visual_rec, text_rec, fuse_rec]
 
@@ -177,10 +187,9 @@ class TwoStageDiagnosticAdapter:
     Not: stage-1 kaydı `argsort` ile tam korpus üzerinde hesaplanır; üretim
     yolu (`TwoStageRetriever.search_embedding`) içeride `argpartition`
     kullanır — sınır (tie) durumlarında seçilen aday kümesi bu teşhis
-    kaydından küçük farklarla ayrışabilir. `gold_ranks` yalnız `record_top`
-    ile sınırlı `top_ids` listesine göre hesaplanır (-1 = gold sayfa ilk N'de
-    yok, tam-korpus sırası değil); tam-korpus sıra teşhisi (ör. gold sayfanın
-    gerçek global rütbesi) oracle koşumlarının işidir (controller ruling R12).
+    kaydından küçük farklarla ayrışabilir. `gold_ranks`, stage-1 için tam
+    Hamming sırasından; stage-2 için gerçekten skorlanan aday sırasından gelir.
+    İkinci aşamada bulunmayan gold `None` kalır.
     """
 
     name = "two-stage"
@@ -215,6 +224,7 @@ class TwoStageDiagnosticAdapter:
             top_ids=[page_ids[i] for i in top1],
             top_scores=[float(-dists[i]) for i in top1],
             latency_ms=(t1 - t0) * 1000,
+            full_ranked=[page_ids[i] for i in order1],
         )
 
         # Aşama 2: adaylarda kesin binary MaxSim (RAW toplam `n_q * EMBED_DIM`'e
@@ -238,6 +248,7 @@ class TwoStageDiagnosticAdapter:
             top_ids=stage2_ids[: self.record_top],
             top_scores=stage2_scores[: self.record_top],
             latency_ms=(t2 - t1) * 1000,
+            full_ranked=stage2_ids,
         )
 
         ranked = stage2_ids
@@ -262,13 +273,17 @@ def run_retrieval_eval(
         ranked, stages = pipeline.run(q.question)
         rel = set(q.gold_page_ids)
         for st in stages:
-            st.gold_ranks = {g: (st.top_ids.index(g) + 1 if g in st.top_ids else -1) for g in rel}
-        final_ids = stages[-1].top_ids if stages else ranked
+            rank_basis = st.full_ranked or st.top_ids
+            st.gold_ranks = {
+                g: (rank_basis.index(g) + 1 if g in rank_basis else None) for g in rel
+            }
+            st.full_ranked = []
+        candidate_ids = set(ranked)
         diags.append(
             QuestionDiagnostic(
                 question_id=q.question_id,
                 stages=stages,
-                candidate_survival={g: g in set(final_ids) for g in rel},
+                candidate_survival={g: g in candidate_ids for g in rel},
                 final_ranked=ranked[: max(ks)],
             )
         )

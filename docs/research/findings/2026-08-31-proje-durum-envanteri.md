@@ -254,7 +254,7 @@ RESOLVED turları).
 | 8 | **Y29** UI'da "43 soruluk **insan-doğrulamalı** retrieval_eval" | **HÂLÂ AÇIK — KRİTİK (itibar)** | `app/static/index.html:454` birebir duruyor. Gerçek: 3/48 insan. E2 bunu KRİTİK/#7 diye işaretlemiş, düzeltme metnini de vermiş; uygulanmamış (`git blame` → `6d5b345`, sonrasında değişmemiş) |
 | 9 | **Y30** "6 çipin hepsi retrieval_eval'den" iddiası | **HÂLÂ AÇIK — ÖNEMLİ (itibar)** | `index.html:347` birebir duruyor; 6 çipin 2'si için yanlış (biri ayarlama hedefi olmuş vitrin sorgusu, biri retrieval_eval'de olmayan bir sorunun ASCII varyantı) |
 | 10 | **K18** `stage1_ms`/`stage2_ms` üretimde daima NULL | **HÂLÂ AÇIK** | `app/main.py:544-545` hâlâ `col.stages.get("stage1_hamming")` / `("stage2_maxsim")` okuyor; hibrit hat bu adları hiç yaymıyor (`query_encode`, `exhaustive_maxsim`, `text_bm25`, `route_fuse`) |
-| 11 | **K9/K10** `candidate_survival` aslında Recall@200; `gold_ranks=-1` teşhis sinyalini yok ediyor | **HÂLÂ AÇIK** | `bench/harness.py:265` `-1 if g not in top_ids`; `:271` `candidate_survival` yalnız `record_top` penceresinde üyelik bakıyor |
+| 11 | **K9/K10** `candidate_survival` aslında kayıt penceresiydi; `gold_ranks=-1` teşhis sinyalini yok ediyordu | **KAPANMIŞ** | `bench/harness.py`, survival üyeliğini gerçek nihai aday sırasından hesaplıyor; aşamalar tam sırayı yalnız hesap sırasında taşıyıp gerçek 1-tabanlı gold rank veya `None` yazıyor. Geçici tam sıra rapor JSON'una girmez; record penceresi dışındaki gold regresyon testiyle kapsanır. |
 | 12 | **K21** `hub.pull_index` hedef dizini temizlemiyor | **HÂLÂ AÇIK** | `index/hub.py:43-45` `mkdir(exist_ok=True)` + doğrudan `shutil.copy` döngüsü; `delete_patterns` yok → karma kuantizasyon artığı riski |
 | 13 | **Y5** `/search` OOV sorguda "hepsi sıfır" listeyi geçerli sonuç gibi döndürüyor | **HÂLÂ AÇIK** | `app/main.py:713` hâlâ düz `{"hits": hits}`; `no_match`/`status` alanı yok |
 | 14 | **K3** Eşik cevaplanabilir/cevaplanamazı ayırmıyor | **HÂLÂ AÇIK (bilinçli, kilitli)** | `tests/retrieval/test_semantic_retrieval_eval.py:202-235` `xfail(strict=True)` — hibrit/BM25 ölçeğinde de ayırmıyor. Çözüm P2 kapı 1 (varsayılan kapalı) |
@@ -414,7 +414,7 @@ Büyüklük: **S** ≤ yarım gün · **M** 1-3 gün · **L** > 3 gün (tek geli
 | b4 | **Docker imajını bir kez gerçekten build et + smoke test** — `BG_HF_DATASET_REPO` set/fail-fast, `USER`, `HF_HOME`, `[tool.uv]` CPU torch index, `.dockerignore` | **M** | b3 |
 | b5 | **HF hub'a taze indeks push** (int8 + `page_texts.parquet`) + `revision=` pinleme + `hf_token` alanı + pull atomikliği (K21/C11/C28) | **M** | b4 |
 | b6 | **Space kararı** — PRO alınacak mı? Alternatif: statik SDK ile "canlı olmayan" vitrin, ya da Render/Fly/HF olmayan bir CPU host. **KULLANICI KARARI** | **S** (karar) / **M** (uygulama) | b4, b5 |
-| b7 | **K18 ölü telemetri sütunları + K9/K10 bench teşhis etiketleri** — sessizce yanlış rapor üreten üç yer | **S** | Yok |
+| b7 | **K18 ölü telemetri sütunları** — `detail.stages` doğru ve birinci sınıf; eski `stage1_ms`/`stage2_ms` SQL yüzeyinin deprecation kararı eksik | **S** | Yok |
 | b8 | **README'ye p1/p2 sonuç tabloları + `.env.example`** | **S** | a4 |
 
 ### (c) Bilimsel derinlik

@@ -88,6 +88,39 @@ def test_missing_gold_page_reported():
     assert rep.missing_gold_pages == ["k4721:4"]
 
 
+def test_diagnostics_distinguish_full_rank_from_the_record_window():
+    question = BenchQuestion(**q_dict())
+
+    class WindowedPipeline:
+        name = "windowed"
+
+        def run(self, question_text: str):
+            assert question_text == question.question
+            ranked = ["x:1", "x:2", "k4721:4"]
+            return ranked, [
+                StageRecord(
+                    stage="final",
+                    gold_ranks={},
+                    top_ids=ranked[:1],
+                    top_scores=[1.0],
+                    latency_ms=1.0,
+                    full_ranked=ranked,
+                )
+            ]
+
+    report = run_retrieval_eval(
+        WindowedPipeline(),
+        [question],
+        known_page_ids={"x:1", "x:2", "k4721:4"},
+        ks=(1,),
+    )
+
+    diagnostic = report.diagnostics[0]
+    assert diagnostic.stages[0].gold_ranks == {"k4721:4": 3}
+    assert diagnostic.candidate_survival == {"k4721:4": True}
+    assert "full_ranked" not in report.model_dump()["diagnostics"][0]["stages"][0]
+
+
 def test_exhaustive_adapter_records_ranks():
     from belge_gozu.bench.harness import ExhaustiveDiagnosticAdapter
     from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever
