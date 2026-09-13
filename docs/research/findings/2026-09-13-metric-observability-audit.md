@@ -97,8 +97,7 @@ benchmark, aynı index revision, aynı recipe fingerprint ve aynı seçim filtre
 | Yeni ölçüm artefaktı doğrulama | **canonical raporlarda tamamlandı**; custom reranker raporları tam yeniden üretim için eksik | [#23](https://github.com/barandincoguz/belge-gozu/issues/23) (kapatıldı), [#25](https://github.com/barandincoguz/belge-gozu/issues/25) |
 | Yeni verifier telemetry | **tamamlandı**; verifier token/süre/maliyet amaç bazında ve toplamda izleniyor | [#22](https://github.com/barandincoguz/belge-gozu/issues/22) (kapatıldı) |
 | Yeni monitoring | **tamamlandı**; telemetry write loss ve rejected trafik ayrı Prometheus/dashboard popülasyonları olarak izleniyor | [#24](https://github.com/barandincoguz/belge-gozu/issues/24) (kapatıldı) |
-| Reranker artefaktı | aggregate + minimum rank saklanıyor; nDCG/paired delta tam yeniden üretilemiyor | [#25](https://github.com/barandincoguz/belge-gozu/issues/25) |
-| Reranker artefaktı güncel üretim | per-question üç kol ranking’i artık saklanıyor; eski JSON’lar legacy/unverifiable | [#25](https://github.com/barandincoguz/belge-gozu/issues/25) |
+| Reranker artefaktı | **tamamlandı**; yeni raporlar per-question üç kol ranking’i taşıyor, eski JSON’lar açıkça legacy/unverifiable işaretli | [#25](https://github.com/barandincoguz/belge-gozu/issues/25) (kapatıldı) |
 
 ## Uygulama sırası
 

@@ -37,7 +37,8 @@ başka bir issue/kapı kararıdır; bu belge MaxP'yi default'a almaz.
 ## Sonraki kilitler
 
 1. #23 artifact validator ile her yeni G1/G2 raporunu doğrula (canonical raporlar tamamlandı);
-   custom reranker evidence için #25'in per-question çıktısını kullan.
+   custom reranker evidence için #25'in per-question çıktısını kullan. Eski
+   custom JSON'lar results/README.md'de açıkça legacy/unverifiable işaretlidir.
 2. #1 bu supersession'ı referanslayan tek güncel G1 raporu ve ASCII/holdout kararını
    yayımla.
 3. #17 reranker için paired holdout veya daha geniş insan bench'i; latency/RAM
