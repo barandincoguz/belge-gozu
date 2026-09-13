@@ -37,9 +37,15 @@ def ndcg_at_k(relevant: set[str], ranked: list[str], k: int) -> float:
 def bootstrap_ci(
     values: list[float], n_boot: int = 2000, alpha: float = 0.05, seed: int = 0
 ) -> tuple[float, float]:
+    if n_boot < 1:
+        raise ValueError(f"n_boot >= 1 olmalı: {n_boot}")
+    if not (0.0 < alpha < 1.0):
+        raise ValueError(f"alpha (0,1) aralığında olmalı: {alpha!r}")
     arr = np.asarray(values, dtype=np.float64)
     if arr.size == 0:
         return (0.0, 0.0)
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("bootstrap değerleri sonsuz veya NaN içeremez")
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, arr.size, size=(n_boot, arr.size))
     means = arr[idx].mean(axis=1)

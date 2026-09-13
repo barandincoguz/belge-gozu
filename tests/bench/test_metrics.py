@@ -41,3 +41,14 @@ def test_bootstrap_ci_deterministic_and_ordered():
     assert (lo, hi) == bootstrap_ci(vals, n_boot=500, seed=7)
     assert 0.0 <= lo <= sum(vals) / len(vals) <= hi <= 1.0
     assert bootstrap_ci([], n_boot=10) == (0.0, 0.0)
+
+
+def test_bootstrap_ci_rejects_nonfinite_values_and_invalid_configuration():
+    with pytest.raises(ValueError, match="NaN|sonsuz"):
+        bootstrap_ci([0.0, float("nan")])
+    with pytest.raises(ValueError, match="n_boot"):
+        bootstrap_ci([0.0, 1.0], n_boot=0)
+    with pytest.raises(ValueError, match="alpha"):
+        bootstrap_ci([0.0, 1.0], alpha=0.0)
+    with pytest.raises(ValueError, match="alpha"):
+        bootstrap_ci([0.0, 1.0], alpha=1.0)
