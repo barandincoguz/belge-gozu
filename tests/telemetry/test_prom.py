@@ -179,6 +179,18 @@ def test_two_instances_do_not_collide():
     PromMetrics()  # global registry kullanılsaydı Duplicated timeseries hatası verirdi
 
 
+def test_custom_registry_includes_process_runtime_and_gc_metrics():
+    metrics = PromMetrics()
+    collector_types = {
+        type(collector).__name__ for collector in metrics.registry._collector_to_names
+    }
+    assert {"ProcessCollector", "PlatformCollector", "GCCollector"} <= collector_types
+
+    text = metrics.render()[0].decode()
+    assert "python_info" in text
+    assert "python_gc_objects_collected_total" in text
+
+
 def test_observe_records_uncovered_stage_names():
     """_STAGE_COLS dışındaki aşamalar (ör. exhaustive_maxsim) da histogram'a düşmeli."""
     pm = PromMetrics()

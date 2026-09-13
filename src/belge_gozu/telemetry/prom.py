@@ -6,8 +6,11 @@ from prometheus_client import (
     CollectorRegistry,
     Counter,
     Gauge,
+    GCCollector,
     Histogram,
     Info,
+    PlatformCollector,
+    ProcessCollector,
     generate_latest,
 )
 
@@ -92,6 +95,12 @@ class PromMetrics:
     def __init__(self) -> None:
         self.registry = CollectorRegistry()
         r = self.registry
+        # Özel registry varsayılan process/platform/GC kolektörlerini otomatik
+        # taşımaz. Açık kayıt olmazsa Grafana'nın RSS paneli ve katalogda vaat
+        # edilen çalışma-anı serileri sessizce boş kalır.
+        ProcessCollector(registry=r)
+        PlatformCollector(registry=r)
+        GCCollector(registry=r)
         self.requests = Counter(
             "bg_http_requests", "İstek sayısı", ["endpoint", "status"], registry=r
         )
