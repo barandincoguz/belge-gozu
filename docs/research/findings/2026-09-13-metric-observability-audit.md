@@ -14,6 +14,8 @@ gönderildi:
 - `2db6c17` — özel Prometheus registry'sine runtime kolektörleri eklenir.
 - `000e163` — bootstrap CI geçersiz/sonlu olmayan girdileri reddeder.
 - `9208c91` — GitHub/triage/domain agent sözleşmesi kaydedilir.
+- `f5a7f9c` — bu ölçüm/observability audit ve P/G issue haritası kaydedilir.
+- `3789e6e` — legacy telemetry stage alanlarının null/deprecation sözleşmesi netleştirilir.
 
 Veri ve artefakt iddiaları, koşumun kendi künye alanlarıyla birlikte okunmalıdır;
 model cache'i veya kullanıcı artefaktları silinmemiştir.
