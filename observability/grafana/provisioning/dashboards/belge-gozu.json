@@ -24,7 +24,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "RPS",
+      "title": "İşlenen RPS (rejected hariç)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -685,6 +685,79 @@
           "calcs": []
         }
       }
+    },
+    {
+      "id": 11,
+      "title": "Reddedilen istekler",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (reason) (rate(bg_rejected_total[5m]))",
+          "refId": "A",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Telemetri yazma hataları",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "increase(bg_telemetry_write_failures_total[15m])",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
     }
   ],
   "refresh": "5s",
@@ -703,6 +776,6 @@
   "timezone": "",
   "title": "Belge-Gözü",
   "uid": "belge-gozu",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

@@ -204,6 +204,11 @@ class PromMetrics:
             "bg_llm_tokens_per_second", "Üretim hızı", buckets=TPS_BUCKETS, registry=r
         )
         self.cost = Counter("bg_llm_cost_usd", "Tahmini maliyet (USD)", registry=r)
+        self.telemetry_write_failures = Counter(
+            "bg_telemetry_write_failures",
+            "Telemetri olay yazma hatası",
+            registry=r,
+        )
         self.inflight_g = Gauge("bg_inflight_requests", "Anlık istek", ["endpoint"], registry=r)
         self.pages = Gauge("bg_index_pages", "Dizindeki sayfa sayısı", registry=r)
         self.info = Info("bg_app", "Uygulama künyesi", registry=r)

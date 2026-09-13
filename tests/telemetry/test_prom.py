@@ -346,3 +346,22 @@ def test_metrics_catalog_lists_every_series_in_the_registry():
     }
     missing = sorted(n for n in expected if n not in catalog)
     assert not missing, f"katalogda eksik seri(ler): {missing}"
+
+
+def test_dashboard_exposes_rejected_traffic_and_telemetry_write_failures():
+    import json
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    dashboard = json.loads(
+        (
+            repo_root
+            / "observability/grafana/provisioning/dashboards/belge-gozu.json"
+        ).read_text(encoding="utf-8")
+    )
+    panels = {panel["id"]: panel for panel in dashboard["panels"]}
+    assert "rejected hariç" in panels[1]["title"]
+    assert panels[11]["targets"][0]["expr"] == "sum by (reason) (rate(bg_rejected_total[5m]))"
+    assert panels[12]["targets"][0]["expr"] == (
+        "increase(bg_telemetry_write_failures_total[15m])"
+    )

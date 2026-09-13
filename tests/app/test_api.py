@@ -120,6 +120,28 @@ def test_healthz_survives_unwritable_telemetry_directory(tiny_corpus, caplog, mo
     assert "kalıcı telemetri açılamadı; bellek içi kayda düşülüyor" in caplog.text
 
 
+def test_telemetry_write_failure_is_exposed_without_failing_request(tiny_corpus):
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        min_score_threshold=-1e9,
+    )
+    client = TestClient(
+        create_app(
+            settings=settings,
+            encoder=enc,
+            answerer=StubAnswerer(),
+            recorder=BoomRecorder(data_dir / "events.sqlite"),
+        )
+    )
+
+    response = client.post("/search", json={"query": "deneme sorgusu"})
+
+    assert response.status_code == 200
+    assert "bg_telemetry_write_failures_total 1.0" in client.get("/metrics").text
+
+
 def test_healthz_reports_active_pipeline(tiny_corpus):
     """UI eşiği bu alanla birlikte okur: 10.6 (bm25) ile 0.58 (görsel) ayrımı."""
     c = make_client(tiny_corpus, retrieval_pipeline="exhaustive")

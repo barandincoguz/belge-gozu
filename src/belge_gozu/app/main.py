@@ -707,10 +707,23 @@ def create_app(
         # bir isteği düşürmez.
         try:
             ev = build_event(**kwargs)
-            rec.record(ev)
-            prom.observe(ev)
         except Exception:
             logger.exception("telemetri olayı işlenemedi (istek etkilenmedi)")
+            return
+        try:
+            failures_before = rec.write_failures
+            rec.record(ev)
+        except Exception:
+            prom.telemetry_write_failures.inc()
+            logger.exception("telemetri olay yazımı istisna verdi (istek etkilenmedi)")
+        else:
+            failures = max(0, rec.write_failures - failures_before)
+            if failures:
+                prom.telemetry_write_failures.inc(failures)
+        try:
+            prom.observe(ev)
+        except Exception:
+            logger.exception("telemetri Prometheus olayı işlenemedi (istek etkilenmedi)")
 
     def record_rejection(*, endpoint: str, http_status: int, total_ms: float, query: str) -> None:
         """422/429 için MİNİMAL olay satırı + `bg_rejected_total{reason}` (Y23).
@@ -736,23 +749,27 @@ def create_app(
         reason = _REJECT_REASONS.get(http_status, "other")
         try:
             prom.rejected.labels(reason=reason).inc()
-            rec.record(
-                RequestEvent(
-                    ts=datetime.now(UTC).isoformat(),
-                    endpoint=endpoint,
-                    status="rejected",
-                    http_status=http_status,
-                    total_ms=total_ms,
-                    query_len=len(query),
-                    query_text=query if s.log_query_text else None,
-                    query_sha256=hashlib.sha256(query.encode()).hexdigest(),
-                    error_type=reason,
-                    pipeline=s.retrieval_pipeline,
-                    score_scale=PIPELINE_SCORE_SCALE[s.retrieval_pipeline],
-                    index_revision=revision,
-                )
+            ev = RequestEvent(
+                ts=datetime.now(UTC).isoformat(),
+                endpoint=endpoint,
+                status="rejected",
+                http_status=http_status,
+                total_ms=total_ms,
+                query_len=len(query),
+                query_text=query if s.log_query_text else None,
+                query_sha256=hashlib.sha256(query.encode()).hexdigest(),
+                error_type=reason,
+                pipeline=s.retrieval_pipeline,
+                score_scale=PIPELINE_SCORE_SCALE[s.retrieval_pipeline],
+                index_revision=revision,
             )
+            failures_before = rec.write_failures
+            rec.record(ev)
+            failures = max(0, rec.write_failures - failures_before)
+            if failures:
+                prom.telemetry_write_failures.inc(failures)
         except Exception:
+            prom.telemetry_write_failures.inc()
             logger.exception("ret olayı işlenemedi (istek etkilenmedi)")
 
     def guard(endpoint: str, text: str, request: Request, limiter: RateLimiter) -> None:
