@@ -28,15 +28,15 @@ Her `/ask` ve `/search` isteği bu tabloya bir satır düşürür (WAL modlu SQL
 | `http_status` | INTEGER | HTTP kodu | `app/main.py` | client hatası mı server hatası mı ayrımı | 1 |
 | `total_ms` | REAL | ms | `app/main.py` (RequestTimer) | uçtan uca gecikme — kullanıcının hissettiği | 1 |
 | `encode_ms` | REAL, NULL olabilir | ms | `retrieval/core.py` `with stage("query_encode")` | darboğaz ayrıştırması: embedding aşaması | 1 |
-| `stage1_ms` | REAL | ms | `retrieval/core.py` `with stage("stage1_hamming")` | darboğaz ayrıştırması: Hamming ön-eleme | 1 |
-| `stage2_ms` | REAL | ms | `retrieval/core.py` `with stage("stage2_maxsim")` | darboğaz ayrıştırması: MaxSim yeniden sıralama | 1 |
+| `stage1_ms` | REAL, NULL olabilir (legacy) | ms | `retrieval/core.py` `with stage("stage1_hamming")` | yalnız two-stage Hamming ön-elemesi; yeni hatlar için `detail.stages` tek kaynaktır | 1 |
+| `stage2_ms` | REAL, NULL olabilir (legacy) | ms | `retrieval/core.py` `with stage("stage2_maxsim")` | yalnız two-stage MaxSim yeniden sıralaması; exhaustive/hybrid süreleri `detail.stages` içindedir | 1 |
 | `answer_ms` | REAL, yalnız `/ask` + LLM çağrıldıysa | ms | `answer/base.py` `with stage("answerer")` | LLM çağrısının toplam süredeki payı | 1 |
 | `top_score` | REAL | skor birimi (spec eşiği ile aynı ölçek) | `retrieval` → `app/main.py` birleştirme | eşik kalibrasyonu, skor driftini izleme | 1 |
 | `margin_1_2` | REAL | skor birimi | `retrieval` → `app/main.py` birleştirme | top1−top2: retrieval kararlılığı/belirsizliği | 1 |
 | `abstained` | INTEGER 0/1, yalnız `/ask` | bool | `answer/base.py` (`Answer.abstained`) | halüsinasyon freninin ne sıklıkla tetiklendiği | 1 |
 | `honest_miss` | INTEGER 0/1, **yalnız `status='answered'` satırlarında**; diğerlerinde NULL | bool | `answer/base.py: is_honest_miss()` — `HONEST_MISS_MARKER in tr_lower(text)` | modelin KENDİ dürüst ıskası (getirim getirdi, model kanıt bulamadı). **Üç değer, üç anlam:** NULL = hesaplanmadı (LLM hiç konuşmadı — abstained/degraded/error ya da `/search`) · 0 = hesaplandı, ıska yok · 1 = hesaplandı, ıska var. P2 bu kolonu hedef değişken olarak okuyacağı için abstain/degraded satırlarına 0 YAZILMAZ. TEK hesap yolu: `/ask` gövdesindeki `honest_miss`, bu kolon ve `bg_honest_miss_total` aynı fonksiyondan. Mühür (`HONEST_MISS_MARKER`) Gemini SİSTEM istemine f-string ile GÖMÜLÜ, yani modele dayatılan ifade ile aranan ifade ayrışamaz (Y17/K27) | 1 |
 | `k` | INTEGER | adet | `app/main.py` (istek gövdesi) | retrieval genişliği | 1 |
-| `candidates` | INTEGER | adet | `retrieval/core.py` | aday havuzu boyutu | 1 |
+| `candidates` | INTEGER, NULL olabilir | adet | `retrieval/core.py` | yalnız two-stage aday havuzu boyutu; diğer pipeline'larda NULL | 1 |
 | `query_len` | INTEGER | karakter | `app/main.py` | soru uzunluğu↔gecikme/skor ilişkisi | 1 |
 | `query_text` | TEXT, NULL olabilir | — | `app/main.py`, `config.py: log_query_text` | ham metin (varsayılan açık); `BG_LOG_QUERY_TEXT=false` ile kapatılır | 1 |
 | `query_sha256` | TEXT | hex hash | `app/main.py` | her durumda yazılır — dedup/korelasyon (query_text kapalıyken de) | 1 |
@@ -79,7 +79,7 @@ Adlandırma: `bg_` öneki, taban birim saniye. Registry ve tanımlar
 | `bg_llm_cost_usd_total` | Counter | — | USD | `prom.py: self.cost` | kümülatif tahmini maliyet | 1 |
 | `bg_llm_key_rotations_total` | Counter | `from_key` ∈ {key1, key2} | adet | `prom.py: self.key_rotations` (olayın `detail.llm.rotations[] = {from, error_type}`) | API anahtarı rotasyonu: HANGİ anahtarda hata alınıp öbürüne geçildi (`answer/gemini.py::RotatingGeminiClient`). Etiket kümesi `answer/gemini.KEY_LABELS`ten gelir; anahtar DEĞERİ ne metriğe ne loga ne de olaya yazılır. Hata SINIFI etiket değil, olay alanıdır (`rotations[].error_type`) — kardinalite taksonomi kadar büyümesin. Tek anahtarlı dağıtımda (`GOOGLE_API_KEY_2` boş) seri BOŞTUR. Yorum: rotasyon başarılıysa istek `answered` biter ve `events.error_type` NULL kalır — birincil anahtarın kotasının bittiğini söyleyen TEK erken uyarı bu seridir (`bg_abstain_total{reason="degraded"}` daha artmamışken) | 2 |
 | `bg_index_pages` | Gauge | — | sayfa | `prom.py: self.pages` (`set_app_info`) | yüklü korpus boyutu (koşum künyesi) | 1 |
-| `bg_app_info` | Info | `retriever_model`, `gemini_model`, `device`, `version`, `threshold` | — | `prom.py: self.info` (`set_app_info`) | hangi konfigürasyon koşuyor — tekrarlanabilirlik | 1 |
+| `bg_app_info` | Info | `retriever_model`, `gemini_model`, `device`, `version`, `threshold`, `index_revision`, `query_format` | — | `prom.py: self.info` (`set_app_info`) | hangi konfigürasyon koşuyor — tekrarlanabilirlik | 1 |
 | `process_*`, `python_info`, `python_gc_*` | process/platform/GC kolektörleri | — | RSS/CPU/çalışma anı/GC | `prom.py: PromMetrics.__init__` özel registry'ye açıkça kaydeder | bedava sistem görünümü; `process_resident_memory_bytes` dashboard'da RSS paneli | 1 |
 
 > Not: Prometheus text formatında Counter'lar `_total` soneki ile sunulur
