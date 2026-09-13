@@ -93,15 +93,17 @@ benchmark, aynı index revision, aynı recipe fingerprint ve aynı seçim filtre
 | Reranker | offline MaxP kazancı var; production config/G1.3 hükmü yok | [#17](https://github.com/barandincoguz/belge-gozu/issues/17) |
 | Outcome/drift | UI claim verdict, feedback ve drift raporu yok | [#18](https://github.com/barandincoguz/belge-gozu/issues/18) |
 | Judge/fine-tuning | insan PPI önkoşulu ve resmi FT kararı yok | [#19](https://github.com/barandincoguz/belge-gozu/issues/19) |
-| Yeni ölçüm artefaktı doğrulama | **tamamlandı**; canonical aggregate/provenance tamper kontrolü var | [#23](https://github.com/barandincoguz/belge-gozu/issues/23) (kapatıldı) |
+| Yeni ölçüm artefaktı doğrulama | **canonical raporlarda tamamlandı**; custom reranker raporları tam yeniden üretim için eksik | [#23](https://github.com/barandincoguz/belge-gozu/issues/23) (kapatıldı), [#25](https://github.com/barandincoguz/belge-gozu/issues/25) |
 | Yeni verifier telemetry | **tamamlandı**; verifier token/süre/maliyet amaç bazında ve toplamda izleniyor | [#22](https://github.com/barandincoguz/belge-gozu/issues/22) (kapatıldı) |
 | Yeni monitoring | **tamamlandı**; telemetry write loss ve rejected trafik ayrı Prometheus/dashboard popülasyonları olarak izleniyor | [#24](https://github.com/barandincoguz/belge-gozu/issues/24) (kapatıldı) |
+| Reranker artefaktı | aggregate + minimum rank saklanıyor; nDCG/paired delta tam yeniden üretilemiyor | [#25](https://github.com/barandincoguz/belge-gozu/issues/25) |
 
 ## Uygulama sırası
 
-1. **Ölçüm güvenliği tamamlandı:** artifact verifier (#23), verifier usage (#22)
+1. **Ölçüm güvenliği:** canonical artifact verifier (#23), verifier usage (#22)
    ve telemetry loss/rejected monitoring (#24) kapandı. Yeni G2/G1 sayıları
-   yine yalnız doğrulanmış veri/identity ile yayınlanmalı.
+   yine yalnız doğrulanmış veri/identity ile yayınlanmalı; custom reranker
+   artefaktlarının tam self-audit'i #25'te.
 2. **Kanıt kapıları:** #2 quota-backed dev smoke → #1 güncel G1 gate raporu →
    #8 K18/oracle sınırı → #9 gate policy → #10 tek seferlik test final gate.
 3. **Kalite katmanı:** #13 insan doğrulama → #12 bench v2 → #11 dense/fusion
