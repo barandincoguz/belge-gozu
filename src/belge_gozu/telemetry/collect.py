@@ -70,3 +70,33 @@ def merge_note(name: str, /, **fields: object) -> None:
     merged = dict(cur) if isinstance(cur, dict) else {}
     merged.update(fields)
     col.notes[name] = merged
+
+
+def record_llm_usage(
+    purpose: str,
+    *,
+    tokens_in: int | None,
+    tokens_out: int | None,
+) -> None:
+    """İstek içindeki bir LLM çağrısının provider kullanımını kaydet.
+
+    Metadata provider tarafından verilmezse çağrının kendisi yine görünür;
+    token alanları ``None`` kalır ve bilinmeyen kullanım sıfır diye raporlanmaz.
+    Liste kullanılır çünkü tek istekte yanıtlayıcı + birden çok verifier çağrısı
+    olabilir.
+    """
+    col = _collector.get()
+    if col is None:
+        return
+    current = col.notes.get("llm_usage")
+    entries = list(current) if isinstance(current, list) else []
+    entries.append(
+        {
+            "purpose": purpose,
+            "tokens_in": tokens_in if isinstance(tokens_in, int) and tokens_in >= 0 else None,
+            "tokens_out": tokens_out
+            if isinstance(tokens_out, int) and tokens_out >= 0
+            else None,
+        }
+    )
+    col.notes["llm_usage"] = entries

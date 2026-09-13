@@ -71,6 +71,28 @@ def test_observe_and_render_contains_series():
     assert "openmetrics" in ctype or "text/plain" in ctype
 
 
+def test_observe_tracks_llm_tokens_by_purpose_without_double_counting_total():
+    pm = PromMetrics()
+    pm.observe(
+        _ask_ev(
+            tokens_in=22,
+            tokens_out=8,
+            detail={
+                "llm_usage": [
+                    {"purpose": "answerer", "tokens_in": 17, "tokens_out": 5},
+                    {"purpose": "verifier", "tokens_in": 5, "tokens_out": 3},
+                ]
+            },
+        )
+    )
+
+    text = pm.render()[0].decode()
+    assert 'bg_llm_tokens_total{direction="input"} 22.0' in text
+    assert 'bg_llm_tokens_total{direction="output"} 8.0' in text
+    assert 'bg_llm_tokens_by_purpose_total{direction="input",purpose="answerer"} 17.0' in text
+    assert 'bg_llm_tokens_by_purpose_total{direction="output",purpose="verifier"} 3.0' in text
+
+
 def test_score_histograms_carry_quantization_label():
     """Skor/marj örnekleri TEMSİLE göre etiketlenir (T14).
 

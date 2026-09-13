@@ -232,8 +232,12 @@ class AskService:
         if skip is not None:
             annotate("gate2", {"demoted": False, "skipped": skip})
             return answer
+        gate2 = self.gate2
+        if gate2 is None:  # çağıran sözleşmesi gereği erişilemez, savunmacı daraltma
+            return answer
         try:
-            detail = self.gate2.evaluate(answer, hits)  # pyright: ignore[reportOptionalMemberAccess]
+            with stage("verifier"):
+                detail = gate2.evaluate(answer, hits)
         except Exception as exc:
             # ŞÜPHEDE REDDET: doğrulayıcı arızası (kota, bütçe, disk) bir
             # yanıtı KESİN diye sunmak için gerekçe değildir.

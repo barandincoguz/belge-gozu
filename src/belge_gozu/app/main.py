@@ -576,13 +576,41 @@ def create_app(
     ) -> RequestEvent:
         top = hits[0].score if hits else None
         margin = (hits[0].score - hits[1].score) if len(hits) >= 2 else None
-        tokens_in = col.notes.get("tokens_in")
-        tokens_out = col.notes.get("tokens_out")
+        raw_usage = col.notes.get("llm_usage")
+        usage = (
+            [entry for entry in raw_usage if isinstance(entry, dict)]
+            if isinstance(raw_usage, list)
+            else []
+        )
+        if not usage:
+            legacy_in = col.notes.get("tokens_in")
+            legacy_out = col.notes.get("tokens_out")
+            if legacy_in is not None or legacy_out is not None:
+                usage = [
+                    {
+                        "purpose": "answerer",
+                        "tokens_in": legacy_in if isinstance(legacy_in, int) else None,
+                        "tokens_out": legacy_out if isinstance(legacy_out, int) else None,
+                    }
+                ]
+
+        def usage_total(field: str) -> int | None:
+            values = [entry[field] for entry in usage if isinstance(entry.get(field), int)]
+            return sum(values) if values else None
+
+        tokens_in = usage_total("tokens_in")
+        tokens_out = usage_total("tokens_out")
+        answerer_out_values = [
+            entry["tokens_out"]
+            for entry in usage
+            if entry.get("purpose") == "answerer" and isinstance(entry.get("tokens_out"), int)
+        ]
+        answerer_tokens_out = sum(answerer_out_values) if answerer_out_values else None
         noted_error = col.notes.get("error_type")
         answer_ms = col.stages.get("answerer")
         tps = None
-        if isinstance(tokens_out, int) and answer_ms and answer_ms > 0:
-            tps = tokens_out / (answer_ms / 1000.0)
+        if answerer_tokens_out is not None and answer_ms and answer_ms > 0:
+            tps = answerer_tokens_out / (answer_ms / 1000.0)
         cost = None
         if isinstance(tokens_in, int) and isinstance(tokens_out, int):
             cost = (tokens_in / 1e6) * s.gemini_price_in_usd_per_1m + (
@@ -624,6 +652,8 @@ def create_app(
         #     İçinde YALNIZ "key1"/"key2" ETİKETLERİ bulunur, anahtar DEĞERİ
         #     hiçbir koşulda yazılmaz.
         notes_detail = {k: col.notes[k] for k in ("gate1", "gate2", "llm") if k in col.notes}
+        if usage:
+            notes_detail["llm_usage"] = usage
         return RequestEvent(
             ts=datetime.now(UTC).isoformat(),
             endpoint=endpoint,
@@ -634,6 +664,7 @@ def create_app(
             stage1_ms=col.stages.get("stage1_hamming"),
             stage2_ms=col.stages.get("stage2_maxsim"),
             answer_ms=answer_ms,
+            verifier_ms=col.stages.get("verifier"),
             top_score=top,
             margin_1_2=margin,
             abstained=answer.abstained if answer else None,

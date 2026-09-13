@@ -162,6 +162,52 @@ def test_gate2_supported_answer_stays_answered_and_counts_a_verdict(tiny_corpus,
     assert 'bg_verifier_verdicts_total{verdict="supported"} 1.0' in c.get("/metrics").text
 
 
+def test_gate2_records_provider_usage_and_verifier_stage(tiny_corpus, monkeypatch):
+    from belge_gozu.answer.gemini import GenResult
+
+    class ProviderStub:
+        def generate_json(self, prompt, schema=None):
+            return GenResult(text='{"verdict":"supported"}', tokens_in=17, tokens_out=5)
+
+    monkeypatch.setattr(
+        "belge_gozu.answer.gemini.build_gemini_client",
+        lambda *args, **kwargs: ProviderStub(),
+    )
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        min_score_threshold=-1e9,
+        gate_verifier=True,
+    )
+    c = TestClient(create_app(settings=settings, encoder=enc, answerer=CitingAnswerer()))
+
+    body = c.post("/ask", json={"question": "yerleşim yeri nedir"}).json()
+
+    assert body["status"] == "answered"
+    detail = _event_detail(data_dir)
+    assert detail["llm_usage"] == [
+        {"purpose": "verifier", "tokens_in": 17, "tokens_out": 5}
+    ]
+    assert detail["stages"]["verifier"] >= 0.0
+    tokens_in, tokens_out, cost, verifier_ms = sqlite3.connect(
+        data_dir / "requests.sqlite"
+    ).execute(
+        "SELECT tokens_in, tokens_out, est_cost_usd, verifier_ms "
+        "FROM events WHERE endpoint='/ask'"
+    ).fetchone()
+    assert (tokens_in, tokens_out) == (17, 5)
+    assert cost == pytest.approx((17 * 0.10 + 5 * 0.40) / 1_000_000)
+    assert verifier_ms >= 0.0
+    assert 'bg_stage_duration_seconds_bucket{le="+Inf",stage="verifier"}' in c.get(
+        "/metrics"
+    ).text
+    assert (
+        'bg_llm_tokens_by_purpose_total{direction="input",purpose="verifier"} 17.0'
+        in c.get("/metrics").text
+    )
+
+
 def test_gate2_demote_keeps_the_status_vocabulary_and_flags_it_in_detail(tiny_corpus, monkeypatch):
     data_dir, _, _ = tiny_corpus
     c = _client(tiny_corpus, verdict="unsupported", monkeypatch=monkeypatch, gate_verifier=True)

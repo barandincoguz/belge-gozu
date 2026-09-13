@@ -7,7 +7,7 @@ EVENTS_DDL = """CREATE TABLE IF NOT EXISTS events (
   status TEXT NOT NULL,
   http_status INTEGER NOT NULL,
   total_ms REAL NOT NULL,
-  encode_ms REAL, stage1_ms REAL, stage2_ms REAL, answer_ms REAL,
+  encode_ms REAL, stage1_ms REAL, stage2_ms REAL, answer_ms REAL, verifier_ms REAL,
   top_score REAL, margin_1_2 REAL,
   abstained INTEGER, honest_miss INTEGER,
   k INTEGER, candidates INTEGER,
@@ -41,6 +41,7 @@ class RequestEvent(BaseModel):
     stage1_ms: float | None = None
     stage2_ms: float | None = None
     answer_ms: float | None = None
+    verifier_ms: float | None = None
     top_score: float | None = None
     margin_1_2: float | None = None
     abstained: bool | None = None

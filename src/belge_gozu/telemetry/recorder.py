@@ -25,6 +25,7 @@ _ADDED_COLUMNS = (
     ("index_revision", "TEXT"),
     ("score_scale", "TEXT"),
     ("honest_miss", "INTEGER"),
+    ("verifier_ms", "REAL"),
 )
 
 _COLUMNS = [
@@ -37,6 +38,7 @@ _COLUMNS = [
     "stage1_ms",
     "stage2_ms",
     "answer_ms",
+    "verifier_ms",
     "top_score",
     "margin_1_2",
     "abstained",

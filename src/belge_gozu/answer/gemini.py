@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from belge_gozu.answer.base import HONEST_MISS_MARKER, Answer, AnswererError
 from belge_gozu.retrieval.types import PageHit
-from belge_gozu.telemetry.collect import annotate, merge_note, note
+from belge_gozu.telemetry.collect import annotate, merge_note, note, record_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -665,6 +665,11 @@ class GeminiAnswerer:
         images = [image_loader(p.image_path) for p in pages]
         markers = [source_marker(i + 1, p) for i, p in enumerate(pages)]
         gen = self._client.generate(prompt, images, markers)
+        record_llm_usage(
+            "answerer",
+            tokens_in=gen.tokens_in,
+            tokens_out=gen.tokens_out,
+        )
         text = gen.text
         if gen.tokens_in is not None:
             annotate("tokens_in", gen.tokens_in)

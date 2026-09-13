@@ -8,6 +8,7 @@ import json
 import pytest
 
 from belge_gozu.answer.base import Answer, gate2_skip_reason, is_honest_miss
+from belge_gozu.answer.gemini import GenResult
 from belge_gozu.answer.verify import (
     PROMPT_VERSION,
     Claim,
@@ -21,6 +22,7 @@ from belge_gozu.answer.verify import (
     verify_claim,
 )
 from belge_gozu.retrieval.types import PageHit
+from belge_gozu.telemetry.collect import collecting
 
 
 class StubClient:
@@ -60,6 +62,38 @@ def test_segment_basic_strips_markers_and_numbers_claims():
     assert "[S1]" not in claims[0].text
     assert claims[0].text == "Yerleşim yeri sürekli kalma niyetiyle oturulan yerdir."
     assert claims[0].cited_sources == [1] and claims[1].cited_sources == [1]
+
+
+def test_verifier_adapter_preserves_provider_usage_metadata():
+    class ProviderStub:
+        def generate_json(self, prompt, schema=None):
+            return GenResult(text='{"verdict":"supported"}', tokens_in=17, tokens_out=5)
+
+    from belge_gozu.answer.verify import GeminiVerifierClient
+
+    adapter = GeminiVerifierClient("model", "key", client=ProviderStub())
+    with collecting() as col:
+        assert adapter.generate_json("prompt") == '{"verdict":"supported"}'
+
+    assert col.notes["llm_usage"] == [
+        {"purpose": "verifier", "tokens_in": 17, "tokens_out": 5}
+    ]
+
+
+def test_verifier_adapter_records_unknown_usage_without_fabricating_tokens():
+    class ProviderStub:
+        def generate_json(self, prompt, schema=None):
+            return GenResult(text='{"verdict":"supported"}')
+
+    from belge_gozu.answer.verify import GeminiVerifierClient
+
+    adapter = GeminiVerifierClient("model", "key", client=ProviderStub())
+    with collecting() as col:
+        adapter.generate_json("prompt")
+
+    assert col.notes["llm_usage"] == [
+        {"purpose": "verifier", "tokens_in": None, "tokens_out": None}
+    ]
 
 
 @pytest.mark.parametrize(

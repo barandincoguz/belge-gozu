@@ -86,6 +86,7 @@ _STAGE_COLS = {
     "stage1_hamming": "stage1_ms",
     "stage2_maxsim": "stage2_ms",
     "answerer": "answer_ms",
+    "verifier": "verifier_ms",
 }
 
 
@@ -193,6 +194,12 @@ class PromMetrics:
             "bg_llm_key_rotations", "API anahtarı rotasyonu", ["from_key"], registry=r
         )
         self.tokens = Counter("bg_llm_tokens", "LLM token sayısı", ["direction"], registry=r)
+        self.tokens_by_purpose = Counter(
+            "bg_llm_tokens_by_purpose",
+            "LLM token sayısı, çağrı amacına göre",
+            ["purpose", "direction"],
+            registry=r,
+        )
         self.tps = Histogram(
             "bg_llm_tokens_per_second", "Üretim hızı", buckets=TPS_BUCKETS, registry=r
         )
@@ -288,6 +295,14 @@ class PromMetrics:
             self.tokens.labels(direction="input").inc(ev.tokens_in)
         if ev.tokens_out:
             self.tokens.labels(direction="output").inc(ev.tokens_out)
+        for usage in ev.detail.get("llm_usage") or []:
+            if not isinstance(usage, dict) or usage.get("purpose") not in {"answerer", "verifier"}:
+                continue
+            purpose = usage["purpose"]
+            for field, direction in (("tokens_in", "input"), ("tokens_out", "output")):
+                value = usage.get(field)
+                if isinstance(value, int) and value > 0:
+                    self.tokens_by_purpose.labels(purpose=purpose, direction=direction).inc(value)
         if ev.tokens_per_s is not None:
             self.tps.observe(ev.tokens_per_s)
         if ev.est_cost_usd:

@@ -52,6 +52,7 @@ from pydantic import BaseModel
 
 from belge_gozu.answer.base import Answer, EvidenceGateProtocol, RetrievalGate
 from belge_gozu.retrieval.text import tr_lower
+from belge_gozu.telemetry.collect import record_llm_usage
 
 if TYPE_CHECKING:  # pragma: no cover - yalnız tip denetimi
     from belge_gozu.config import Settings
@@ -776,7 +777,13 @@ class GeminiVerifierClient:
         self._client = client or build_gemini_client(model, api_key, api_key_2)
 
     def generate_json(self, prompt: str, schema: dict | None = None) -> str:
-        return self._client.generate_json(prompt, schema).text
+        result = self._client.generate_json(prompt, schema)
+        record_llm_usage(
+            "verifier",
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+        )
+        return result.text
 
     def api_attempts(self) -> int:
         """Bu istek bağlamındaki GERÇEK HTTP denemesi sayısı (rotasyon + retry).
