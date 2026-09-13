@@ -1,5 +1,19 @@
 # Belge-Gözü çalışma rehberi
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues; use `gh` from this repository. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository; consume root `CONTEXT.md` (if present) and `docs/adr/`. See `docs/agents/domain.md`.
+
 Belge-Gözü, Türk mevzuatı üzerinde kanıtlı soru-cevap üreten bir RAG sistemidir.
 Bir değişikliğin doğru sayılması için yalnız kodun çalışması yetmez: ölçümün,
 indeks kimliğinin ve cevap güvenlik kapısının da aynı yapılandırmayı temsil etmesi gerekir.
