@@ -28,7 +28,7 @@ model cache'i veya kullanıcı artefaktları silinmemiştir.
 
 | Alan | Kanıt | Sonuç |
 |---|---|---|
-| Ağsız regresyon | `uv run --extra dev pytest tests -q -m "not slow"` | **879 passed, 2 skipped** |
+| Ağsız regresyon | `uv run --extra dev pytest tests -q -m "not slow"` | **880 passed, 2 skipped** |
 | Statik kalite | `uv run ruff check .`, `uv run pyright`, `git diff --check` | **yeşil** |
 | Gerçek retrieval yolu | `.venv-lab/bin/pytest tests/retrieval/test_retrieval_regression.py -q -rx` | **4 passed, 1 beklenen strict xfail** |
 | Beklenen xfail | BM25 10.6 eşiği cevaplanabilir/cevaplanamazı ayırmıyor | P2 kalibrasyonu bekleniyor; xfail kaldırılmadı |
