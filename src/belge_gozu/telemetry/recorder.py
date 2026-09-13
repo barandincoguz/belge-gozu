@@ -113,7 +113,7 @@ class EventRecorder:
             self._db = sqlite3.connect(":memory:", check_same_thread=False)
             _initialize_connection(self._db)
 
-    def record(self, ev: RequestEvent) -> None:
+    def record(self, ev: RequestEvent) -> bool:
         try:
             row = ev.model_dump()
             row["detail"] = json.dumps(row["detail"], ensure_ascii=False)
@@ -123,8 +123,10 @@ class EventRecorder:
             with self._lock:
                 self._db.execute(_INSERT, row)
                 self._db.commit()
+            return True
         except Exception:
             self._note_write_failure()
+            return False
 
     def _note_write_failure(self) -> None:
         """Hız-sınırlı uyarı: dakikada en fazla bir satır, ama hiç susmaz."""

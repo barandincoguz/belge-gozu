@@ -711,15 +711,12 @@ def create_app(
             logger.exception("telemetri olayı işlenemedi (istek etkilenmedi)")
             return
         try:
-            failures_before = rec.write_failures
-            rec.record(ev)
+            persisted = rec.record(ev)
+            if persisted is False:
+                prom.telemetry_write_failures.inc()
         except Exception:
             prom.telemetry_write_failures.inc()
             logger.exception("telemetri olay yazımı istisna verdi (istek etkilenmedi)")
-        else:
-            failures = max(0, rec.write_failures - failures_before)
-            if failures:
-                prom.telemetry_write_failures.inc(failures)
         try:
             prom.observe(ev)
         except Exception:
@@ -763,11 +760,9 @@ def create_app(
                 score_scale=PIPELINE_SCORE_SCALE[s.retrieval_pipeline],
                 index_revision=revision,
             )
-            failures_before = rec.write_failures
-            rec.record(ev)
-            failures = max(0, rec.write_failures - failures_before)
-            if failures:
-                prom.telemetry_write_failures.inc(failures)
+            persisted = rec.record(ev)
+            if persisted is False:
+                prom.telemetry_write_failures.inc()
         except Exception:
             prom.telemetry_write_failures.inc()
             logger.exception("ret olayı işlenemedi (istek etkilenmedi)")

@@ -22,7 +22,7 @@ def _ev(i: int = 0) -> RequestEvent:
 
 def test_record_roundtrip(tmp_path: Path):
     rec = EventRecorder(tmp_path / "t.sqlite")
-    rec.record(_ev(1))
+    assert rec.record(_ev(1)) is True
     row = (
         sqlite3.connect(tmp_path / "t.sqlite")
         .execute("SELECT endpoint, status, total_ms, detail FROM events")
@@ -58,7 +58,7 @@ def test_concurrent_writes_all_land(tmp_path: Path):
 def test_record_never_raises(tmp_path: Path, caplog):
     rec = EventRecorder(tmp_path / "t.sqlite")
     rec._db.close()  # bağlantıyı boz — record yine de sessiz kalmalı
-    rec.record(_ev())  # exception yok
+    assert rec.record(_ev()) is False  # exception yok, çağrı başarısızlığı görünür
 
 
 def test_unwritable_parent_falls_back_to_memory(tmp_path: Path, caplog, monkeypatch):
