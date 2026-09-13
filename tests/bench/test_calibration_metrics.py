@@ -238,11 +238,12 @@ def test_conformal_threshold_hand_computed_quantile():
     assert conformal_threshold(errors, labels, alpha=0.2) == pytest.approx(0.8)
 
 
-def test_conformal_threshold_saturates_to_max_when_n_too_small():
+def test_conformal_threshold_rejects_when_n_is_too_small_for_the_guarantee():
     errors = np.array([0.1, 0.2, 0.3, 0.4])
     labels = np.zeros(4)
-    # rank = ceil(5*0.95) = 5, n=4'e kırpılır -> en büyük hata confidence'ı
-    assert conformal_threshold(errors, labels, alpha=0.05) == pytest.approx(0.4)
+    # rank = ceil(5*0.95) = 5 > n=4: istenen sonlu-örnek garantisi kurulamaz.
+    with pytest.raises(ValueError, match="n yetersiz"):
+        conformal_threshold(errors, labels, alpha=0.05)
 
 
 def test_conformal_threshold_ignores_correct_examples():
@@ -250,7 +251,7 @@ def test_conformal_threshold_ignores_correct_examples():
     # kümesine karışmamalı: yalnız label==0 alt kümesi hesaba katılır.
     probs = np.array([0.1, 0.2, 0.3, 0.4, 0.99, 0.99, 0.99, 0.99, 0.99])
     labels = np.array([0, 0, 0, 0, 1, 1, 1, 1, 1])
-    assert conformal_threshold(probs, labels, alpha=0.05) == pytest.approx(0.4)
+    assert conformal_threshold(probs, labels, alpha=0.2) == pytest.approx(0.4)
 
 
 def test_conformal_threshold_rejects_no_errors_bad_alpha_and_empty():
@@ -344,3 +345,40 @@ def test_false_answer_rate_rejects_no_unanswerable_shape_mismatch_and_empty():
         false_answer_rate_on_unanswerable(np.array([0.5, 0.6]), np.array([True]), 0.5)
     with pytest.raises(ValueError):
         false_answer_rate_on_unanswerable(np.array([]), np.array([]), 0.5)
+
+
+@pytest.mark.parametrize(
+    "confidence,tau",
+    [
+        (np.array([np.nan]), 0.5),
+        (np.array([np.inf]), 0.5),
+        (np.array([0.9]), np.nan),
+        (np.array([0.9]), np.inf),
+    ],
+)
+def test_false_answer_rate_rejects_nonfinite_confidence_and_threshold(
+    confidence: np.ndarray, tau: float
+):
+    with pytest.raises(ValueError, match="NaN|sonsuz"):
+        false_answer_rate_on_unanswerable(confidence, np.array([False]), tau)
+
+
+def test_false_answer_rate_rejects_non_vector_and_out_of_range_confidence():
+    with pytest.raises(ValueError, match="1 boyutlu"):
+        false_answer_rate_on_unanswerable(
+            np.array([[0.9, 0.1]]),
+            np.array([[False, False]]),
+            0.5,
+        )
+    with pytest.raises(ValueError, match=r"\[0,1\]"):
+        false_answer_rate_on_unanswerable(np.array([1.1]), np.array([False]), 0.5)
+
+
+def test_false_answer_rate_rejects_unknown_bound_method():
+    with pytest.raises(ValueError, match="method"):
+        false_answer_rate_on_unanswerable(
+            np.array([0.9]),
+            np.array([False]),
+            0.5,
+            method="typo",  # type: ignore[arg-type]
+        )

@@ -3,13 +3,22 @@ import math
 import numpy as np
 
 
+def _validate_ranking(ranked: list[str], k: int | None = None) -> None:
+    if k is not None and k <= 0:
+        raise ValueError(f"k > 0 olmalı: {k}")
+    if len(ranked) != len(set(ranked)):
+        raise ValueError("ranking yinelenen page_id içeremez")
+
+
 def recall_at_k(relevant: set[str], ranked: list[str], k: int) -> float:
+    _validate_ranking(ranked, k)
     if not relevant:
         return 0.0
     return len(relevant & set(ranked[:k])) / len(relevant)
 
 
 def mrr(relevant: set[str], ranked: list[str]) -> float:
+    _validate_ranking(ranked)
     for i, p in enumerate(ranked, start=1):
         if p in relevant:
             return 1.0 / i
@@ -17,6 +26,7 @@ def mrr(relevant: set[str], ranked: list[str]) -> float:
 
 
 def ndcg_at_k(relevant: set[str], ranked: list[str], k: int) -> float:
+    _validate_ranking(ranked, k)
     if not relevant:
         return 0.0
     dcg = sum(1.0 / math.log2(i + 2) for i, p in enumerate(ranked[:k]) if p in relevant)

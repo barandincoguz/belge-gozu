@@ -19,6 +19,22 @@ def test_ndcg():
     assert ndcg_at_k({"a"}, ["b", "c"], 5) == 0.0
 
 
+def test_ranking_metrics_reject_duplicate_page_ids():
+    with pytest.raises(ValueError, match="yinelenen"):
+        recall_at_k({"a"}, ["a", "a"], 2)
+    with pytest.raises(ValueError, match="yinelenen"):
+        mrr({"a"}, ["a", "a"])
+    with pytest.raises(ValueError, match="yinelenen"):
+        ndcg_at_k({"a"}, ["a", "a"], 2)
+
+
+def test_cutoff_metrics_require_positive_k():
+    with pytest.raises(ValueError, match="k > 0"):
+        recall_at_k({"a"}, ["a"], 0)
+    with pytest.raises(ValueError, match="k > 0"):
+        ndcg_at_k({"a"}, ["a"], -1)
+
+
 def test_bootstrap_ci_deterministic_and_ordered():
     vals = [0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0]
     lo, hi = bootstrap_ci(vals, n_boot=500, seed=7)

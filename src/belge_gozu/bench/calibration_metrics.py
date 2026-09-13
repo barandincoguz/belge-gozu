@@ -206,9 +206,9 @@ def conformal_threshold(probs: np.ndarray, labels: np.ndarray, alpha: float = 0.
     olarak <= alpha'dır — yani ``risk_coverage``'daki "risk"i dev kalibrasyon
     kümesinden alpha ile üstten sınırlayan koşullu bir deneydir (üretime
     yalnız dev'de cost-matrix seçiminden iyi kalırsa girer — bkz. plan T6/T7).
-    n küçükse ``ceil((n+1)(1-alpha)) > n`` olabilir; bu durumda
-    tau=max(hata confidence'ı) döner (mümkün en ihtiyatlı eşik). Kalibrasyon
-    kümesinde hiç hata (label==0) yoksa ya da alpha (0,1) dışındaysa ValueError.
+    n küçükse ``ceil((n+1)(1-alpha)) > n`` olabilir; bu durumda istenen
+    sonlu-örnek garantisi kurulamaz ve ValueError fırlatılır. Kalibrasyon
+    kümesinde hiç hata (label==0) yoksa ya da alpha (0,1) dışındaysa da ValueError.
     """
     p, y = _check_probs_labels(probs, labels)
     if not (0.0 < alpha < 1.0):
@@ -217,7 +217,12 @@ def conformal_threshold(probs: np.ndarray, labels: np.ndarray, alpha: float = 0.
     n = errors.size
     if n == 0:
         raise ValueError("kalibrasyon kümesinde hiç hata (label==0) yok; conformal eşik tanımsız")
-    rank = min(math.ceil((n + 1) * (1 - alpha)), n)
+    rank = math.ceil((n + 1) * (1 - alpha))
+    if rank > n:
+        raise ValueError(
+            f"conformal eşik için n yetersiz: hata n={n}, alpha={alpha}; "
+            f"istenen sıra={rank} > n"
+        )
     return float(errors[rank - 1])
 
 
@@ -311,13 +316,12 @@ def false_answer_rate_on_unanswerable(
     ``method``; Wilson biraz daha iyimserdir, karşılaştırma için sunulur).
     Girişte hiç cevaplanamaz soru yoksa oran tanımsızdır → ValueError.
     """
-    conf = np.asarray(confidence, dtype=np.float64)
-    ans = np.asarray(answerable, dtype=bool)
-    if conf.shape != ans.shape:
-        raise ValueError(f"confidence ({conf.shape}) ve answerable ({ans.shape}) boyu eşleşmiyor")
-    if conf.size == 0:
-        raise ValueError("boş girdi: en az bir kayıt gerekli")
-    unanswerable_conf = conf[~ans]
+    conf, ans = _check_probs_labels(confidence, answerable)
+    if not math.isfinite(tau):
+        raise ValueError(f"tau sonsuz veya NaN olamaz: {tau!r}")
+    if method not in ("wilson", "clopper_pearson"):
+        raise ValueError(f"method 'wilson' veya 'clopper_pearson' olmalı: {method!r}")
+    unanswerable_conf = conf[ans == 0.0]
     n = int(unanswerable_conf.size)
     if n == 0:
         raise ValueError("girişte hiç cevaplanamaz (answerable=False) soru yok")
