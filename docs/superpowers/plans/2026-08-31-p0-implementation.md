@@ -209,7 +209,8 @@ Expected: module import failure because `bench.answer_eval` is absent.
 
 Use these exact definitions:
 
-- Citation precision: supported verified claims divided by all verified claims.
+- Citation precision: supported cited claims divided by all cited claims; uncited claims
+  reduce citation completeness instead of contaminating the precision denominator.
 - Citation completeness: claims with one or more `cited_sources` divided by all segmented claims.
 - False supported-answer rate: unanswerable questions presented as `answered`, not an honest miss, with at least one verified claim and every verified claim `supported`.
 - For each metric, `upper_bound_95` is the Clopper–Pearson upper bound on its error/event numerator. Citation precision additionally exposes `error_upper_bound_95` and `lower_bound_95 = 1 - error_upper_bound_95`.

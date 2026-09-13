@@ -142,10 +142,11 @@ def _event_estimate(events: int, total: int) -> RateEstimate:
 
 def _metrics(records: Sequence[AnswerRecord]) -> AnswerMetrics:
     claims = [claim for record in records for claim in record.claims]
-    supported = sum(claim.verdict == "supported" for claim in claims)
+    cited_claims = [claim for claim in claims if claim.cited_sources]
+    supported_cited = sum(claim.verdict == "supported" for claim in cited_claims)
 
     segmented = sum(record.n_claims for record in records)
-    cited = sum(bool(claim.cited_sources) for claim in claims)
+    cited = len(cited_claims)
 
     unanswerable = [record for record in records if not record.answerable]
     false_supported = sum(
@@ -157,7 +158,11 @@ def _metrics(records: Sequence[AnswerRecord]) -> AnswerMetrics:
     )
 
     return AnswerMetrics(
-        citation_precision=_quality_estimate(supported, len(claims), precision=True),
+        citation_precision=_quality_estimate(
+            supported_cited,
+            len(cited_claims),
+            precision=True,
+        ),
         citation_completeness=_quality_estimate(cited, segmented),
         false_supported_answer_rate=_event_estimate(false_supported, len(unanswerable)),
     )

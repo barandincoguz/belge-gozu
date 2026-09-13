@@ -115,6 +115,45 @@ def test_precision_reports_a_conservative_error_bound_and_lower_bound():
     assert 0.0 < error_upper < 1.0
 
 
+def test_citation_precision_excludes_uncited_claims_from_denominator():
+    report = run_answer_eval(
+        [
+            answer_record(
+                answerable=True,
+                verdicts=[("supported", [1]), ("unsupported", [])],
+                n_claims=2,
+            )
+        ],
+        **provenance(),
+    )
+
+    precision = report.metrics.citation_precision
+    assert precision.numerator == 1
+    assert precision.denominator == 1
+    assert precision.rate == 1.0
+
+    completeness = report.metrics.citation_completeness
+    assert completeness.numerator == 1
+    assert completeness.denominator == 2
+    assert completeness.rate == 0.5
+
+
+def test_citation_precision_is_undefined_when_verified_claims_are_uncited():
+    report = run_answer_eval(
+        [answer_record(answerable=True, verdicts=[("unsupported", [])])],
+        **provenance(),
+    )
+
+    precision = report.metrics.citation_precision
+    assert precision.numerator == 0
+    assert precision.denominator == 0
+    assert precision.rate is None
+    assert precision.event_numerator is None
+    assert precision.upper_bound_95 is None
+    assert precision.error_upper_bound_95 is None
+    assert precision.lower_bound_95 is None
+
+
 def test_completeness_denominator_includes_segmented_but_unverified_claims():
     report = run_answer_eval(
         [

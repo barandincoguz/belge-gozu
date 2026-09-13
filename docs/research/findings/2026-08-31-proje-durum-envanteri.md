@@ -84,12 +84,12 @@ bugün `retrieval_pipeline="hybrid"` ile üretimde. Kararın ölçüm gerekçesi
 olarak varmış ve "P2 kullanıcı talimatıyla başladı, G1 PASS ile değil" (R29) diye
 kayda geçmiş — `docs/research/findings/2026-08-30-p2-baslangic.md:6`.
 
-### 1.3 G2 — rapor YOK, koşum YOK
+### 1.3 G2 — ölçüm aracı var, kota-destekli koşum ve kapı raporu YOK
 
 | Kapı | Ölçüt | Bugünkü hüküm | Kanıt |
 |---|---|---|---|
-| G2.1 | Unanswerable'da false supported-answer ≤ %2 | **ÖLÇÜLMEDİ (kapı anlamında)** | Yalnız **dev** ölçümü var: `data/calibration/…7b56eeeb7327/calibrator.json` → `false_answer_on_unanswerable = {rate: 0.0, n: 159, upper_bound_95: 0.0187, method: clopper_pearson}` — artefaktın kendisi *"DEV ÖLÇÜMÜ — G2.1 KAPI SAYISI DEĞİLDİR"* notunu taşıyor (eşik dev'de seçilip dev'de ölçüldü → iyimser) |
-| G2.2 | Claim-level citation support precision ≥ %98 | **ÖLÇÜLMEDİ** | `bench/answer_eval.py` yok; citation precision hesaplayan koşum yok |
+| G2.1 | Unanswerable'da false supported-answer ≤ %2 | **ARAÇ VAR, KAPI SAYISI ÖLÇÜLMEDİ** | `bench answers`, `false_supported_answer_rate` ve tek taraflı Clopper–Pearson üst sınırını üretir. Gerçek modelle kota-destekli dev/test answer-eval artefaktı henüz yok. Eski `calibrator.json` dev ölçümü G2.1 kapı sayısı değildir. |
+| G2.2 | Claim-level citation support precision ≥ %98 | **ARAÇ VAR, KAPI SAYISI ÖLÇÜLMEDİ** | `bench/answer_eval.py`, precision'ı desteklenen atıflı iddia / tüm atıflı iddia olarak hesaplar; atıfsız iddialar completeness'ı düşürür. Gerçek modelle kota-destekli dev/test artefaktı henüz yok. |
 | G2.3 | Risk-coverage eğrisi raporlu | **ÜRETİLDİ, RAPORLANMADI** | `calibrator.json → kunye.dev_metrics.risk_coverage` (185 nokta), `tau=0,5037`, `coverage_at_tau=0,0216` (**%2,2**), `risk_at_tau=0,0`, `selective_accuracy_at_tau=1,0`, AUROC 0,7817, Brier 0,0859, ECE 0,0341. Figür/rapor yok. |
 | G2.4 | Kalibrasyon ↔ test ayrıklığı | **KISMEN** | `data/bench/splits_v1.json` law-grouped; kalibratör künyesi `split="dev"` taşıyor. Test yakası hiç kullanılmadı (iyi), ama final test koşumu da yapılmadı. |
 | G2.5 | Threshold'lar revision'a versiyonlu | **PASS** | `data/calibration/133444d8c235-train-compat-v1-int8__hybrid__<recipe_fp>/calibrator.json` — korpus+format+quant+pipeline+reçete parmakizi anahtarda |
@@ -157,8 +157,8 @@ ama `recipe_fingerprint` üzerinden kalibrasyon anahtarına giriyor.
 |---|---|---|---|
 | T1 | Claim segmentasyonu + verifier | **TAMAM** (bayrak-kapalı) | `answer/verify.py` (992); `tests/answer/test_verify.py` (35 test); iki tur inceleme → 15/15 RESOLVED. Sapma: `EvidencePack` yok → `list[PageHit]`+`page_texts`; verdict sözlüğü `supported/unsupported/belirsiz` (plan: supported/refuted/insufficient); `VerifiedAnswer` sınıfı kodda **yok** |
 | T2 | İki kapı (retrieval ↔ evidence) | **KISMİ** | `answer/base.py:174-245`; `tests/answer/test_gate.py` (19). Sapma: `decide_verdicts()` **hiç yazılmadı** (3-yollu present/retry/abstain yerine ikili demote); `Answer`'da `abstain_reason` alanı yok |
-| T3 | Auto-citation kaldırma + citation metrikleri | **KISMİ** | Kaldırma **TAM** (`answer/gemini.py:660-665` + test). Metrikler **YOK** — `bench/answer_eval.py` yok, `citation_precision` yok |
-| T4 | Answerable/unanswerable koşum harness'ı | **YAPILMADI** | `bench answers` CLI alt komutu yok; `run_answer_eval`/`AnswerEvalReport` yok. (Tüketeceği veri `abstention_eval_v1.jsonl` hazır) |
+| T3 | Auto-citation kaldırma + citation metrikleri | **TAMAM** | Auto-citation fallback kaldırıldı; `bench/answer_eval.py` claim-level citation precision/completeness ve sıfır-payda sözleşmesini testliyor. Gerçek-model dev artefaktı T12 öncesi hâlâ bekliyor. |
+| T4 | Answerable/unanswerable koşum harness'ı | **TAMAM** | `bench answers`, `run_answer_eval` ve `AnswerEvalReport` var; birleşik veri kümesi, künye, koşum bütçesi, kalıcı verifier cache'i ve `--yes-final-gate` kilidi ağsız CLI testleriyle kapsanıyor. |
 | T5 | Güven özellikleri | **TAMAM** (özellik kümesi yeniden tanımlandı) | `answer/calibrate.py:74-183`; `tests/answer/test_calibrate.py` (49). Plan'ın 7 özelliği yerine ampirik 5 özellik (`served_top1, bm25_margin, matched_terms_top1, matched_frac, routed`) — çünkü reranker/facet/madde katmanı yok |
 | T6 | Kalibratör + versiyonlu threshold | **KISMİ** | `answer/calibrate.py:229-540`; artefakt `data/calibration/…7b56eeeb7327/calibrator.json`. Sapma: **isotonic/Platt yok** (yalnız logistic, sklearn'siz full-batch GD); `CostMatrix` yok → `max_risk` bütçesi |
 | T7 | Kalibrasyon metrikleri + risk-coverage | **TAMAM** | `bench/calibration_metrics.py` (328) — brier/ece/auroc/risk_coverage/conformal + Wilson/Clopper-Pearson; `tests/bench/test_calibration_metrics.py` (38) |
@@ -168,7 +168,7 @@ ama `recipe_fingerprint` üzerinden kalibrasyon anahtarına giriyor.
 | T11 | Koşullu fine-tuning alt plan kapısı | **YAPILMADI** | Alt plan dosyası yok; kapı koşulu 2 (paraphrase R@5 < %80) **zaten sağlanıyor** (0,2857) ama resmî değerlendirme yapılmadı |
 | T12 | P2 kapı raporu + final koşum + README | **YAPILMADI** | `p2-gate.md` yok; test-split koşumu yok; README'de P2 sonuç bölümü yok |
 
-**P2 sayım: TAMAM 3 (T1, T5, T7) · KISMİ 4 (T2, T3, T6, T8) · YAPILMADI 5 (T4, T9, T10, T11, T12).**
+**P2 sayım: TAMAM 5 (T1, T3, T4, T5, T7) · KISMİ 3 (T2, T6, T8) · YAPILMADI 4 (T9, T10, T11, T12).**
 
 **Plan ↔ gerçek ayrışması (P2):** Planın 12 görevinden 6'sı (T1/T2/T5/T6/T8/T12) P1'in hiç
 yazılmamış arayüzlerini (`EvidencePack`, `QueryFacets`, `bench_v2.jsonl`, reranker skoru)
@@ -397,10 +397,8 @@ Büyüklük: **S** ≤ yarım gün · **M** 1-3 gün · **L** > 3 gün (tek geli
 
 | # | İş | Boyut | Bağımlılık |
 |---|---|---|---|
-| a1 | **T4: `bench/answer_eval.py` + `bench answers` CLI** — answerable/unanswerable koşum harness'ı; `AnswerRecord`, citation precision/completeness, false-answer/false-abstain | **M** | Yok (veri hazır: retrieval_eval 43 + abstention_eval 330) |
-| a2 | **T3 kalanı: citation metrikleri** (G2.2'nin hesap yeri) | **S** | a1 |
 | a3 | **G2 koşum kota planı** — 2×20 çağrı/gün ücretsiz kota vs ücretli katman; önbellek + güne bölme. **KULLANICI KARARI bekliyor** | **S** (karar) / **M** (koşum) | Kullanıcı |
-| a4 | **T12: p2-gate.md + test-split final koşumu** (G2.1-G2.8 satır satır) | **M** | a1, a2, a3 |
+| a4 | **T12: p2-gate.md + test-split final koşumu** (G2.1-G2.8 satır satır) | **M** | a3 |
 | a5 | **T8 kalanı: `/healthz`'e `calibrator` alanı + `abstain_reason` API'de** (G2.6/G2.8'in test kanıtı) | **S** | Yok |
 | a6 | **Kapı bayraklarının üretim kararı** — `gate_calibrated` bugünkü tau'da %2,2 kapsama veriyor; hangi çalışma noktasıyla açılacağı bir politika kararı | **S** (karar) | a4 |
 | a7 | **T11: fine-tuning kapısının resmî değerlendirmesi** (koşul 2 zaten sağlanıyor: paraphrase R@5 0,2857 < %80) | **S** | a4 |
@@ -452,4 +450,4 @@ Büyüklük: **S** ≤ yarım gün · **M** 1-3 gün · **L** > 3 gün (tek geli
 2. **Canlı UI'da yanlış iddia** (`index.html:454` "insan-doğrulamalı retrieval_eval") — projenin kendi dürüstlük standardını ihlal ediyor ve iç incelemede KRİTİK işaretlenmiş olmasına rağmen düzeltilmemiş.
 3. **G1 hiç adjudike edilmemiş, G2 koşumu yok** — hibrit üretimde default açık; ölçülü sayılar (R@50 0,9302 < %95; paraphrase 0,5714 < %90) bir kapı raporunda kayıtlı değil.
 4. **Dağıtım zinciri hiç doğrulanmamış** — Docker imajı bir kez bile build edilmedi, `--pull` sessiz no-op, HF'teki indeks P1 öncesi (metin artefaktı yok), Space PRO nedeniyle yok.
-5. **P2'nin ölçüm ayağı eksik** — `bench/answer_eval.py` + `bench answers` yok; G2.1/G2.2 için hiçbir koşum yapılamaz, dolayısıyla verifier/kalibre kapıları meşru biçimde açılamıyor.
+5. **P2'nin kota-destekli ölçümü ve kapı raporu eksik** — `bench/answer_eval.py` + `bench answers` hazır; fakat gerçek-model dev/test artefaktı ve G2.1/G2.2 hükmü yok, dolayısıyla verifier/kalibre kapıları henüz meşru biçimde açılamıyor.
