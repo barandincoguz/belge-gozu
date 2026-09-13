@@ -253,7 +253,7 @@ RESOLVED turları).
 | 7 | **Y28/K17** Enter/çip tıklaması çift-gönderim korumasını atlıyor | **KAPANMIŞ** | `index.html:728,737` `let inFlight = false` + tek giriş noktası |
 | 8 | **Y29** UI'da "43 soruluk **insan-doğrulamalı** retrieval_eval" | **KAPANMIŞ** | `app/static/index.html` artık 3/48 insan + 45 model-cross-check ayrımını açıkça gösteriyor; `tests/app/test_api.py::test_ui_never_claims_the_retrieval_eval_is_human_verified` kilitliyor |
 | 9 | **Y30** "6 çipin hepsi retrieval_eval'den" iddiası | **KAPANMIŞ** | `index.html` artık dört retrieval_eval + iki vitrin sorgusu ayrımını söylüyor; UI doğruluk testi güncel metni kilitliyor |
-| 10 | **K18** `stage1_ms`/`stage2_ms` üretimde daima NULL | **HÂLÂ AÇIK** | `app/main.py:544-545` hâlâ `col.stages.get("stage1_hamming")` / `("stage2_maxsim")` okuyor; hibrit hat bu adları hiç yaymıyor (`query_encode`, `exhaustive_maxsim`, `text_bm25`, `route_fuse`) |
+| 10 | **K18** legacy `stage1_ms`/`stage2_ms` alanları yeni aşamaları temsil etmiyor | **KISMİ / BELGELİ** | `detail.stages` artık tek kaynak; `/ask` UI gerçek aşama sürelerini gösteriyor. Legacy SQL kolonları geriye dönük uyumluluk için NULL kalabilir; ayrı deprecation/SQL tüketici kararı #8'de. |
 | 11 | **K9/K10** `candidate_survival` aslında kayıt penceresiydi; `gold_ranks=-1` teşhis sinyalini yok ediyordu | **KAPANMIŞ** | `bench/harness.py`, survival üyeliğini gerçek nihai aday sırasından hesaplıyor; aşamalar tam sırayı yalnız hesap sırasında taşıyıp gerçek 1-tabanlı gold rank veya `None` yazıyor. Geçici tam sıra rapor JSON'una girmez; record penceresi dışındaki gold regresyon testiyle kapsanır. |
 | 12 | **K21** `hub.pull_index` hedef dizini temizlemiyor | **HÂLÂ AÇIK** | `index/hub.py:43-45` `mkdir(exist_ok=True)` + doğrudan `shutil.copy` döngüsü; `delete_patterns` yok → karma kuantizasyon artığı riski |
 | 13 | **Y5** `/search` OOV sorguda "hepsi sıfır" listeyi geçerli sonuç gibi döndürüyor | **KAPANMIŞ** | `/search` artık `status`/`no_match` taşıyor; UI eşleşme yok kartı gösteriyor; `tests/app/test_api.py` OOV/boş sorgu yolunu kilitliyor |
@@ -436,7 +436,7 @@ Büyüklük: **S** ≤ yarım gün · **M** 1-3 gün · **L** > 3 gün (tek geli
 | d2 | `EvalReport.oracle_gap` alanı (G0.4 araç sapması) | S |
 | d3 | C19 test env izolasyonu autouse fixture; C41 FloatIndex padding invariantı; C42 ölü sabit; C10/S5 CLI guard'ları | S |
 | d4 | Y11 `/stats`/`/metrics` erişim kontrolü + tam tablo taraması | S |
-| d5 | UI nit'leri: Y33 (sahte pacing), Y34, Y35, Y36, Y37, Y38 (a11y), Y40, Y43, Y45 | M (toplu) |
+| d5 | UI nit'leri: Y34, Y35, Y36, Y37, Y38 (a11y), Y40, Y43, Y45 (Y33 gerçek stage süresiyle kapandı) | M (toplu) |
 | d6 | Telemetri/katalog birleştirmeleri (D12, S22-S23, D11, S55, D14), vokabüler enum'ları (D4-D6, S36, D25) | M |
 | d7 | `abstention_eval_v1.README.md` üstteki özet tablosunun güncellenmesi (300/286/14 → 330/309/21) | S |
 | d8 | PDL "minor (deferred)" kalemleri (T1/T2/T4/T15), NEW-1, N1/N2 nit'leri | S |

@@ -19,6 +19,7 @@ gönderildi:
 - `b75c8d9` — verifier LLM kullanım metadata'sı, süre, toplam maliyet ve amaç-bazlı Prometheus serisi eklenir.
 - `ea220b0` — telemetri yazma kaybı ve rejected trafik monitoring panelleri eklenir.
 - `d0a0b63` — eşzamanlı recorder hatalarının Prometheus’ta çağrı başına sayılması sağlanır.
+- `8d6d690` — `/ask` response ve UI gerçek stage sürelerini kullanır.
 - `90b3fed` — persisted answer/retrieval raporları için tamper/aggregate doğrulayıcı eklenir.
 - `fc148bd` — custom reranker raporlarına per-question ranked evidence ve doğrulama desteği eklenir.
 
@@ -85,7 +86,7 @@ benchmark, aynı index revision, aynı recipe fingerprint ve aynı seçim filtre
 | P0/G0 | indeks, cevap kapısı ve runtime regression mevcut; G1 kapı raporu yok | [#1](https://github.com/barandincoguz/belge-gozu/issues/1) |
 | G2 answer harness | kod/test mevcut; gerçek quota-backed dev/test artefaktı yok | [#2](https://github.com/barandincoguz/belge-gozu/issues/2) |
 | Verification filter | `--min-verification human` gerçek çalışıyor; #3 kapandı | [#3](https://github.com/barandincoguz/belge-gozu/issues/3) |
-| UI/API dürüstlüğü | bazı eski bulgular düzeltildi; per-stage UI zamanı ve kalan a11y açık | [#4](https://github.com/barandincoguz/belge-gozu/issues/4), [#20](https://github.com/barandincoguz/belge-gozu/issues/20) |
+| UI/API dürüstlüğü | per-stage UI zamanı tamamlandı; kalan a11y/güvenilirlik nit'leri açık | [#4](https://github.com/barandincoguz/belge-gozu/issues/4), [#20](https://github.com/barandincoguz/belge-gozu/issues/20) |
 | Docker/Hub/hosting | uçtan uca taze pull ve canlı URL yok | [#5](https://github.com/barandincoguz/belge-gozu/issues/5), [#6](https://github.com/barandincoguz/belge-gozu/issues/6), [#7](https://github.com/barandincoguz/belge-gozu/issues/7) |
 | Bench diagnostics | K9/K10 kapandı; legacy stage SQL ve oracle sınırı açık | [#8](https://github.com/barandincoguz/belge-gozu/issues/8) |
 | Gate policy/API visibility | `/healthz` calibrator ve `abstain_reason` eksikleri açık | [#9](https://github.com/barandincoguz/belge-gozu/issues/9) |
