@@ -243,6 +243,7 @@ def run_comparison(
     pinned_rows: ArmRows = {"rankings": [], "relevant": [], "slices": []}
     unpinned_rows: ArmRows = {"rankings": [], "relevant": [], "slices": []}
     diagnostics: list[dict[str, object]] = []
+    question_rows: list[dict[str, object]] = []
     rerank_ms: list[float] = []
 
     for question in answerable:
@@ -289,6 +290,18 @@ def run_comparison(
             rows["rankings"].append(ranking)
             rows["relevant"].append(relevant)
             rows["slices"].append(question.slice)
+        question_rows.append(
+            {
+                "question_id": question.question_id,
+                "slice": question.slice,
+                "gold_page_ids": list(question.gold_page_ids),
+                "rankings": {
+                    "candidate_pool": list(pool),
+                    "pinned": list(comparison.pinned_pages),
+                    "unpinned": list(comparison.unpinned_pages),
+                },
+            }
+        )
         diagnostics.append(
             {
                 "question_id": question.question_id,
@@ -316,6 +329,7 @@ def run_comparison(
             "coverage": _pool_coverage(candidate_rows),
         },
         "pinned": _arm_report(pinned_rows),
+        "per_question": question_rows,
         "unpinned": {**_arm_report(unpinned_rows), "diagnostics": diagnostics},
         "latency_ms": {
             "rerank_p50": float(np.percentile(rerank_ms, 50)),

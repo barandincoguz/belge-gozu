@@ -6,9 +6,11 @@ import pytest
 from belge_gozu.bench.answer_eval import AnswerRecord, ClaimRecord, run_answer_eval
 from belge_gozu.bench.dataset import BenchQuestion
 from belge_gozu.bench.harness import StageRecord, run_retrieval_eval
+from belge_gozu.bench.metrics import bootstrap_ci, ndcg_at_k, recall_at_k
 from belge_gozu.bench.report_validation import (
     validate_answer_report_payload,
     validate_provenance_hashes,
+    validate_reranker_report_payload,
     validate_retrieval_report_payload,
 )
 from tests.bench.test_dataset import q_dict
@@ -119,3 +121,77 @@ def test_retrieval_report_validator_uses_full_gold_rank_and_rejects_tampering(tm
     payload["overall"]["recall_at"]["5"] = 0.0
     with pytest.raises(ValueError, match="recall_at.5"):
         validate_retrieval_report_payload(payload, require_bench=True)
+
+
+def test_reranker_report_validator_recomputes_all_arms_for_two_gold_pages(tmp_path):
+    q1 = q_dict()
+    q2 = q_dict(
+        question_id="q2",
+        gold_doc_ids=["k6098"],
+        gold_page_ids=["k6098:1", "k6098:2"],
+    )
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text("\n".join(json.dumps(row) for row in (q1, q2)) + "\n", encoding="utf-8")
+    rows = {
+        "q1": {
+            "question_id": "q1",
+            "slice": "paraphrase",
+            "gold_page_ids": ["k4721:4"],
+            "rankings": {
+                "candidate_pool": ["k4721:4"],
+                "pinned": ["k4721:4"],
+                "unpinned": ["x:1", "k4721:4"],
+            },
+        },
+        "q2": {
+            "question_id": "q2",
+            "slice": "paraphrase",
+            "gold_page_ids": ["k6098:1", "k6098:2"],
+            "rankings": {
+                "candidate_pool": ["x:1"],
+                "pinned": ["k6098:1", "k6098:2"],
+                "unpinned": ["k6098:1", "x:1", "k6098:2"],
+            },
+        },
+    }
+
+    def block(arm: str) -> dict:
+        values = []
+        for row in rows.values():
+            gold = set(row["gold_page_ids"])
+            ranked = row["rankings"][arm]
+            ranks = [i + 1 for i, page in enumerate(ranked) if page in gold]
+            values.append((gold, ranked, 1 / min(ranks) if ranks else 0.0))
+        return {
+            "recall_at": {
+                k: sum(recall_at_k(gold, ranked, k) for gold, ranked, _ in values) / 2
+                for k in (5, 20, 50)
+            },
+            "mrr": sum(score for _, _, score in values) / 2,
+            "ndcg5": sum(ndcg_at_k(gold, ranked, 5) for gold, ranked, _ in values) / 2,
+            "n": 2,
+            "ci_recall5": list(
+                bootstrap_ci([recall_at_k(gold, ranked, 5) for gold, ranked, _ in values])
+            ),
+        }
+
+    payload = {
+        "benchmark": {"path": str(bench)},
+        "selection": {"only_verified": True},
+        "candidate_limit": 50,
+        "candidate_pool": {
+            "overall": block("candidate_pool"),
+            "per_slice": {"paraphrase": block("candidate_pool")},
+            "coverage": {"overall": 0.5, "per_slice": {"paraphrase": 0.5}},
+        },
+        "pinned": {"overall": block("pinned"), "per_slice": {"paraphrase": block("pinned")}},
+        "unpinned": {
+            "overall": block("unpinned"),
+            "per_slice": {"paraphrase": block("unpinned")},
+            "diagnostics": [],
+        },
+        "per_question": list(rows.values()),
+        "latency_ms": {"rerank_p50": 1.0, "rerank_p95": 2.0},
+    }
+
+    validate_reranker_report_payload(payload, require_benchmark=True)

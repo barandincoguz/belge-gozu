@@ -208,9 +208,7 @@ def validate_retrieval_report_payload(
                 )
             if rank is not None:
                 ranks.append(rank)
-        if not ranks:
-            raise ValueError(f"diagnostics.{question_id} gold rank yeniden hesaplanamıyor")
-        row = (gold, ranked, 1 / min(ranks))
+        row = (gold, ranked, 1 / min(ranks) if ranks else 0.0)
         rows.append(row)
         by_slice.setdefault(question.slice, []).append(row)
         for doc_id in question.gold_doc_ids:
@@ -222,3 +220,117 @@ def validate_retrieval_report_payload(
     for name, block in report.per_doc.items():
         _check_metric_block(f"per_doc.{name}", block, by_doc.get(name, []))
     return report
+
+
+def validate_reranker_report_payload(
+    payload: Mapping[str, Any],
+    *,
+    require_benchmark: bool = False,
+) -> Mapping[str, Any]:
+    """Validate custom reranker reports that persist per-question rankings."""
+    _assert_finite(payload)
+    per_question = payload.get("per_question")
+    if not isinstance(per_question, list) or not per_question:
+        raise ValueError("reranker report per_question sıralamaları zorunludur")
+    question_rows = {
+        str(row.get("question_id", "")): row for row in per_question if isinstance(row, Mapping)
+    }
+    if len(question_rows) != len(per_question) or "" in question_rows:
+        raise ValueError("reranker per_question question_id değerleri benzersiz olmalı")
+
+    benchmark = payload.get("benchmark")
+    benchmark_path = benchmark.get("path") if isinstance(benchmark, Mapping) else None
+    if not isinstance(benchmark_path, str):
+        if require_benchmark:
+            raise ValueError("reranker report benchmark.path yolu zorunludur")
+        return payload
+    selection = payload.get("selection") or payload.get("dataset", {}).get("selection") or {}
+    questions = load_bench(
+        benchmark_path,
+        only_verified=bool(selection.get("only_verified", True)),
+        min_verification=selection.get("min_verification"),
+    )
+    expected = {q.question_id: q for q in questions if q.answerable}
+    if set(expected) != set(question_rows):
+        raise ValueError("benchmark answerable question_id kümesi per_question ile uyuşmuyor")
+
+    arms = ("candidate_pool", "pinned", "unpinned")
+    arm_rows: dict[str, list[tuple[set[str], list[str], float]]] = {arm: [] for arm in arms}
+    by_slice: dict[str, dict[str, list[tuple[set[str], list[str], float]]]] = {
+        arm: {} for arm in arms
+    }
+    for question_id, question in expected.items():
+        row = question_rows[question_id]
+        if row.get("gold_page_ids") != question.gold_page_ids:
+            raise ValueError(f"per_question.{question_id}.gold_page_ids benchmark ile uyuşmuyor")
+        rankings = row.get("rankings")
+        if not isinstance(rankings, Mapping):
+            raise ValueError(f"per_question.{question_id}.rankings zorunludur")
+        gold = set(question.gold_page_ids)
+        for arm in arms:
+            ranking = rankings.get(arm)
+            if not isinstance(ranking, list) or not all(isinstance(pid, str) for pid in ranking):
+                raise ValueError(f"per_question.{question_id}.rankings.{arm} liste olmalı")
+            if len(ranking) != len(set(ranking)):
+                raise ValueError(
+                    f"per_question.{question_id}.rankings.{arm} "
+                    "yinelenen page_id içeriyor"
+                )
+            ranks = [index + 1 for index, pid in enumerate(ranking) if pid in gold]
+            metric_row = (gold, ranking, 1 / min(ranks) if ranks else 0.0)
+            arm_rows[arm].append(metric_row)
+            by_slice[arm].setdefault(question.slice, []).append(metric_row)
+
+    for arm in arms:
+        node = payload.get(arm)
+        if not isinstance(node, Mapping):
+            raise ValueError(f"reranker report {arm} bloğu eksik")
+        block = node.get("overall")
+        if block is None:
+            raise ValueError(f"reranker report {arm}.overall bloğu eksik")
+        # Reuse the strict Pydantic block shape used by canonical reports.
+        from belge_gozu.bench.harness import MetricBlock
+
+        parsed = MetricBlock.model_validate(block)
+        _check_metric_block(arm, parsed, arm_rows[arm])
+        per_slice = node.get("per_slice") or {}
+        if not isinstance(per_slice, Mapping):
+            raise ValueError(f"reranker report {arm}.per_slice nesne olmalı")
+        for slice_name, slice_block in per_slice.items():
+            parsed_slice = MetricBlock.model_validate(slice_block)
+            _check_metric_block(
+                f"{arm}.per_slice.{slice_name}",
+                parsed_slice,
+                by_slice[arm].get(str(slice_name), []),
+            )
+
+    candidate = payload.get("candidate_pool")
+    coverage = candidate.get("coverage") if isinstance(candidate, Mapping) else None
+    if not isinstance(coverage, Mapping):
+        raise ValueError("candidate_pool.coverage bloğu eksik")
+    candidate_rows = arm_rows["candidate_pool"]
+    expected_coverage = {
+        "overall": sum(
+            recall_at_k(gold, ranked, len(ranked)) for gold, ranked, _ in candidate_rows
+        )
+        / len(candidate_rows),
+        "per_slice": {
+            name: sum(
+                recall_at_k(gold, ranked, len(ranked)) for gold, ranked, _ in rows
+            )
+            / len(rows)
+            for name, rows in by_slice["candidate_pool"].items()
+        },
+    }
+    _check_close(
+        "candidate_pool.coverage.overall",
+        float(coverage["overall"]),
+        expected_coverage["overall"],
+    )
+    for name, expected_value in expected_coverage["per_slice"].items():
+        _check_close(
+            f"candidate_pool.coverage.per_slice.{name}",
+            float((coverage.get("per_slice") or {})[name]),
+            expected_value,
+        )
+    return payload

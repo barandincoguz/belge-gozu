@@ -33,6 +33,16 @@ def _abstain(report: dict) -> int:
 
 
 def _pinned_top5_hits(report: dict) -> set[str]:
+    persisted = report.get("per_question")
+    if isinstance(persisted, list):
+        return {
+            str(row["question_id"])
+            for row in persisted
+            if any(
+                page_id in row.get("rankings", {}).get("pinned", [])[:5]
+                for page_id in row.get("gold_page_ids", [])
+            )
+        }
     return {
         str(row["question_id"])
         for row in report["unpinned"]["diagnostics"]
