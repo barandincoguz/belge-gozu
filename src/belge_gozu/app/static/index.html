@@ -513,25 +513,47 @@ function pipelineStart() {
   stages.forEach(s => s.className = "stage");
   $("pipeline").hidden = false;
   $("elapsed").textContent = "";
+  $("st-encode").textContent = "sorgu kodlanıyor";
+  $("st-scan").textContent = "retrieval çalışıyor";
+  $("st-th").textContent = "eşik kontrolü";
+  $("st-llm").textContent = "Gemini sayfaları okuyor";
   if (stages.length) stages[0].classList.add("active");
 }
-function pipelineFinish(status, ms) {
+function stageDuration(stages, names) {
+  const values = names
+    .map(name => stages && typeof stages[name] === "number" ? stages[name] : null)
+    .filter(value => value !== null);
+  return values.length ? ` · ${fmt(values.reduce((a, b) => a + b, 0), 1)} ms` : "";
+}
+function pipelineFinish(status, ms, stages = {}) {
+  /* Aşama süreleri server'ın col.stages künyesinden gelir; sahte pacing veya
+     istemci tarafı süre tahmini yoktur. Süre bulunmuyorsa sessizce sayı
+     uydurulmaz, yalnız aşama adı gösterilir. */
+  $("st-encode").textContent = "sorgu kodlama" + stageDuration(stages, ["query_encode"]);
+  $("st-scan").textContent = "retrieval" + stageDuration(stages, [
+    "exhaustive_maxsim", "text_bm25", "route_fuse", "late_candidate_union"
+  ]);
   document.querySelectorAll(".stage").forEach((s, j) => {
     s.className = "stage done";
     if (j !== 3) return;
     if (status === "abstained") {
       s.className = "stage skipped";
-      $("st-llm").textContent = "Gemini çağrılmadı — eşik altı";
+      const verifierRan = stages && typeof stages.verifier === "number";
+      $("st-llm").textContent = verifierRan
+        ? "Kanıt doğrulayıcı yanıtı düşürdü" + stageDuration(stages, ["verifier"])
+        : "Gemini çağrılmadı — eşik altı";
     } else if (status === "degraded") {
       s.className = "stage failed";
-      $("st-llm").textContent = "Gemini yanıt veremedi";
+      $("st-llm").textContent = "Gemini yanıt veremedi" +
+        stageDuration(stages, ["answerer"]);
     } else if (status === "unknown") {
       /* Y32: bilinmeyen durumda şerit "Gemini sayfaları okudu" DİYEMEZ —
          okuyup okumadığını bilmiyoruz. */
       s.className = "stage skipped";
       $("st-llm").textContent = "son aşama bilinmiyor";
     } else {
-      $("st-llm").textContent = "Gemini sayfaları okudu";
+      $("st-llm").textContent = "Gemini sayfaları okudu" +
+        stageDuration(stages, ["answerer", "verifier"]);
     }
   });
   $("elapsed").textContent = `${fmt(ms / 1000)} sn`;
@@ -796,7 +818,7 @@ async function ask() {
     /* Y17: dürüst ıska sunucunun HESAPLADIĞI değerdir (events.honest_miss ve
        bg_honest_miss_total ile aynı satır) — arayüz metni tahmin etmez. */
     const honestMiss = known && status === "answered" && data.honest_miss === true;
-    pipelineFinish(known ? status : "unknown", ms);
+    pipelineFinish(known ? status : "unknown", ms, data.stages);
 
     /* Eşik-altı hit'ler API'de teşhis için kalır ama kullanıcıya geçerli
        sonuç kartları gibi sunulmaz. Karar istemcide skordan yeniden

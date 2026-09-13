@@ -926,6 +926,9 @@ def create_app(
             "status": status,
             "honest_miss": honest_miss,
             "no_match": not hits or hits[0].score < s.min_score_threshold,
+            # Gerçek aşama süreleri server'dan gelir; UI bunları yalnız sunar,
+            # eşik/status kararını istemcide yeniden üretmez.
+            "stages": dict(col.stages),
             "answer": answer.model_dump(),
             "hits": [h.model_dump() for h in hits],
         }

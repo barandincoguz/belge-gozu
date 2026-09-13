@@ -197,6 +197,25 @@ def test_ask_returns_answer_and_logs(tiny_corpus):
     assert stats["requests"] >= 1 and stats["avg_ms"] >= 0
 
 
+def test_ask_exposes_actual_stage_timings(tiny_corpus):
+    c = make_client(tiny_corpus)
+
+    body = c.post("/ask", json={"question": "kira artışı nedir?"}).json()
+
+    stages = body["stages"]
+    assert {"query_encode", "exhaustive_maxsim", "text_bm25", "route_fuse"} <= set(stages)
+    assert all(isinstance(value, float) and value >= 0.0 for value in stages.values())
+
+
+def test_ui_renders_server_stage_timings_without_client_side_pacing(tiny_corpus):
+    html = make_client(tiny_corpus).get("/").text
+
+    assert "function stageDuration(stages, names)" in html
+    assert 'pipelineFinish(known ? status : "unknown", ms, data.stages);' in html
+    assert "Kanıt doğrulayıcı yanıtı düşürdü" in html
+    assert "setTimeout(() => pipelineFinish" not in html
+
+
 # --- girdi sertleştirme ------------------------------------------------------
 #
 # Hepsi 2026-08-30 canlı kenar-durum sondajının BULDUĞU davranışlara karşı
