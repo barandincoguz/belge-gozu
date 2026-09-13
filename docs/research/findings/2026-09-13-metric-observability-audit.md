@@ -17,6 +17,7 @@ gönderildi:
 - `f5a7f9c` — bu ölçüm/observability audit ve P/G issue haritası kaydedilir.
 - `3789e6e` — legacy telemetry stage alanlarının null/deprecation sözleşmesi netleştirilir.
 - `b75c8d9` — verifier LLM kullanım metadata'sı, süre, toplam maliyet ve amaç-bazlı Prometheus serisi eklenir.
+- `ea220b0` — telemetri yazma kaybı ve rejected trafik monitoring panelleri eklenir.
 
 Veri ve artefakt iddiaları, koşumun kendi künye alanlarıyla birlikte okunmalıdır;
 model cache'i veya kullanıcı artefaktları silinmemiştir.
@@ -25,7 +26,7 @@ model cache'i veya kullanıcı artefaktları silinmemiştir.
 
 | Alan | Kanıt | Sonuç |
 |---|---|---|
-| Ağsız regresyon | `uv run --extra dev pytest tests -q -m "not slow"` | **872 passed, 2 skipped** |
+| Ağsız regresyon | `uv run --extra dev pytest tests -q -m "not slow"` | **874 passed, 2 skipped** |
 | Statik kalite | `uv run ruff check .`, `uv run pyright`, `git diff --check` | **yeşil** |
 | Gerçek retrieval yolu | `.venv-lab/bin/pytest tests/retrieval/test_retrieval_regression.py -q -rx` | **4 passed, 1 beklenen strict xfail** |
 | Beklenen xfail | BM25 10.6 eşiği cevaplanabilir/cevaplanamazı ayırmıyor | P2 kalibrasyonu bekleniyor; xfail kaldırılmadı |
@@ -93,13 +94,13 @@ benchmark, aynı index revision, aynı recipe fingerprint ve aynı seçim filtre
 | Judge/fine-tuning | insan PPI önkoşulu ve resmi FT kararı yok | [#19](https://github.com/barandincoguz/belge-gozu/issues/19) |
 | Yeni ölçüm artefaktı doğrulama | aggregate/provenance tamper kontrolü yok | [#23](https://github.com/barandincoguz/belge-gozu/issues/23) |
 | Yeni verifier telemetry | **tamamlandı**; verifier token/süre/maliyet amaç bazında ve toplamda izleniyor | [#22](https://github.com/barandincoguz/belge-gozu/issues/22) (kapatıldı) |
-| Yeni monitoring | telemetry write loss ve rejected trafik dashboard/metric bütünlüğü eksik | [#24](https://github.com/barandincoguz/belge-gozu/issues/24) |
+| Yeni monitoring | **tamamlandı**; telemetry write loss ve rejected trafik ayrı Prometheus/dashboard popülasyonları olarak izleniyor | [#24](https://github.com/barandincoguz/belge-gozu/issues/24) (kapatıldı) |
 
 ## Uygulama sırası
 
-1. **Ölçüm güvenliği:** #23 (artifact verifier) → #24 (telemetry loss/rejected
-   monitoring). Verifier usage (#22) tamamlandı; bu iki doğrulama kapanmadan yeni
-   G2/G1 sayıları yayınlanmamalı.
+1. **Ölçüm güvenliği:** #23 (artifact verifier). Verifier usage (#22) ve
+   telemetry loss/rejected monitoring (#24) tamamlandı; artifact doğrulaması
+   kapanmadan yeni G2/G1 sayıları yayınlanmamalı.
 2. **Kanıt kapıları:** #2 quota-backed dev smoke → #1 güncel G1 gate raporu →
    #8 K18/oracle sınırı → #9 gate policy → #10 tek seferlik test final gate.
 3. **Kalite katmanı:** #13 insan doğrulama → #12 bench v2 → #11 dense/fusion
