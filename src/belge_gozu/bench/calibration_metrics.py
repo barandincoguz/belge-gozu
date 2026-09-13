@@ -220,8 +220,7 @@ def conformal_threshold(probs: np.ndarray, labels: np.ndarray, alpha: float = 0.
     rank = math.ceil((n + 1) * (1 - alpha))
     if rank > n:
         raise ValueError(
-            f"conformal eşik için n yetersiz: hata n={n}, alpha={alpha}; "
-            f"istenen sıra={rank} > n"
+            f"conformal eşik için n yetersiz: hata n={n}, alpha={alpha}; istenen sıra={rank} > n"
         )
     return float(errors[rank - 1])
 

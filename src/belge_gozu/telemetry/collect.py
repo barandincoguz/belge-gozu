@@ -94,9 +94,7 @@ def record_llm_usage(
         {
             "purpose": purpose,
             "tokens_in": tokens_in if isinstance(tokens_in, int) and tokens_in >= 0 else None,
-            "tokens_out": tokens_out
-            if isinstance(tokens_out, int) and tokens_out >= 0
-            else None,
+            "tokens_out": tokens_out if isinstance(tokens_out, int) and tokens_out >= 0 else None,
         }
     )
     col.notes["llm_usage"] = entries

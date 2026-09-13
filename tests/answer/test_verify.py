@@ -75,9 +75,7 @@ def test_verifier_adapter_preserves_provider_usage_metadata():
     with collecting() as col:
         assert adapter.generate_json("prompt") == '{"verdict":"supported"}'
 
-    assert col.notes["llm_usage"] == [
-        {"purpose": "verifier", "tokens_in": 17, "tokens_out": 5}
-    ]
+    assert col.notes["llm_usage"] == [{"purpose": "verifier", "tokens_in": 17, "tokens_out": 5}]
 
 
 def test_verifier_adapter_records_unknown_usage_without_fabricating_tokens():

@@ -103,9 +103,7 @@ def validate_provenance_hashes(payload: Mapping[str, Any], *, root: Path = Path(
                     raise ValueError(f"{path}.path bulunamadı: {target}")
                 actual = sha256(target.read_bytes()).hexdigest()
                 if actual != digest:
-                    raise ValueError(
-                        f"{path}.sha256 uyuşmuyor: kayıtlı={digest}, yeniden={actual}"
-                    )
+                    raise ValueError(f"{path}.sha256 uyuşmuyor: kayıtlı={digest}, yeniden={actual}")
             for key, child in value.items():
                 walk(child, f"{path}.{key}")
         elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
@@ -273,8 +271,7 @@ def validate_reranker_report_payload(
                 raise ValueError(f"per_question.{question_id}.rankings.{arm} liste olmalı")
             if len(ranking) != len(set(ranking)):
                 raise ValueError(
-                    f"per_question.{question_id}.rankings.{arm} "
-                    "yinelenen page_id içeriyor"
+                    f"per_question.{question_id}.rankings.{arm} yinelenen page_id içeriyor"
                 )
             ranks = [index + 1 for index, pid in enumerate(ranking) if pid in gold]
             metric_row = (gold, ranking, 1 / min(ranks) if ranks else 0.0)
@@ -310,14 +307,10 @@ def validate_reranker_report_payload(
         raise ValueError("candidate_pool.coverage bloğu eksik")
     candidate_rows = arm_rows["candidate_pool"]
     expected_coverage = {
-        "overall": sum(
-            recall_at_k(gold, ranked, len(ranked)) for gold, ranked, _ in candidate_rows
-        )
+        "overall": sum(recall_at_k(gold, ranked, len(ranked)) for gold, ranked, _ in candidate_rows)
         / len(candidate_rows),
         "per_slice": {
-            name: sum(
-                recall_at_k(gold, ranked, len(ranked)) for gold, ranked, _ in rows
-            )
+            name: sum(recall_at_k(gold, ranked, len(ranked)) for gold, ranked, _ in rows)
             / len(rows)
             for name, rows in by_slice["candidate_pool"].items()
         },

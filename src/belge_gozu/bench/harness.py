@@ -274,9 +274,7 @@ def run_retrieval_eval(
         rel = set(q.gold_page_ids)
         for st in stages:
             rank_basis = st.full_ranked or st.top_ids
-            st.gold_ranks = {
-                g: (rank_basis.index(g) + 1 if g in rank_basis else None) for g in rel
-            }
+            st.gold_ranks = {g: (rank_basis.index(g) + 1 if g in rank_basis else None) for g in rel}
             st.full_ranked = []
         candidate_ids = set(ranked)
         diags.append(
