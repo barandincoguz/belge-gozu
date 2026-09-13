@@ -18,6 +18,7 @@ gönderildi:
 - `3789e6e` — legacy telemetry stage alanlarının null/deprecation sözleşmesi netleştirilir.
 - `b75c8d9` — verifier LLM kullanım metadata'sı, süre, toplam maliyet ve amaç-bazlı Prometheus serisi eklenir.
 - `ea220b0` — telemetri yazma kaybı ve rejected trafik monitoring panelleri eklenir.
+- `d0a0b63` — eşzamanlı recorder hatalarının Prometheus’ta çağrı başına sayılması sağlanır.
 - `90b3fed` — persisted answer/retrieval raporları için tamper/aggregate doğrulayıcı eklenir.
 - `fc148bd` — custom reranker raporlarına per-question ranked evidence ve doğrulama desteği eklenir.
 
@@ -58,6 +59,9 @@ quota-backed sayı iddiası yapılmamıştır.
 - Verifier LLM kullanımı: provider metadata'sı `detail.llm_usage` içinde amaç
   bazında tutulur; toplam token/maliyet ve `verifier_ms` ayrı kanıtlanır. Missing
   metadata bilinmeyen kalır, sıfır diye uydurulmaz.
+- Telemetry loss counter: recorder artık her çağrı için başarı/başarısızlık
+  sonucu döndürür; global failure counter farkı eşzamanlı istekler arasında
+  paylaştırılmaz.
 
 ## Uçtan uca kalite resmi
 
