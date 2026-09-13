@@ -13,7 +13,13 @@
 - **Ölçüm kümesi:** `data/bench/retrieval_eval_v2.jsonl`, `--min-verification human`, cevaplanabilir **n=47**. Sorular ve gold'lar DEĞİŞTİRİLEMEZ.
 - **Birincil metrik:** P kolu (BM25 top-1 sabit) **R@5**. Taban: **0,7766** (`data/bench/results/20260911-rerank-nodense-diag.json`).
 - **Guardrail'ler (E2'den itibaren REVİZE — gerekçe aşağıda):** P R@20 (0,8617), P R@50 (0,9468), nDCG@5 (0,5709). Hiçbiri kesin gerilememeli. `would_abstain` ve rerank p50 **raporlanır, veto etmez**.
-- **Tutma kuralı:** R@5 **+2 soru (+0,0426) veya fazlası → KEPT**. +1 soru ise YALNIZ (a) hiçbir guardrail gerilemiyorsa VE (b) kazanan soru soru-düzeyi teşhisle açıklanabiliyorsa KEPT. Eşitlik veya gerileme → DISCARDED, `git checkout --` ile geri al.
+- **Tutma kuralı:** İlk beşte en az bir gold'u bulunan soru sayısında **net +2
+  (+0,0426 binary hit-rate) veya fazlası → KEPT**. Sayı, kesirli R@5 farkını
+  `n` ile çarpıp yuvarlayarak değil soru-düzeyi `gold_rank.pinned` teşhisinden
+  hesaplanır; iki gold sayfalı sorularda bu ikisi aynı değildir. Net +1 soru
+  ise YALNIZ (a) hiçbir guardrail gerilemiyorsa VE (b) kazanan soru soru-düzeyi
+  teşhisle açıklanabiliyorsa KEPT. Eşitlik veya gerileme → DISCARDED,
+  `git checkout --` ile geri al.
 - **Üretim yüzeyi DONUK:** `retrieval/text.py` skorlama ifadesi, `recipe_fingerprint()`, `HybridRetriever.search()`, `/search`, `/ask`, `min_score_threshold=10.6`. Bütün deneyler bench-only bayraklarla koşar; hiçbir üretim varsayılanı değişmez.
 - **Bir seferde bir değişken.** Bileşik kol yalnız bileşenleri tek tek ölçüldükten sonra.
 - **Test disiplini (bu planda bilinçli sapma):** yalnız **sözleşme kilitleyen** test yazılır — davranış sınırı (MaxP'nin max alması, cascade'in kuyruğu koruması, kalibrasyonun monotonluğu). Bayrak bağlama (plumbing) için test YAZILMAZ; onun yerine koşum çıktısının künyesi (`report["model"]`, `report["rerank_unit"]`) kontrol edilir. Gerekçe: kullanıcı talimatı — ölçüm zamanını deneye harcamak, scaffolding'e değil.
@@ -161,6 +167,14 @@ def _abstain(report: dict) -> int:
     return sum(bool(row["would_abstain"]) for row in report["unpinned"]["diagnostics"])
 
 
+def _top5_hits(report: dict) -> set[str]:
+    return {
+        row["question_id"]
+        for row in report["unpinned"]["diagnostics"]
+        if (rank := row["gold_rank"]["pinned"]) is not None and rank <= 5
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", type=Path, required=True)
@@ -171,8 +185,10 @@ def main() -> int:
 
     n = base["pinned"]["overall"]["n"]
     b5, a5 = _value(base, PRIMARY), _value(arm, PRIMARY)
-    delta_q = round((a5 - b5) * n)
-    print(f"P R@5  {b5:.4f} -> {a5:.4f}  ({delta_q:+d} soru, n={n})")
+    base_hits, arm_hits = _top5_hits(base), _top5_hits(arm)
+    delta_q = len(arm_hits) - len(base_hits)
+    print(f"P R@5  {b5:.4f} -> {a5:.4f}")
+    print(f"ilk-5 soru  {len(base_hits)} -> {len(arm_hits)}  ({delta_q:+d}, n={n})")
     print(f"  GA    {[round(x, 4) for x in base['pinned']['overall']['ci_recall5']]}"
           f" -> {[round(x, 4) for x in arm['pinned']['overall']['ci_recall5']]}")
 

@@ -32,11 +32,31 @@ def _abstain(report: dict) -> int:
     return sum(bool(row["would_abstain"]) for row in report["unpinned"]["diagnostics"])
 
 
+def _pinned_top5_hits(report: dict) -> set[str]:
+    return {
+        str(row["question_id"])
+        for row in report["unpinned"]["diagnostics"]
+        if (rank := row["gold_rank"]["pinned"]) is not None and int(rank) <= 5
+    }
+
+
 def compare(base: dict, arm: dict) -> str:
     n = int(base["pinned"]["overall"]["n"])
+    arm_n = int(arm["pinned"]["overall"]["n"])
+    if arm_n != n:
+        raise ValueError(f"base n={n}, arm n={arm_n} ile eşleşmiyor")
     base_r5, arm_r5 = _value(base, PRIMARY), _value(arm, PRIMARY)
-    delta_q = round((arm_r5 - base_r5) * n)
-    print(f"P R@5        {base_r5:.4f} -> {arm_r5:.4f}  ({delta_q:+d} soru, n={n})")
+    base_rows = {row["question_id"]: row for row in base["unpinned"]["diagnostics"]}
+    arm_rows = {row["question_id"]: row for row in arm["unpinned"]["diagnostics"]}
+    if set(base_rows) != set(arm_rows):
+        raise ValueError("base ve arm aynı question_id kümesini taşımalı")
+    if len(base_rows) != n:
+        raise ValueError(f"aggregate n={n}, diagnostics n={len(base_rows)} ile eşleşmiyor")
+    base_hits = _pinned_top5_hits(base)
+    arm_hits = _pinned_top5_hits(arm)
+    delta_q = len(arm_hits) - len(base_hits)
+    print(f"P R@5        {base_r5:.4f} -> {arm_r5:.4f}")
+    print(f"ilk-5 soru  {len(base_hits)} -> {len(arm_hits)}  ({delta_q:+d}, n={n})")
     print(
         f"  %95 GA     {[round(x, 4) for x in base['pinned']['overall']['ci_recall5']]}"
         f" -> {[round(x, 4) for x in arm['pinned']['overall']['ci_recall5']]}"
@@ -62,10 +82,9 @@ def compare(base: dict, arm: dict) -> str:
         f" -> {arm['latency_ms']['rerank_p50']:.0f} ms"
     )
 
-    rows = {row["question_id"]: row for row in base["unpinned"]["diagnostics"]}
     print("\nsıra hareketleri (P kolu, yalnız değişenler):")
     for row in arm["unpinned"]["diagnostics"]:
-        before_rank = rows[row["question_id"]]["gold_rank"]["pinned"]
+        before_rank = base_rows[row["question_id"]]["gold_rank"]["pinned"]
         after_rank = row["gold_rank"]["pinned"]
         if before_rank == after_rank:
             continue
