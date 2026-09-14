@@ -259,16 +259,17 @@ kontrolüyle doğrulandı. **Bunlar insan onaylı kıyas kümeleri değildir.**
 
 ### İşletim
 
-İstek başına 29 alanlı bir SQLite olay kaydı (hangi işlem hattı, hangi skor ölçeği, hangi API
+İstek başına 30 alanlı bir SQLite olay kaydı (hangi işlem hattı, hangi skor ölçeği, hangi API
 anahtarı servis etti, model dürüst ıska bildirdi mi), bir Prometheus uç noktası ve hazır
 sağlanmış bir Grafana panosu. Girdi doğrulaması boş, aşırı uzun ve bozuk sorguları reddeder;
 IP başına tahliyeli hız sınırı ve ham sorgu metnini diske yazmayan gizlilik varsayılanı
 konteyner imajında etkindir.
 `/ask` ve `/search`, aynı sunucu eşik kararından türetilen `no_match` alanını taşır;
-arayüz eşik-altı sonuçları geçerli sayfa kartları gibi göstermez. Etkin sıralama kanalı,
+`/ask` ayrıca gerçek aşama sürelerini ve `abstain_reason` değerini aynı event kararından
+yayınlar. Arayüz eşik-altı sonuçları geçerli sayfa kartları gibi göstermez. Etkin sıralama kanalı,
 skor etiketi ve eşik `/healthz` tarafından sahiplenilir.
 
-CI; lint, tip denetimi, 707 test ve kıyas bütünlüğü doğrulayıcısını koşar. Ayrı Docker
+CI; lint, tip denetimi, ağsız test suite'i ve kıyas bütünlüğü doğrulayıcısını koşar. Ayrı Docker
 işi imajı derler; UID 1000, yazılabilir `/data`, CPU-only PyTorch, eksik revizyonda
 fail-fast ve `/healthz` smoke sözleşmelerini denetler. İlk iki koşumu kırmızıydı ve 147 yerel commit'in yakalayamadığı iki
 taşınabilirlik hatasını yakaladı: terminal rengine bağımlı CLI kontrolleri ve doğrulayıcının
@@ -640,16 +641,17 @@ cross-check. **These are not human-validated benchmarks.**
 
 ### Operations
 
-A SQLite event log (29 fields per request — pipeline, score scale, which API key served,
+A SQLite event log (30 fields per request — pipeline, score scale, which API key served,
 whether the model reported an honest miss), a Prometheus endpoint and a provisioned Grafana
 dashboard. Input validation rejects empty, overlong and malformed queries; a per-IP rate
 limiter with eviction and a privacy default that keeps raw query text off disk are both
 enabled in the container image.
-`/ask` and `/search` expose `no_match` from the same server-side threshold decision, so
-the UI does not present below-threshold diagnostics as valid page cards. `/healthz` owns
+`/ask` and `/search` expose `no_match` from the same server-side threshold decision;
+`/ask` also exposes real stage timings and `abstain_reason` from that event decision. The UI
+does not present below-threshold diagnostics as valid page cards. `/healthz` owns
 the active ranking-channel, score-label, and threshold presentation contract.
 
-CI runs lint, type-check, 707 tests and the benchmark-integrity validator. A separate
+CI runs lint, type-check, the network-free test suite, and the benchmark-integrity validator. A separate
 Docker job builds the image and checks UID 1000, writable `/data`, CPU-only PyTorch,
 missing-revision fail-fast, and a `/healthz` smoke. Its first two runs were red — catching two portability bugs
 that 147 local commits had not: CLI assertions that depended on terminal colour, and a

@@ -104,7 +104,15 @@ def _client(tiny_corpus, verdict="supported", tau=0.4, monkeypatch=None, **flags
 def test_flags_off_body_has_no_detail_key_and_event_has_no_gate_blocks(tiny_corpus):
     data_dir, _, _ = tiny_corpus
     body = _client(tiny_corpus).post("/ask", json={"question": "yerleşim yeri nedir"}).json()
-    assert set(body) == {"status", "honest_miss", "no_match", "stages", "answer", "hits"}
+    assert set(body) == {
+        "status",
+        "abstain_reason",
+        "honest_miss",
+        "no_match",
+        "stages",
+        "answer",
+        "hits",
+    }
     assert body["status"] == "answered"
     detail = _event_detail(data_dir)
     assert "gate1" not in detail and "gate2" not in detail
@@ -137,6 +145,7 @@ def test_gate1_abstains_below_tau(tiny_corpus):
     c = _client(tiny_corpus, tau=0.9, gate_calibrated=True)
     body = c.post("/ask", json={"question": "yerleşim yeri nedir"}).json()
     assert body["status"] == "abstained" and body["detail"]["gate1"]["passed"] is False
+    assert body["abstain_reason"] == "gate1"
 
 
 def test_missing_calibration_artifact_stops_startup(tiny_corpus):
@@ -212,6 +221,7 @@ def test_gate2_demote_keeps_the_status_vocabulary_and_flags_it_in_detail(tiny_co
     body = c.post("/ask", json={"question": "yerleşim yeri nedir"}).json()
     # status SÖZLÜĞÜ genişlemedi: düşürme de "abstained"tır (arayüz kilidi).
     assert body["status"] == "abstained"
+    assert body["abstain_reason"] == "gate2_demote"
     assert body["answer"]["text"] == VERIFIER_DEMOTE_TEXT
     assert body["answer"]["citations"] == []
     assert body["honest_miss"] is False

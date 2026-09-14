@@ -185,6 +185,7 @@ def test_ask_marks_the_same_threshold_decision_as_no_match(tiny_corpus):
     body = c.post("/ask", json={"question": "asdfgh qwerty"}).json()
     assert body["status"] == "abstained"
     assert body["no_match"] is True
+    assert body["abstain_reason"] == "threshold"
 
 
 def test_ask_returns_answer_and_logs(tiny_corpus):
@@ -211,8 +212,11 @@ def test_ui_renders_server_stage_timings_without_client_side_pacing(tiny_corpus)
     html = make_client(tiny_corpus).get("/").text
 
     assert "function stageDuration(stages, names)" in html
-    assert 'pipelineFinish(known ? status : "unknown", ms, data.stages);' in html
+    assert (
+        'pipelineFinish(known ? status : "unknown", ms, data.stages, data.abstain_reason);' in html
+    )
     assert "Kanıt doğrulayıcı yanıtı düşürdü" in html
+    assert "Kalibre güven kapısı yanıtı durdurdu" in html
     assert "setTimeout(() => pipelineFinish" not in html
 
 
@@ -292,6 +296,7 @@ def test_ask_reports_answered_status(tiny_corpus):
     c = make_client(tiny_corpus)
     body = c.post("/ask", json={"question": "kira artışı nedir?"}).json()
     assert body["status"] == "answered"
+    assert body["abstain_reason"] is None
 
 
 def test_ask_reports_abstained_status(tiny_corpus):
@@ -316,6 +321,7 @@ def test_ask_reports_degraded_status(tiny_corpus):
     c = TestClient(create_app(settings=settings, encoder=enc, answerer=BoomAnswerer()))
     body = c.post("/ask", json={"question": "kira artışı nedir?"}).json()
     assert body["status"] == "degraded"
+    assert body["abstain_reason"] == "degraded"
     assert body["answer"]["abstained"] is True  # ayrım YALNIZ status'ten gelir
     assert body["hits"], "servis bozulsa da bulunan sayfalar gösterilmeli"
 

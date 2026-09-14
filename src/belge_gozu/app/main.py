@@ -40,7 +40,7 @@ from belge_gozu.retrieval.late import load_late_channel, require_calibrated_late
 from belge_gozu.retrieval.text import tokenize
 from belge_gozu.retrieval.types import PageHit
 from belge_gozu.telemetry.collect import StageCollector, collecting
-from belge_gozu.telemetry.prom import PromMetrics
+from belge_gozu.telemetry.prom import PromMetrics, abstain_reason
 from belge_gozu.telemetry.recorder import EventRecorder
 from belge_gozu.telemetry.schema import RequestEvent
 
@@ -654,7 +654,7 @@ def create_app(
         notes_detail = {k: col.notes[k] for k in ("gate1", "gate2", "llm") if k in col.notes}
         if usage:
             notes_detail["llm_usage"] = usage
-        return RequestEvent(
+        event = RequestEvent(
             ts=datetime.now(UTC).isoformat(),
             endpoint=endpoint,
             status=status,
@@ -701,6 +701,8 @@ def create_app(
                 **notes_detail,
             },
         )
+        col.notes["abstain_reason"] = abstain_reason(event)
+        return event
 
     def record_event(**kwargs) -> None:
         # Telemetri best-effort'tur: olay kurma/kaydetme hiçbir koşulda başarılı
@@ -924,6 +926,7 @@ def create_app(
         # alanındadır ve o alan yalnız bayrak açıkken vardır.
         payload: dict = {
             "status": status,
+            "abstain_reason": col.notes.get("abstain_reason"),
             "honest_miss": honest_miss,
             "no_match": not hits or hits[0].score < s.min_score_threshold,
             # Gerçek aşama süreleri server'dan gelir; UI bunları yalnız sunar,

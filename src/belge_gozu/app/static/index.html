@@ -525,7 +525,7 @@ function stageDuration(stages, names) {
     .filter(value => value !== null);
   return values.length ? ` · ${fmt(values.reduce((a, b) => a + b, 0), 1)} ms` : "";
 }
-function pipelineFinish(status, ms, stages = {}) {
+function pipelineFinish(status, ms, stages = {}, abstainReason = null) {
   /* Aşama süreleri server'ın col.stages künyesinden gelir; sahte pacing veya
      istemci tarafı süre tahmini yoktur. Süre bulunmuyorsa sessizce sayı
      uydurulmaz, yalnız aşama adı gösterilir. */
@@ -538,9 +538,10 @@ function pipelineFinish(status, ms, stages = {}) {
     if (j !== 3) return;
     if (status === "abstained") {
       s.className = "stage skipped";
-      const verifierRan = stages && typeof stages.verifier === "number";
-      $("st-llm").textContent = verifierRan
+      $("st-llm").textContent = abstainReason === "gate2_demote"
         ? "Kanıt doğrulayıcı yanıtı düşürdü" + stageDuration(stages, ["verifier"])
+        : abstainReason === "gate1"
+        ? "Kalibre güven kapısı yanıtı durdurdu"
         : "Gemini çağrılmadı — eşik altı";
     } else if (status === "degraded") {
       s.className = "stage failed";
@@ -818,7 +819,7 @@ async function ask() {
     /* Y17: dürüst ıska sunucunun HESAPLADIĞI değerdir (events.honest_miss ve
        bg_honest_miss_total ile aynı satır) — arayüz metni tahmin etmez. */
     const honestMiss = known && status === "answered" && data.honest_miss === true;
-    pipelineFinish(known ? status : "unknown", ms, data.stages);
+    pipelineFinish(known ? status : "unknown", ms, data.stages, data.abstain_reason);
 
     /* Eşik-altı hit'ler API'de teşhis için kalır ama kullanıcıya geçerli
        sonuç kartları gibi sunulmaz. Karar istemcide skordan yeniden
