@@ -353,6 +353,18 @@ def test_index_derive_rejects_float16_quant(tmp_path):
     assert not (tmp_path / "out").exists()
 
 
+def test_write_manifest_legacy_refuses_to_overwrite_existing_manifest(tmp_path, monkeypatch):
+    index_dir = _built_index(tmp_path, monkeypatch)
+    manifest_path = index_dir / "manifest.json"
+    before = manifest_path.read_bytes()
+
+    result = runner.invoke(app, ["index", "write-manifest", "--legacy"])
+
+    assert result.exit_code != 0
+    assert "manifest.json zaten var" in result.output
+    assert manifest_path.read_bytes() == before
+
+
 def test_metrics_export_cli(tmp_path, monkeypatch):
     from belge_gozu.telemetry.recorder import EventRecorder
     from belge_gozu.telemetry.schema import RequestEvent

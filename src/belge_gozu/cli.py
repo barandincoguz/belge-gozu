@@ -424,6 +424,11 @@ def index_write_manifest(
     if not legacy:
         raise typer.BadParameter("şu an yalnız --legacy destekleniyor")
     s = _settings()
+    manifest_path = s.index_dir / "manifest.json"
+    if manifest_path.exists():
+        raise typer.BadParameter(
+            f"manifest.json zaten var: {manifest_path}; legacy kurtarma mevcut manifest'i ezmez"
+        )
     index = PackedIndex.load(s.index_dir)
     n_pages = len(index.page_ids)
     n_tokens = int(index.offsets[-1])
