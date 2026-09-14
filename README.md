@@ -266,8 +266,9 @@ IP başına tahliyeli hız sınırı ve ham sorgu metnini diske yazmayan gizlili
 konteyner imajında etkindir.
 `/ask` ve `/search`, aynı sunucu eşik kararından türetilen `no_match` alanını taşır;
 `/ask` ayrıca gerçek aşama sürelerini ve `abstain_reason` değerini aynı event kararından
-yayınlar. Arayüz eşik-altı sonuçları geçerli sayfa kartları gibi göstermez. Etkin sıralama kanalı,
-skor etiketi ve eşik `/healthz` tarafından sahiplenilir.
+yayınlar. Arayüz eşik-altı sonuçları geçerli sayfa kartları gibi göstermez. Etkin sıralama
+kanalı, skor etiketi ve eşikle birlikte answerer/gate hazır oluşu, calibrator key/tau/coverage
+ve verifier bütçesi `/healthz` tarafından sahiplenilir.
 
 CI; lint, tip denetimi, ağsız test suite'i ve kıyas bütünlüğü doğrulayıcısını koşar. Ayrı Docker
 işi imajı derler; UID 1000, yazılabilir `/data`, CPU-only PyTorch, eksik revizyonda
@@ -648,8 +649,9 @@ limiter with eviction and a privacy default that keeps raw query text off disk a
 enabled in the container image.
 `/ask` and `/search` expose `no_match` from the same server-side threshold decision;
 `/ask` also exposes real stage timings and `abstain_reason` from that event decision. The UI
-does not present below-threshold diagnostics as valid page cards. `/healthz` owns
-the active ranking-channel, score-label, and threshold presentation contract.
+does not present below-threshold diagnostics as valid page cards. `/healthz` owns the active
+ranking-channel, score-label, threshold, answerer/gate readiness, calibrator key/tau/coverage,
+and verifier-budget presentation contract.
 
 CI runs lint, type-check, the network-free test suite, and the benchmark-integrity validator. A separate
 Docker job builds the image and checks UID 1000, writable `/data`, CPU-only PyTorch,
