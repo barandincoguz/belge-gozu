@@ -20,6 +20,7 @@ gönderildi:
 - `ea220b0` — telemetri yazma kaybı ve rejected trafik monitoring panelleri eklenir.
 - `d0a0b63` — eşzamanlı recorder hatalarının Prometheus’ta çağrı başına sayılması sağlanır.
 - `8d6d690` — `/ask` response ve UI gerçek stage sürelerini kullanır.
+- `306b14d` — `/ask`, Prometheus ile aynı event kararından `abstain_reason` yayınlar.
 - `90b3fed` — persisted answer/retrieval raporları için tamper/aggregate doğrulayıcı eklenir.
 - `fc148bd` — custom reranker raporlarına per-question ranked evidence ve doğrulama desteği eklenir.
 
@@ -30,7 +31,8 @@ model cache'i veya kullanıcı artefaktları silinmemiştir.
 
 | Alan | Kanıt | Sonuç |
 |---|---|---|
-| Ağsız regresyon | `uv run --extra dev pytest tests -q -m "not slow"` | **880 passed, 2 skipped** |
+| Ağsız regresyon | `uv run --extra dev pytest tests -q -m "not slow"` | **882 passed, 2 skipped, 6 deselected** |
+| Lab ağsız regresyon | `make test` | **894 passed, 6 deselected** |
 | Statik kalite | `uv run ruff check .`, `uv run pyright`, `git diff --check` | **yeşil** |
 | Gerçek retrieval yolu | `.venv-lab/bin/pytest tests/retrieval/test_retrieval_regression.py -q -rx` | **4 passed, 1 beklenen strict xfail** |
 | Beklenen xfail | BM25 10.6 eşiği cevaplanabilir/cevaplanamazı ayırmıyor | P2 kalibrasyonu bekleniyor; xfail kaldırılmadı |
@@ -89,7 +91,7 @@ benchmark, aynı index revision, aynı recipe fingerprint ve aynı seçim filtre
 | UI/API dürüstlüğü | per-stage UI zamanı tamamlandı; kalan a11y/güvenilirlik nit'leri açık | [#4](https://github.com/barandincoguz/belge-gozu/issues/4), [#20](https://github.com/barandincoguz/belge-gozu/issues/20) |
 | Docker/Hub/hosting | uçtan uca taze pull ve canlı URL yok | [#5](https://github.com/barandincoguz/belge-gozu/issues/5), [#6](https://github.com/barandincoguz/belge-gozu/issues/6), [#7](https://github.com/barandincoguz/belge-gozu/issues/7) |
 | Bench diagnostics | K9/K10 kapandı; legacy stage SQL ve oracle sınırı açık | [#8](https://github.com/barandincoguz/belge-gozu/issues/8) |
-| Gate policy/API visibility | `/healthz` calibrator ve `abstain_reason` eksikleri açık | [#9](https://github.com/barandincoguz/belge-gozu/issues/9) |
+| Gate policy/API visibility | `abstain_reason` tamamlandı; `/healthz` calibrator/answerer readiness ve açılma politikası açık | [#9](https://github.com/barandincoguz/belge-gozu/issues/9) |
 | P2 final gate | test split, G2 raporu ve quota planı yok | [#10](https://github.com/barandincoguz/belge-gozu/issues/10) |
 | Dense/retrieval | dense aday coverage ölçüldü, kalite kazancı yok; production fusion yok | [#11](https://github.com/barandincoguz/belge-gozu/issues/11) |
 | Benchmark gücü | v2 insan n=47; spec'in 120+30 hedefi ve 12 dolu dilim yok | [#12](https://github.com/barandincoguz/belge-gozu/issues/12) |
