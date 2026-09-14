@@ -69,7 +69,14 @@ def _write_calibrator(data_dir, tau: float) -> str:
             bias=0.0,
             fit_info={},
         ),
-        thresholds={"chosen": {"name": "t", "value": tau, "statistical_guarantee": "none"}},
+        thresholds={
+            "chosen": {
+                "name": "t",
+                "value": tau,
+                "coverage": 0.5,
+                "statistical_guarantee": "none",
+            }
+        },
         kunye={},
     ).save(data_dir / "calibration" / key)
     return key
@@ -139,6 +146,29 @@ def test_gate1_on_records_p_and_tau_in_body_and_event(tiny_corpus):
     assert g1["p"] == pytest.approx(0.5) and g1["tau"] == 0.4 and g1["passed"] is True
     assert set(g1["features"]) == set(FEATURE_ORDER)
     assert _event_detail(data_dir)["gate1"]["p"] == pytest.approx(0.5)
+
+
+def test_healthz_reports_calibrator_and_verifier_configuration(tiny_corpus, monkeypatch):
+    c = _client(
+        tiny_corpus,
+        verdict="supported",
+        tau=0.4,
+        monkeypatch=monkeypatch,
+        gate_calibrated=True,
+        gate_verifier=True,
+    )
+
+    body = c.get("/healthz").json()
+
+    assert body["calibrator"] == {
+        "enabled": True,
+        "key": body["calibrator"]["key"],
+        "tau": 0.4,
+        "coverage": 0.5,
+        "guarantee": "none",
+    }
+    assert body["verifier"]["enabled"] is True
+    assert body["verifier"]["max_attempts"] == 10
 
 
 def test_gate1_abstains_below_tau(tiny_corpus):

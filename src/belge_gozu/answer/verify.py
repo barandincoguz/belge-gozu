@@ -960,10 +960,12 @@ def build_gates(
 
         artifact = load_gate1_artifact(s, index_revision)
         gate1 = CalibratedRetrievalGate(artifact, retriever.text, retriever.doc_names)
+        chosen = artifact.thresholds["chosen"]
         detail["gate1"] = {
             "key": artifact.key,
             "tau": artifact.tau,
-            "guarantee": artifact.thresholds["chosen"].get("statistical_guarantee"),
+            "coverage": chosen.get("coverage"),
+            "guarantee": chosen.get("statistical_guarantee"),
         }
 
     gate2 = None

@@ -319,7 +319,12 @@ def test_gate1_is_built_from_the_versioned_artifact(tmp_path):
     s = Settings(data_dir=tmp_path, index_dir=tmp_path / "yok", gate_calibrated=True)
     gates = build_gates(s, TinyRetriever(), index_revision=revision)
     assert isinstance(gates.retrieval, CalibratedRetrievalGate)
-    assert gates.detail["gate1"] == {"key": key, "tau": 0.4, "guarantee": "none"}
+    assert gates.detail["gate1"] == {
+        "key": key,
+        "tau": 0.4,
+        "coverage": None,
+        "guarantee": "none",
+    }
     assert gates.evidence is None  # doğrulayıcı bayrağı kapalıydı
 
 

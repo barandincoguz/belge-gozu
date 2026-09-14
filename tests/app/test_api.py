@@ -81,6 +81,9 @@ def test_healthz(tiny_corpus):
         "threshold": -1e9,
         "top_k": 5,
         "pipeline": "hybrid",
+        "answerer_ready": True,
+        "calibrator": {"enabled": False},
+        "verifier": {"enabled": False},
         "index": {
             "quantization": "sign-1bit",
             "revision": f"{m.corpus_checksum[:12]}/train-compat-v1/sign-1bit",
@@ -93,6 +96,21 @@ def test_healthz(tiny_corpus):
             "late_channel": "disabled",
         },
     }
+
+
+def test_healthz_reports_missing_default_answerer_credentials(tiny_corpus):
+    data_dir, enc, _ = tiny_corpus
+    settings = Settings(
+        data_dir=data_dir,
+        index_dir=data_dir / "index",
+        min_score_threshold=-1e9,
+        gemini_api_key="",
+        google_api_key_2="",
+    )
+
+    body = TestClient(create_app(settings=settings, encoder=enc)).get("/healthz").json()
+
+    assert body["answerer_ready"] is False
 
 
 def test_healthz_survives_unwritable_telemetry_directory(tiny_corpus, caplog, monkeypatch):

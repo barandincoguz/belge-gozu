@@ -383,6 +383,7 @@ def create_app(
     recorder: EventRecorder | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
+    custom_answerer = answerer is not None
 
     # Ölçek korkuluğu — PIPELINE'A DUYARLI (P1). Eşiğin anlamı skor ölçeğine
     # bağlıdır ve ölçeği artık pipeline belirler (config: PIPELINE_SCORE_SCALE):
@@ -481,6 +482,7 @@ def create_app(
         from belge_gozu.answer.gemini import GeminiAnswerer
 
         answerer = GeminiAnswerer(s.gemini_model, s.gemini_api_key, api_key_2=s.google_api_key_2)
+    answerer_ready = custom_answerer or bool(s.gemini_api_key or s.google_api_key_2)
 
     retriever, manifest = build_retriever(s, encoder)
     index = retriever.index
@@ -796,12 +798,27 @@ def create_app(
         # ÖLÇEĞİ artık pipeline'a bağlı ("10.6 bm25" vs "0.58 normalize"), bu
         # yüzden eşikle birlikte okunmalı. `revision` telemetrideki
         # `index_revision` ile aynı dizedir (olay kayıtlarıyla eşleştirilebilir).
+        gate1_detail = gates.detail.get("gate1")
+        gate2_detail = gates.detail.get("gate2")
+        calibrator = (
+            {"enabled": True, **gate1_detail}
+            if isinstance(gate1_detail, dict)
+            else {"enabled": False}
+        )
+        verifier = (
+            {"enabled": True, **gate2_detail}
+            if isinstance(gate2_detail, dict)
+            else {"enabled": False}
+        )
         return {
             "status": "ok",
             "pages": len(index.page_ids),
             "threshold": s.min_score_threshold,
             "top_k": s.top_k,
             "pipeline": s.retrieval_pipeline,
+            "answerer_ready": answerer_ready,
+            "calibrator": calibrator,
+            "verifier": verifier,
             "index": {"quantization": quantization, "revision": revision},
             "retrieval": {
                 **RETRIEVAL_LABELS[s.retrieval_pipeline],
