@@ -167,3 +167,16 @@ geliştirme sırasında eşik seçimi için kullanılmayacaktır.
   insan onaylı cevaplanamaz satır 0. Bu sayımın sınırı #13'te açık.
 - `fb1e028`, CLI testlerindeki üçüncü `q_dict` kopyasını ortak fabrikaya
   bağladı; ilgili 139 test, `make lint` ve `git diff --check` geçti.
+- `b142546` HEAD'inde gerçek-model regresyonu tekrar ölçüldü:
+  `HF_HUB_ETAG_TIMEOUT=10 HF_HUB_DOWNLOAD_TIMEOUT=20 .venv-lab/bin/pytest
+  tests/retrieval/test_retrieval_regression.py -q --maxfail=1 --tb=short -rx`
+  → **4 passed, 1 expected xfail** (23.33 sn). Veri kümesi
+  `retrieval_eval_v1.jsonl`; üretim indeksi
+  `133444d8c235/train-compat-v1/int8` (`corpus_checksum`
+  `133444d8c235fb45795875c924ff44b6e33da80727ce9299741b4321982b8e9a`,
+  4222 sayfa); hibrit BM25 reçetesi `7b56eeeb7327`. Test yerel model
+  önbelleğini ve ağ erişimini kullandı. Ayrı bir çevrimdışı deneme adapter
+  deposundaki `config.json` çözümlemesinde 4 hata verdi; bu denemeden kalite
+  sayısı çıkarılmadı. Başarılı koşum bir **regresyon kilidi**, veri kümesi
+  genelinde yeni R@5 raporu değildir. Xfail, 10.6 BM25 eşiğinin korpus-dışı
+  soruları ayırmadığı bilinen P2 kalibrasyon açığını açık tutar (#1/#9/#10).
