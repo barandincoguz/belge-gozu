@@ -14,6 +14,13 @@ def test_defaults():
     assert s.request_delay_s == 1.0
 
 
+def test_network_free_tests_do_not_read_ambient_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("BG_TOP_K=77\n", encoding="utf-8")
+
+    assert Settings().top_k == 5
+
+
 def test_rate_limits_are_off_by_default():
     """0 = kapalı. Açık varsayılanlar DAĞITIM katmanında (Dockerfile), burada değil:
     yerel tek kullanıcı ve bench koşumları kendi kendini 429'a düşürmemeli."""
@@ -101,7 +108,7 @@ def test_env_file_and_google_alias(monkeypatch, tmp_path):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("GOOGLE_API_KEY=test-key-123\n")
-    assert Settings().gemini_api_key == "test-key-123"
+    assert Settings(_env_file=tmp_path / ".env").gemini_api_key == "test-key-123"
 
 
 # --- ikinci (yedek) anahtar: anahtar rotasyonunun kaynağı ---------------------
@@ -125,7 +132,7 @@ def test_second_key_is_read_from_the_env_file(monkeypatch, tmp_path):
     yok sayılır — ".env'e yazdım ama hiçbir şey olmadı" sınıfı arıza. Bu test
     `GOOGLE_API_KEY_2` -> `Settings.google_api_key_2` eşlemesini kilitler."""
     _isolated_env(monkeypatch, tmp_path, "GOOGLE_API_KEY_2=sahte-yedek-anahtar\n")
-    assert Settings().google_api_key_2 == "sahte-yedek-anahtar"
+    assert Settings(_env_file=tmp_path / ".env").google_api_key_2 == "sahte-yedek-anahtar"
 
 
 def test_second_key_env_override(monkeypatch, tmp_path):

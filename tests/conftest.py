@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -5,14 +6,56 @@ import pandas as pd
 import pytest
 from PIL import Image
 
+from belge_gozu.config import Settings, get_settings
 from belge_gozu.index.encode import FakeEncoder
 from belge_gozu.index.manifest import corpus_checksum, write_manifest
 from belge_gozu.index.store import PackedIndex
 from tests.index.test_manifest import make_manifest
 
+_TEST_ENV_NAMES = {
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY_2",
+    "GEMINI_API_KEY_2",
+    "HF_TOKEN",
+}
+_INITIAL_TEST_ENV: dict[str, str] = {}
+_INITIAL_SETTINGS_CONFIG = dict(Settings.model_config)
+
+
+def _set_external_config(*, enabled: bool) -> None:
+    for name in tuple(os.environ):
+        if name.startswith("BG_") or name in _TEST_ENV_NAMES:
+            os.environ.pop(name, None)
+    if enabled:
+        os.environ.update(_INITIAL_TEST_ENV)
+    Settings.model_config = {
+        **_INITIAL_SETTINGS_CONFIG,
+        "env_file": _INITIAL_SETTINGS_CONFIG.get("env_file") if enabled else None,
+    }
+    get_settings.cache_clear()
+
+
+def pytest_configure(config) -> None:
+    """CLI import varsayılanlarını test collection'ından önce yalıt."""
+    _INITIAL_TEST_ENV.update(
+        (name, value)
+        for name, value in os.environ.items()
+        if name.startswith("BG_") or name in _TEST_ENV_NAMES
+    )
+    _set_external_config(enabled=False)
+
+
+def pytest_runtest_setup(item) -> None:
+    _set_external_config(enabled=item.get_closest_marker("slow") is not None)
+
+
+def pytest_unconfigure(config) -> None:
+    _set_external_config(enabled=True)
+
 
 @pytest.fixture(autouse=True)
-def _deterministic_cli_output(monkeypatch):
+def _deterministic_cli_output(monkeypatch, request):
     """CLI çıktısını ORTAMDAN bağımsız kıl: renk yok, sabit genişlik.
 
     2026-08-31'de ilk CI koşumu 7 testi kırdı: GitHub Actions ortamında rich
@@ -22,6 +65,15 @@ def _deterministic_cli_output(monkeypatch):
     bu yüzden renk kapatılır ve genişlik sabitlenir (dar terminalde uzun bayrak
     adları sarılabilir).
     """
+    if request.node.get_closest_marker("slow") is None:
+        # Ağsız testler makinenin gerçek servis yapılandırmasını veya API
+        # anahtarlarını yanlışlıkla devralmamalı. Slow testler gerçek indeks/
+        # model yollarını dış ortamdan bilinçli olarak alabilir.
+        for name in tuple(os.environ):
+            if name.startswith("BG_") or name in _TEST_ENV_NAMES:
+                monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(Settings, "model_config", {**Settings.model_config, "env_file": None})
+        get_settings.cache_clear()
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setenv("TERM", "dumb")
     monkeypatch.setenv("COLUMNS", "200")
