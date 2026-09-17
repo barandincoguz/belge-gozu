@@ -150,3 +150,6 @@ geliştirme sırasında eşik seçimi için kullanılmayacaktır.
   (karara bağlı). Legacy `stage1_ms`/`stage2_ms` hibritte `NULL` ve
   `detail.stages` kanoniktir; SQL tüketici/deprecation işi
   [#28](https://github.com/barandincoguz/belge-gozu/issues/28) olarak ayrıldı.
+  #28, `d0a4250` ile API→SQLite→Parquet ve two-stage sözleşme testleri,
+  tüketici envanteri ve metrics katalog kararı eklenerek kapandı (`make test`:
+  904 passed, 6 deselected; `make lint` yeşil).
