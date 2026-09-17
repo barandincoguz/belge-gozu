@@ -141,6 +141,68 @@ def test_diagnostics_distinguish_full_rank_from_the_record_window():
     assert "full_ranked" not in report.model_dump()["diagnostics"][0]["stages"][0]
 
 
+def test_hybrid_adapter_uses_the_same_late_candidate_order_as_production(tiny_corpus, monkeypatch):
+    import pandas as pd
+
+    from belge_gozu.bench.harness import HybridDiagnosticAdapter
+    from belge_gozu.index.store import PackedIndex
+    from belge_gozu.retrieval.hybrid import HybridRetriever, load_text_channel
+    from belge_gozu.retrieval.late import LateSearchResult
+
+    data_dir, encoder, _ = tiny_corpus
+    index_dir = data_dir / "index"
+    index = PackedIndex.load(index_dir)
+    meta = pd.read_parquet(index_dir / "meta.parquet")
+    bm25, doc_names = load_text_channel(index_dir, index.page_ids)
+    question = "yerleşim yeri nedir"
+    base = HybridRetriever(index, meta, encoder, bm25, doc_names)
+    late_page = base.rank_all(question)[-1]
+    clock = {"now": 0.0, "late_delay": 0.0}
+
+    class FixedLateChannel:
+        def search_with_scores(self, query: str, limit: int) -> LateSearchResult:
+            clock["now"] += clock["late_delay"]
+            return LateSearchResult(
+                pages=(late_page,),
+                query_tokens=2,
+                raw_top1=2.0,
+                raw_margin=1.0,
+                mean_top1=1.0,
+                mean_margin=0.5,
+            )
+
+    retriever = HybridRetriever(
+        index,
+        meta,
+        encoder,
+        bm25,
+        doc_names,
+        late_channels=(FixedLateChannel(),),
+        late_candidate_limit=1,
+    )
+
+    ranked, stages = HybridDiagnosticAdapter(retriever).run(question)
+    production = [hit.page_id for hit in retriever.search(question, k=3)]
+
+    assert production[1] == late_page
+    assert ranked[:3] == production
+    assert "late_candidate_union" in [stage.stage for stage in stages]
+
+    # Rapor nesnesini kurmanın süresi geç kanal arama süresine katılmamalı.
+    original_record = StageRecord
+
+    def timed_record(**kwargs):
+        if kwargs["stage"] == "route_fuse":
+            clock["now"] += 0.05
+        return original_record(**kwargs)
+
+    monkeypatch.setattr("belge_gozu.bench.harness.StageRecord", timed_record)
+    monkeypatch.setattr("belge_gozu.bench.harness.time.perf_counter", lambda: clock["now"])
+    clock.update(now=0.0, late_delay=0.007)
+    _, timed_stages = HybridDiagnosticAdapter(retriever).run(question)
+    assert timed_stages[-1].latency_ms == pytest.approx(7.0)
+
+
 def test_exhaustive_adapter_records_ranks():
     from belge_gozu.bench.harness import ExhaustiveDiagnosticAdapter
     from belge_gozu.retrieval.core import ExhaustiveBinaryRetriever

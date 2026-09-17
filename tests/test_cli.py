@@ -1001,6 +1001,126 @@ def test_retrieval_cli_rejects_effective_query_format_mismatch(tmp_path: Path, m
         assert not out.exists()
 
 
+def test_bench_run_hybrid_uses_configured_late_channels_and_records_recipe(
+    tiny_corpus, monkeypatch
+):
+    import numpy as np
+    import pandas as pd
+
+    from belge_gozu.index import encode
+    from belge_gozu.index.store import PackedIndex
+    from belge_gozu.retrieval.hybrid import HybridRetriever, load_text_channel
+    from belge_gozu.retrieval.late import LateSearchResult
+    from belge_gozu.retrieval.text import recipe_fingerprint
+    from tests.bench_question_factory import q_dict
+    from tests.index.test_manifest import TRAIN_COMPAT_DOC_PROMPT_SHA256
+
+    data_dir, inner_encoder, _ = tiny_corpus
+    index_dir = data_dir / "index"
+
+    class MatchingEncoder:
+        model_revision = "abc123"
+        doc_prompt_sha256 = TRAIN_COMPAT_DOC_PROMPT_SHA256
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def encode_query(self, question):
+            return inner_encoder.encode_query(question)
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", MatchingEncoder)
+    monkeypatch.setenv("BG_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("BG_INDEX_DIR", str(index_dir))
+    monkeypatch.setenv("BG_LATE_CHANNEL_ENABLED", "true")
+    monkeypatch.setenv("BG_LATE_CANDIDATE_LIMIT", "1")
+    for position, (env_name, label) in enumerate(
+        (
+            ("BG_LATE_MOGAN_INDEX_DIR", "mogan"),
+            ("BG_LATE_COLMM_INDEX_DIR", "colmm"),
+        ),
+        start=1,
+    ):
+        late_dir = data_dir / f"late-{label}"
+        late_dir.mkdir()
+        (late_dir / "colbert.json").write_text(
+            json.dumps({"model_repo": f"test/{label}", "revision": f"revision-{position}"}),
+            encoding="utf-8",
+        )
+        (late_dir / "chunk_ids.json").write_text("[]", encoding="utf-8")
+        np.save(late_dir / "offsets.npy", np.array([0], dtype=np.int64))
+        np.save(late_dir / "embs.npy", np.full((1, 2), position, dtype=np.float16))
+        monkeypatch.setenv(env_name, str(late_dir))
+    index = PackedIndex.load(index_dir)
+    meta = pd.read_parquet(index_dir / "meta.parquet")
+    bm25, doc_names = load_text_channel(index_dir, index.page_ids)
+    question = "yerleşim yeri nedir"
+    base = HybridRetriever(index, meta, inner_encoder, bm25, doc_names)
+    late_page = base.rank_all(question)[-1]
+
+    class FixedLateChannel:
+        def search_with_scores(self, query: str, limit: int) -> LateSearchResult:
+            return LateSearchResult(
+                pages=(late_page,),
+                query_tokens=2,
+                raw_top1=2.0,
+                raw_margin=1.0,
+                mean_top1=1.0,
+                mean_margin=0.5,
+            )
+
+    class EmptyLateChannel:
+        def search_with_scores(self, query: str, limit: int) -> LateSearchResult:
+            return LateSearchResult(
+                pages=(),
+                query_tokens=2,
+                raw_top1=0.0,
+                raw_margin=0.0,
+                mean_top1=0.0,
+                mean_margin=0.0,
+            )
+
+    loads = []
+
+    def fake_load_channels(settings, page_ids):
+        loads.append((settings.late_channel_enabled, page_ids))
+        return (FixedLateChannel(), EmptyLateChannel())
+
+    monkeypatch.setattr("belge_gozu.app.main.load_configured_late_channels", fake_load_channels)
+    bench = data_dir / "bench.jsonl"
+    bench.write_text(
+        json.dumps(
+            q_dict(
+                question=question,
+                gold_doc_ids=[late_page.split(":")[0]],
+                gold_page_ids=[late_page],
+                gold_article_ids=[],
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    out = data_dir / "report.json"
+
+    result = runner.invoke(
+        app,
+        ["bench", "run", "--pipeline", "hybrid", "--bench", str(bench), "--out", str(out)],
+    )
+
+    assert result.exit_code == 0, result.exception or result.output
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert loads == [(True, index.page_ids)]
+    assert report["config"]["recipe_fingerprint"] == recipe_fingerprint()
+    assert report["config"]["late_channel_enabled"] is True
+    late_evidence = report["config"]["late_index_evidence"]
+    assert [entry["sidecar"]["revision"] for entry in late_evidence] == [
+        "revision-1",
+        "revision-2",
+    ]
+    assert all(len(entry["sha256"]["embs.npy"]) == 64 for entry in late_evidence)
+    assert report["diagnostics"][0]["stages"][-1]["stage"] == "late_candidate_union"
+    assert report["diagnostics"][0]["final_ranked"][1] == late_page
+
+
 def test_broken_env_gives_readable_message_not_a_traceback(tmp_path: Path):
     """`belge-gozu --help` bozuk bir BG_* değerinde ham traceback BASMAZ.
 

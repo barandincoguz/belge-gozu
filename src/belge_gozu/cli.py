@@ -34,6 +34,7 @@ from belge_gozu.index.manifest import (
     QueryFormatChoice,
     RenderConfig,
     corpus_checksum,
+    index_revision,
     read_manifest,
     write_manifest,
 )
@@ -613,6 +614,19 @@ def _require_benchmark_index_compatibility(
         raise typer.BadParameter("benchmark indeks uyumsuzluğu: " + "; ".join(problems))
 
 
+def _late_index_evidence(index_dir: Path) -> dict:
+    """Geç aday indeksini raporda byte içeriğine kadar kimliklendir."""
+    from belge_gozu.bench.dense_artifacts import sha256_file
+
+    names = ("colbert.json", "chunk_ids.json", "offsets.npy", "embs.npy")
+    try:
+        sidecar = json.loads((index_dir / "colbert.json").read_text(encoding="utf-8"))
+        hashes = {name: sha256_file(index_dir / name) for name in names}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise typer.BadParameter(f"geç indeks künyesi okunamıyor: {index_dir}: {exc}") from exc
+    return {"index_dir": str(index_dir), "sidecar": sidecar, "sha256": hashes}
+
+
 @bench_app.command("run")
 def bench_run(
     bench: Path = typer.Option(Path("data/bench/retrieval_eval_v1.jsonl")),  # noqa: B008
@@ -641,7 +655,8 @@ def bench_run(
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
     selection = _load_bench_mode(bench, only_verified, min_verification)
     _require_answerable_selection(selection)
-    from belge_gozu.app.main import resolve_formats
+    from belge_gozu.app.main import load_configured_late_channels, resolve_formats
+    from belge_gozu.retrieval.text import recipe_fingerprint
 
     query_format, doc_prompt = resolve_formats(s)
     expected_doc_prompt_sha = (
@@ -671,12 +686,31 @@ def bench_run(
     )
 
     adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter | HybridDiagnosticAdapter
+    late_index_evidence: list[dict] = []
     if pipeline == Pipeline.hybrid:
         # serve ile AYNI metin kanalı kurulumu (retrieval.hybrid.load_text_channel —
         # serve de tam olarak bunu çağırır): artefakt yoksa bench sessizce
         # yalnız-görsel ölçmemeli.
         bm25, doc_names = load_text_channel(s.index_dir, list(idx.page_ids))
-        adapter = HybridDiagnosticAdapter(HybridRetriever(idx, meta, encoder, bm25, doc_names))
+        late_channels = (
+            load_configured_late_channels(s, list(idx.page_ids)) if s.late_channel_enabled else ()
+        )
+        if late_channels:
+            late_index_evidence = [
+                _late_index_evidence(path)
+                for path in (s.late_mogan_index_dir, s.late_colmm_index_dir)
+            ]
+        adapter = HybridDiagnosticAdapter(
+            HybridRetriever(
+                idx,
+                meta,
+                encoder,
+                bm25,
+                doc_names,
+                late_channels=late_channels,
+                late_candidate_limit=s.late_candidate_limit,
+            )
+        )
     elif pipeline == Pipeline.two_stage:
         # app/main.py'deki aynı korkuluk: mean-sign eleme yalnız paketli
         # bit vektörleri üstünde tanımlı (int8/float16'da page_vecs yok).
@@ -708,6 +742,11 @@ def bench_run(
             "pipeline": pipeline.value,
             "bench": str(bench),
             "verification": selection.provenance(),
+            "index_revision": index_revision(idx.manifest) if idx.manifest else None,
+            "recipe_fingerprint": recipe_fingerprint() if pipeline == Pipeline.hybrid else None,
+            "late_channel_enabled": pipeline == Pipeline.hybrid and s.late_channel_enabled,
+            "late_candidate_limit": s.late_candidate_limit if pipeline == Pipeline.hybrid else None,
+            "late_index_evidence": late_index_evidence,
         },
     )
     report.to_json(out_path)

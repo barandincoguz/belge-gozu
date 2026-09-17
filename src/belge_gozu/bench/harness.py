@@ -178,7 +178,22 @@ class HybridDiagnosticAdapter:
             latency_ms=(t3 - t2) * 1000,
             full_ranked=ranked,
         )
-        return ranked, [visual_rec, text_rec, fuse_rec]
+        stages = [visual_rec, text_rec, fuse_rec]
+        if self.retriever.late_channels:
+            late_started = time.perf_counter()
+            ranked, _late_detail = self.retriever.merge_late_candidates(question, ranked)
+            late_finished = time.perf_counter()
+            stages.append(
+                StageRecord(
+                    stage="late_candidate_union",
+                    gold_ranks={},
+                    top_ids=ranked[: self.record_top],
+                    top_scores=[by_id[pid] for pid in ranked[: self.record_top]],
+                    latency_ms=(late_finished - late_started) * 1000,
+                    full_ranked=ranked,
+                )
+            )
+        return ranked, stages
 
 
 class TwoStageDiagnosticAdapter:

@@ -252,6 +252,26 @@ class HybridRetriever:
         routed = self.routed_docs(query)
         return route_window(ranking, routed, self.window), routed
 
+    def merge_late_candidates(
+        self, query: str, ranking: list[str]
+    ) -> tuple[list[str], list[dict[str, float | int]]]:
+        """Üretim ve benchmark için aynı aday örme ve top-1 koruması."""
+        merged = ranking
+        detail: list[dict[str, float | int]] = []
+        for channel in self.late_channels:
+            result = channel.search_with_scores(query, limit=self.late_candidate_limit)
+            merged = union_candidates(merged, list(result.pages))
+            detail.append(
+                {
+                    "query_tokens": result.query_tokens,
+                    "mean_top1": result.mean_top1,
+                    "mean_margin": result.mean_margin,
+                }
+            )
+        if ranking and merged[0] != ranking[0]:
+            raise RuntimeError("geç aday birleşimi BM25 birincisini değiştiremez")
+        return merged, detail
+
     def search(self, query: str, k: int = 5) -> list[PageHit]:
         if self.encoder is None:
             raise RuntimeError("encoder yapılandırılmamış")
@@ -268,22 +288,10 @@ class HybridRetriever:
         _LAST_BM25.set(bm25)
         with stage("route_fuse"):
             ranking, routed = self.rank(query, bm25)
-        bm25_top1 = ranking[0] if ranking else None
         late_detail: list[dict[str, float | int]] = []
         if self.late_channels:
             with stage("late_candidate_union"):
-                for channel in self.late_channels:
-                    result = channel.search_with_scores(query, limit=self.late_candidate_limit)
-                    ranking = union_candidates(ranking, list(result.pages))
-                    late_detail.append(
-                        {
-                            "query_tokens": result.query_tokens,
-                            "mean_top1": result.mean_top1,
-                            "mean_margin": result.mean_margin,
-                        }
-                    )
-        if bm25_top1 is not None and ranking[0] != bm25_top1:
-            raise RuntimeError("geç aday birleşimi BM25 birincisini değiştiremez")
+                ranking, late_detail = self.merge_late_candidates(query, ranking)
         by_id = dict(zip(self.index.page_ids, bm25.tolist(), strict=True))
         visual_by_id = dict(zip(self.index.page_ids, visual.tolist(), strict=True))
         _LAST_META.set(
