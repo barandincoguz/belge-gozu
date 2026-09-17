@@ -53,8 +53,6 @@ app.add_typer(bench_app, name="bench")
 app.add_typer(calibrate_app, name="calibrate")
 app.add_typer(verify_app, name="verify")
 
-DEFAULT_MANIFEST = Path("data/manifest/v0_manifest.csv")
-
 
 class Pipeline(StrEnum):
     hybrid = "hybrid"
