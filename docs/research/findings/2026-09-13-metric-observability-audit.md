@@ -91,13 +91,13 @@ benchmark, aynı index revision, aynı recipe fingerprint ve aynı seçim filtre
 | Verification filter | `--min-verification human` gerçek çalışıyor; #3 kapandı | [#3](https://github.com/barandincoguz/belge-gozu/issues/3) |
 | UI/API dürüstlüğü | per-stage UI zamanı tamamlandı; kalan a11y/güvenilirlik nit'leri açık | [#4](https://github.com/barandincoguz/belge-gozu/issues/4), [#20](https://github.com/barandincoguz/belge-gozu/issues/20) |
 | Docker/Hub/hosting | uçtan uca taze pull ve canlı URL yok | [#5](https://github.com/barandincoguz/belge-gozu/issues/5), [#6](https://github.com/barandincoguz/belge-gozu/issues/6), [#7](https://github.com/barandincoguz/belge-gozu/issues/7) |
-| Bench diagnostics | K9/K10 kapandı; legacy stage SQL ve oracle sınırı açık | [#8](https://github.com/barandincoguz/belge-gozu/issues/8) |
+| Bench diagnostics | K9/K10 ve görsel oracle kimlik/kapsam etiketi kapandı; legacy stage SQL, `EvalReport.oracle_gap` ve hibrit oracle açık | [#8](https://github.com/barandincoguz/belge-gozu/issues/8) |
 | Gate policy/API visibility | API görünürlüğü tamamlandı; yalnız sayısal production açılma politikası insan kararı olarak açık | [#9](https://github.com/barandincoguz/belge-gozu/issues/9) |
 | P2 final gate | test split, G2 raporu ve quota planı yok | [#10](https://github.com/barandincoguz/belge-gozu/issues/10) |
 | Dense/retrieval | dense aday coverage ölçüldü, kalite kazancı yok; production fusion yok | [#11](https://github.com/barandincoguz/belge-gozu/issues/11) |
 | Benchmark gücü | v2 insan n=47; spec'in 120+30 hedefi ve 12 dolu dilim yok | [#12](https://github.com/barandincoguz/belge-gozu/issues/12) |
 | İnsan doğrulaması | retrieval v2 insan 47; abstention insan 0 ve draft satırlar var | [#13](https://github.com/barandincoguz/belge-gozu/issues/13) |
-| Teknik borç/güvenlik | BM25 karmaşıklığı, env izolasyonu, erişim ve gizlilik açık | [#14](https://github.com/barandincoguz/belge-gozu/issues/14), [#15](https://github.com/barandincoguz/belge-gozu/issues/15) |
+| Teknik borç/güvenlik | #14'ün env/indeks guard ve fikstür işleri kapandı; BM25 karmaşıklığı #20'de, erişim ve gizlilik #15'te açık | [#14](https://github.com/barandincoguz/belge-gozu/issues/14) (kapatıldı), [#20](https://github.com/barandincoguz/belge-gozu/issues/20), [#15](https://github.com/barandincoguz/belge-gozu/issues/15) |
 | Korpus yapısı | madde hiyerarşisi ve OCR fallback yok | [#16](https://github.com/barandincoguz/belge-gozu/issues/16) |
 | Reranker | offline MaxP kazancı var; production config/G1.3 hükmü yok | [#17](https://github.com/barandincoguz/belge-gozu/issues/17) |
 | Outcome/drift | UI claim verdict, feedback ve drift raporu yok | [#18](https://github.com/barandincoguz/belge-gozu/issues/18) |
@@ -125,3 +125,28 @@ benchmark, aynı index revision, aynı recipe fingerprint ve aynı seçim filtre
 
 Her adımda başarısız deney de commit/artefakt/journal kaydıdır; test yakası,
 geliştirme sırasında eşik seçimi için kullanılmayacaktır.
+
+## 2026-09-17 devam kaydı
+
+- #14, `5f3b42c`, `bfc4b0f`, `58fae42`, `14279b8`, `6409413` ve
+  `766dfe4` commit'leriyle kapandı. D1'in geçici `ABSTAIN_TEXT` kopya testi,
+  sunucu sahipli `status`/`abstain_reason` API sözleşmesi ve UI testiyle
+  geçersizleşti; UI'da karşılaştırılacak metin kopyası kalmadı.
+- #8'in `e9dedb4` dilimi, `bench oracle` kollarının kaynak manifest kimliğini
+  karşılaştırıyor. Aynı `page_id` listesine sahip ama farklı `corpus_checksum`
+  taşıyan iki kol artık model yüklenmeden reddediliyor. Rapor ve CLI yardımı
+  kapsamı `exhaustive-visual` olarak belirtiyor; bu BM25 yönlendirmeli hibrit
+  üretim hattının oracle sonucu değildir.
+- Doğrulama: `uv run pytest tests/bench/test_dataset.py
+  tests/test_verify_retrieval_eval.py -q` → 88 passed; #8'in üç CLI testi →
+  3 passed; `make test` → 902 passed, 6 deselected; `make lint`,
+  `uv run pyright` ve `git diff --check` yeşil. Bu turda yeni gerçek-model
+  koşumu veya kalite sayısı üretilmedi; veri kümesi ve indeks/recipe kimliği
+  gerektiren önceki ölçümler yukarıdaki tarihli kayıtlarında kalır.
+- G0.4'ün master planındaki `EvalReport oracle-gap` araç ifadesi gerçek ayrı
+  `bench oracle` raporuna göre düzeltildi. Hibrit hatta bir sayısal gap'in
+  anlamı henüz kararlaştırılmadı: referans tanımı [#26](https://github.com/barandincoguz/belge-gozu/issues/26),
+  kimlik kontrollü rapor uygulaması [#27](https://github.com/barandincoguz/belge-gozu/issues/27)
+  (karara bağlı). Legacy `stage1_ms`/`stage2_ms` hibritte `NULL` ve
+  `detail.stages` kanoniktir; SQL tüketici/deprecation işi
+  [#28](https://github.com/barandincoguz/belge-gozu/issues/28) olarak ayrıldı.

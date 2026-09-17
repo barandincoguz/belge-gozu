@@ -103,7 +103,7 @@ bozarsa ilgili flag kapatılır, fix ayrı commit'le gelir.
 | G0.1 | `k4721:4` corpus coverage (indekste, meta'da, checksum'da) | kanıtlı | `bench run` coverage bölümü |
 | G0.2 | Sorgu A + B kalıcı regression setinde | evet | `tests/retrieval/test_semantic_retrieval_eval.py` (slow) |
 | G0.3 | Üretim candidate generator gold Recall@candidate | ≥ %98 (exhaustive yol: %100 tanım gereği; Stage-1 varyantı ancak bu eşikle girebilir) | harness candidate_survival |
-| G0.4 | Exhaustive binary + native float oracle her koşumda karşılaştırılabilir | evet | `bench oracle` + EvalReport oracle-gap |
+| G0.4 | Exhaustive binary + native float oracle her koşumda karşılaştırılabilir | evet | `bench oracle` ayrı, künyeli görsel exhaustive raporu; hibrit sayısal gap için referans kararı #26/#27 |
 | G0.5 | İndeks/processor uyumsuzluğu fail-fast | test kanıtlı | `tests/index/test_manifest.py`, `tests/app/test_compat.py` |
 | G0.6 | Padding satırları skorlanmıyor (yeni indekste 0 all-zero satır) | 0 satır | `bench run` index-audit + birim test |
 | G0.7 | Kuantizasyon kaybı sayılandırıldı (C1/C2 tablosu) | rapor var | p0-gate.md tablosu |
