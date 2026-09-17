@@ -180,3 +180,14 @@ geliştirme sırasında eşik seçimi için kullanılmayacaktır.
   sayısı çıkarılmadı. Başarılı koşum bir **regresyon kilidi**, veri kümesi
   genelinde yeni R@5 raporu değildir. Xfail, 10.6 BM25 eşiğinin korpus-dışı
   soruları ayırmadığı bilinen P2 kalibrasyon açığını açık tutar (#1/#9/#10).
+- `3da1ae0` / `bc7315b`, etkin geç kanalı `bench run`a bağladı ve raporun
+  seçim/yan indeks künyesini doğrulanabilir yaptı. Güncel üretim konfigürasyonu
+  üzerinde `retrieval_eval_v2` insan onaylı **dev n=24** karşılaştırmasında
+  geç kanal açık R@5 `0,8125`, kapalı `0,6875` (**5 kazanım, 2 kayıp**),
+  iki rapor da `verify_evaluation_report.py` ile doğrulandı. Tam komut,
+  veri kümesi/split SHA-256, indeks ve BM25 reçete kimliği, commit, yan indeks
+  revizyonları, rapor hash'leri ve sınırlar
+  [2026-09-17-retrieval-dev-parity.md](2026-09-17-retrieval-dev-parity.md)
+  içinde. Bunlar dev tanısıdır; final test sayısı veya cevap güvenlik kapısı
+  sonucu değildir. Geç kanal açık kolda ilk beşten düşen `c208` ve `c408`
+  #17 sıralayıcı incelemesinin somut örnekleridir.
