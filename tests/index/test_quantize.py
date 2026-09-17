@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from belge_gozu.bench.oracle import FloatIndex, native_float_scores
 from belge_gozu.index.quantize import Int8Index, derive_packed
@@ -10,6 +11,14 @@ def make_findex(n_pages=6, tokens=5, seed=2):
     rng = np.random.default_rng(seed)
     embs = [rng.standard_normal((tokens, 128)).astype(np.float32) for _ in range(n_pages)]
     return FloatIndex.build([f"d{i}:1" for i in range(n_pages)], embs), embs
+
+
+def test_float_index_rejects_all_zero_padding_token():
+    embeddings = np.ones((2, 128), dtype=np.float32)
+    embeddings[1] = 0.0
+
+    with pytest.raises(ValueError, match="padding satırı sızmış: d0:1"):
+        FloatIndex.build(["d0:1"], [embeddings])
 
 
 def test_derive_packed_matches_direct_binarize():

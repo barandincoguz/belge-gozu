@@ -47,6 +47,8 @@ class FloatIndex:
         for pid, e in zip(page_ids, embs, strict=True):
             if e.shape[0] == 0:
                 raise ValueError(f"sıfır token'lı sayfa: {pid}")
+            if (np.abs(e).sum(axis=1) == 0).any():
+                raise ValueError(f"padding satırı sızmış: {pid}")
         offsets = np.zeros(len(embs) + 1, dtype=np.int64)
         np.cumsum([e.shape[0] for e in embs], out=offsets[1:])
         stacked = np.vstack(embs).astype(np.float16)
