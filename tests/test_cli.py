@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import pymupdf as fitz
+import pytest
 from typer.testing import CliRunner
 
 from belge_gozu.cli import _load_bench_mode, app
@@ -1007,6 +1008,7 @@ def test_bench_run_hybrid_uses_configured_late_channels_and_records_recipe(
     import numpy as np
     import pandas as pd
 
+    from belge_gozu.bench.report_validation import validate_provenance_hashes
     from belge_gozu.index import encode
     from belge_gozu.index.store import PackedIndex
     from belge_gozu.retrieval.hybrid import HybridRetriever, load_text_channel
@@ -1116,7 +1118,14 @@ def test_bench_run_hybrid_uses_configured_late_channels_and_records_recipe(
         "revision-1",
         "revision-2",
     ]
-    assert all(len(entry["sha256"]["embs.npy"]) == 64 for entry in late_evidence)
+    assert all(len(entry["files"]) == 4 for entry in late_evidence)
+    validate_provenance_hashes(report)
+    embeddings = next(
+        file for file in late_evidence[0]["files"] if file["path"].endswith("embs.npy")
+    )
+    Path(embeddings["path"]).write_bytes(Path(embeddings["path"]).read_bytes() + b"changed")
+    with pytest.raises(ValueError, match="sha256"):
+        validate_provenance_hashes(report)
     assert report["diagnostics"][0]["stages"][-1]["stage"] == "late_candidate_union"
     assert report["diagnostics"][0]["final_ranked"][1] == late_page
 

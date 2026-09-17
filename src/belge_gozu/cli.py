@@ -621,10 +621,13 @@ def _late_index_evidence(index_dir: Path) -> dict:
     names = ("colbert.json", "chunk_ids.json", "offsets.npy", "embs.npy")
     try:
         sidecar = json.loads((index_dir / "colbert.json").read_text(encoding="utf-8"))
-        hashes = {name: sha256_file(index_dir / name) for name in names}
+        files = [
+            {"path": str(index_dir / name), "sha256": sha256_file(index_dir / name)}
+            for name in names
+        ]
     except (OSError, json.JSONDecodeError) as exc:
         raise typer.BadParameter(f"geç indeks künyesi okunamıyor: {index_dir}: {exc}") from exc
-    return {"index_dir": str(index_dir), "sidecar": sidecar, "sha256": hashes}
+    return {"index_dir": str(index_dir), "sidecar": sidecar, "files": files}
 
 
 @bench_app.command("run")

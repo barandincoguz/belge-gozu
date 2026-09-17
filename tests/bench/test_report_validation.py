@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 
 from belge_gozu.bench.answer_eval import AnswerRecord, ClaimRecord, run_answer_eval
-from belge_gozu.bench.dataset import BenchQuestion
+from belge_gozu.bench.dataset import BenchQuestion, select_bench
 from belge_gozu.bench.harness import StageRecord, run_retrieval_eval
 from belge_gozu.bench.metrics import bootstrap_ci, ndcg_at_k, recall_at_k
 from belge_gozu.bench.report_validation import (
@@ -13,7 +13,7 @@ from belge_gozu.bench.report_validation import (
     validate_reranker_report_payload,
     validate_retrieval_report_payload,
 )
-from tests.bench.test_dataset import q_dict
+from tests.bench_question_factory import q_dict
 
 
 def _provenance() -> dict:
@@ -120,6 +120,35 @@ def test_retrieval_report_validator_uses_full_gold_rank_and_rejects_tampering(tm
     validate_retrieval_report_payload(payload, require_bench=True)
     payload["overall"]["recall_at"]["5"] = 0.0
     with pytest.raises(ValueError, match="recall_at.5"):
+        validate_retrieval_report_payload(payload, require_bench=True)
+
+
+def test_retrieval_report_validator_reads_nested_all_selection(tmp_path):
+    bench = tmp_path / "bench.jsonl"
+    rows = (
+        q_dict(question_id="verified"),
+        q_dict(question_id="draft", verification_status="draft"),
+    )
+    bench.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    selection = select_bench(bench, only_verified=False)
+    report = run_retrieval_eval(
+        _FullRankPipeline(),
+        selection.questions,
+        known_page_ids={"x:1", "x:2", "k4721:4"},
+        ks=(1, 5),
+        config={"bench": str(bench), "verification": selection.provenance()},
+    )
+
+    payload = report.model_dump(mode="json")
+    validated = validate_retrieval_report_payload(payload, require_bench=True)
+
+    assert validated.overall.n == 2
+    assert {row.question_id for row in validated.diagnostics} == {"verified", "draft"}
+    payload["config"]["verification"]["selected"] = 1
+    with pytest.raises(ValueError, match="config.verification"):
         validate_retrieval_report_payload(payload, require_bench=True)
 
 

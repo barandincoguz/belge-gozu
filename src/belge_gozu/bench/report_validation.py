@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 from belge_gozu.bench.answer_eval import AnswerEvalReport, run_answer_eval
-from belge_gozu.bench.dataset import load_bench
+from belge_gozu.bench.dataset import load_bench, select_bench
+from belge_gozu.bench.dense_artifacts import sha256_file
 from belge_gozu.bench.harness import EvalReport
 from belge_gozu.bench.metrics import bootstrap_ci, ndcg_at_k, recall_at_k
 
@@ -101,7 +101,7 @@ def validate_provenance_hashes(payload: Mapping[str, Any], *, root: Path = Path(
                     target = root / target
                 if not target.is_file():
                     raise ValueError(f"{path}.path bulunamadı: {target}")
-                actual = sha256(target.read_bytes()).hexdigest()
+                actual = sha256_file(target)
                 if actual != digest:
                     raise ValueError(f"{path}.sha256 uyuşmuyor: kayıtlı={digest}, yeniden={actual}")
             for key, child in value.items():
@@ -177,11 +177,27 @@ def validate_retrieval_report_payload(
         if require_bench:
             raise ValueError("retrieval report config.bench yolu zorunludur")
         return report
-    questions = load_bench(
-        bench_path,
-        only_verified=bool(report.config.get("only_verified", True)),
-        min_verification=report.config.get("min_verification"),
-    )
+    verification = report.config.get("verification")
+    if verification is not None:
+        if not isinstance(verification, Mapping) or not isinstance(
+            verification.get("only_verified"), bool
+        ):
+            raise ValueError("config.verification.only_verified bool olmalı")
+        selection = select_bench(
+            bench_path,
+            only_verified=verification["only_verified"],
+            min_verification=verification.get("min_verification"),
+        )
+        if dict(verification) != selection.provenance():
+            raise ValueError("config.verification seçimi veri kümesiyle uyuşmuyor")
+        questions = selection.questions
+    else:
+        # Eski raporlar seçimi config köküne yazmıştı; yalnız onlarda bu yolu koru.
+        questions = load_bench(
+            bench_path,
+            only_verified=bool(report.config.get("only_verified", True)),
+            min_verification=report.config.get("min_verification"),
+        )
     answerable = {q.question_id: q for q in questions if q.answerable}
     if set(answerable) != set(diagnostics):
         raise ValueError("bench answerable question_id kümesi diagnostics ile uyuşmuyor")
