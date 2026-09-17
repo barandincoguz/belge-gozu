@@ -598,6 +598,52 @@ def test_search_detail_records_hybrid_stage_timings(tiny_corpus):
     assert {"query_encode", "exhaustive_maxsim", "text_bm25", "route_fuse"} <= set(stages)
 
 
+def test_stage_identity_survives_api_sqlite_and_export(tiny_corpus):
+    """Hibrit süreleri eski Hamming/MaxSim kolonlarına yanlış adla yazılmaz."""
+    from belge_gozu.telemetry.export import export_events
+
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus)
+    assert c.post("/search", json={"query": "yerleşim yeri nedir"}).status_code == 200
+    assert c.post("/ask", json={"question": "yerleşim yeri nedir"}).status_code == 200
+
+    db_path = data_dir / "requests.sqlite"
+    with sqlite3.connect(db_path) as db:
+        rows = db.execute(
+            "SELECT endpoint, encode_ms, stage1_ms, stage2_ms, detail FROM events ORDER BY id"
+        ).fetchall()
+    assert [row[0] for row in rows] == ["/search", "/ask"]
+    for _, encode_ms, stage1_ms, stage2_ms, raw_detail in rows:
+        stages = json.loads(raw_detail)["stages"]
+        assert {"query_encode", "exhaustive_maxsim", "text_bm25", "route_fuse"} <= set(stages)
+        assert encode_ms == stages["query_encode"]
+        assert stage1_ms is None and stage2_ms is None
+
+    out = data_dir / "events.parquet"
+    assert export_events(db_path, out) == 2
+    exported = pd.read_parquet(out)
+    assert exported["stage1_ms"].isna().all() and exported["stage2_ms"].isna().all()
+    assert all(
+        {"text_bm25", "route_fuse"} <= set(json.loads(detail)["stages"])
+        for detail in exported["detail"]
+    )
+
+
+def test_two_stage_legacy_sql_columns_keep_their_original_meaning(tiny_corpus):
+    data_dir, _, _ = tiny_corpus
+    c = make_client(tiny_corpus, retrieval_pipeline="two-stage")
+
+    assert c.post("/search", json={"query": "yerleşim yeri nedir"}).status_code == 200
+
+    with sqlite3.connect(data_dir / "requests.sqlite") as db:
+        stage1_ms, stage2_ms, raw_detail = db.execute(
+            "SELECT stage1_ms, stage2_ms, detail FROM events ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    stages = json.loads(raw_detail)["stages"]
+    assert stage1_ms == stages["stage1_hamming"]
+    assert stage2_ms == stages["stage2_maxsim"]
+
+
 def test_search_records_pipeline_and_index_revision(tiny_corpus):
     """T13: pipeline + index_revision doldurulur; detail.retrieval kimlik alanlarını taşır."""
     data_dir, _, _ = tiny_corpus

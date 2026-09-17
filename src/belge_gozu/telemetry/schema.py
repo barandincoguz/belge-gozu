@@ -38,6 +38,8 @@ class RequestEvent(BaseModel):
     http_status: int
     total_ms: float
     encode_ms: float | None = None
+    # Yalnız two-stage Hamming/MaxSim hattı. Hibrit/exhaustive aşama adları
+    # detail.stages içinde kalır; farklı süreleri bu kolonlara taşımayın.
     stage1_ms: float | None = None
     stage2_ms: float | None = None
     answer_ms: float | None = None

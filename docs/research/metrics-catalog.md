@@ -53,6 +53,32 @@ Her `/ask` ve `/search` isteği bu tabloya bir satır düşürür (WAL modlu SQL
 
 İndeks: `(ts)`, `(endpoint, ts)` — `telemetry/schema.py: EVENTS_INDEXES`.
 
+### Legacy aşama sütunlarının kullanım kararı (2026-09-17)
+
+`stage1_ms` ve `stage2_ms` iki aşamalı Hamming/MaxSim hattı için tutulur; hibrit
+ve exhaustive isteklerde `NULL` doğru değerdir. Bunlara BM25 veya görsel
+exhaustive süresi yazmak, aynı SQL adının anlamını pipeline'a göre değiştirir.
+Yeni analizler aşama süresini `detail.stages` içinden adıyla okumalıdır:
+
+```sql
+SELECT endpoint, json_extract(detail, '$.stages.text_bm25') AS text_bm25_ms,
+       json_extract(detail, '$.stages.route_fuse') AS route_fuse_ms
+FROM events WHERE pipeline = 'hybrid';
+```
+
+Depo içi tüketici envanteri: `app/main.py` yalnız gerçek `stage1_hamming` ve
+`stage2_maxsim` olaylarını legacy sütunlara yazar; `telemetry/recorder.py`
+satırın iki sütununu ve `detail` JSON'unu korur; `telemetry/export.py`
+`SELECT *` ile aynı alanları CSV/Parquet'e taşır. Prometheus yeni aşama adlarını
+`detail.stages` üzerinden `bg_stage_duration_seconds{stage=...}` serisine
+aktarır. Grafana aşama paneli bu seriyi `stage` etiketine göre gruplar; UI
+sunucunun `/ask.stages` alanını okur. Depoda legacy sütunları okuyan bir
+dashboard/SQL sorgusu yoktur. Sütunlar eski iki aşamalı kayıtlar ve çalışan
+two-stage pipeline için korunur; bu hat emekliye ayrılmadan şema migrasyonuyla
+silinmez ve geçmiş `NULL` değerleri doldurulmaz. API→SQLite→Parquet sözleşmesi
+`tests/app/test_api.py::test_stage_identity_survives_api_sqlite_and_export` ile
+kilitlenmiştir.
+
 ## 2. Prometheus metrik kataloğu (spec §6)
 
 Adlandırma: `bg_` öneki, taban birim saniye. Registry ve tanımlar

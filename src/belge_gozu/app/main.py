@@ -663,6 +663,8 @@ def create_app(
             http_status=http_status,
             total_ms=total_ms,
             encode_ms=col.stages.get("query_encode"),
+            # Eski SQL sütunları yalnız gerçek two-stage aşamalarına aittir.
+            # Hibrit/exhaustive süreleri detail.stages ile kendi adında taşınır.
             stage1_ms=col.stages.get("stage1_hamming"),
             stage2_ms=col.stages.get("stage2_maxsim"),
             answer_ms=answer_ms,
