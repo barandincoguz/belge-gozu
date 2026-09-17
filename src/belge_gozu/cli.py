@@ -380,6 +380,8 @@ def index_derive(
         raise typer.BadParameter(f"--from dizininde meta.parquet yok: {from_dir}")
     if out.resolve() == from_dir.resolve():
         raise typer.BadParameter("--out --from ile aynı olamaz (f16 master'ın üstüne yazılır)")
+    if out.exists() and (not out.is_dir() or any(out.iterdir())):
+        raise typer.BadParameter(f"--out hedefi boş olmalı: {out}")
     findex = FloatIndex.load(from_dir, mmap=False)
     if findex.manifest is None:
         raise typer.BadParameter(f"--from indeksinde manifest.json yok: {from_dir}")

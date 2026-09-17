@@ -365,6 +365,38 @@ def test_write_manifest_legacy_refuses_to_overwrite_existing_manifest(tmp_path, 
     assert manifest_path.read_bytes() == before
 
 
+def test_index_derive_refuses_to_write_into_an_existing_index_target(tmp_path):
+    import numpy as np
+    import pandas as pd
+
+    from belge_gozu.index.float_store import FloatIndex
+    from tests.index.test_manifest import make_manifest
+
+    from_dir = tmp_path / "float-source"
+    source = FloatIndex.build(
+        ["d1:1"],
+        [np.ones((2, 128), dtype=np.float32)],
+        manifest=make_manifest(quantization="float16", n_pages=1, n_tokens=2),
+    )
+    source.save(from_dir)
+    pd.DataFrame({"page_id": ["d1:1"]}).to_parquet(from_dir / "meta.parquet", index=False)
+
+    out = tmp_path / "existing-target"
+    out.mkdir()
+    sentinel = out / "manifest.json"
+    sentinel.write_text("user-owned", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["index", "derive", "--from", str(from_dir), "--quant", "int8", "--out", str(out)],
+    )
+
+    assert result.exit_code != 0
+    assert "--out hedefi boş olmalı" in result.output
+    assert sentinel.read_text(encoding="utf-8") == "user-owned"
+    assert not (out / "codes.npy").exists()
+
+
 def test_metrics_export_cli(tmp_path, monkeypatch):
     from belge_gozu.telemetry.recorder import EventRecorder
     from belge_gozu.telemetry.schema import RequestEvent
