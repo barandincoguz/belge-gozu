@@ -153,3 +153,17 @@ geliştirme sırasında eşik seçimi için kullanılmayacaktır.
   #28, `d0a4250` ile API→SQLite→Parquet ve two-stage sözleşme testleri,
   tüketici envanteri ve metrics katalog kararı eklenerek kapandı (`make test`:
   904 passed, 6 deselected; `make lint` yeşil).
+- `88ddd9d`, cevaplanabilir satırı olmayan retrieval koşumlarının eskiden
+  `n=0` ve sıfır Recall/MRR/nDCG üretmesini engelledi. `bench run` ve
+  `bench oracle` seçim kontrolünü model yüklemeden yapıyor; doğrudan harness
+  çağrısı da açık hata veriyor. Yeniden üretim:
+  `uv run pytest tests/bench/test_harness.py::test_retrieval_eval_rejects_a_selection_without_answerable_questions tests/test_cli.py::test_retrieval_cli_refuses_zero_answerable_questions_before_loading_model -q`
+  → 2 passed; `make test` → 906 passed, 6 deselected; `make lint` yeşil.
+  Bu testin verisi tek cevaplanamaz sentetik satır ve tek sayfalık sentetik
+  indeks çiftidir; üretim indeksi/recipe'si veya gerçek model kullanılmadı,
+  yeni bir kalite sayısı üretilmedi. Gerçek `retrieval_eval_v2` seçimi
+  `verify_retrieval_eval.py --status --bench data/bench/retrieval_eval_v2.jsonl`
+  ile kontrol edildi: 62 verified, bunların 47'si insan onaylı cevaplanabilir,
+  insan onaylı cevaplanamaz satır 0. Bu sayımın sınırı #13'te açık.
+- `fb1e028`, CLI testlerindeki üçüncü `q_dict` kopyasını ortak fabrikaya
+  bağladı; ilgili 139 test, `make lint` ve `git diff --check` geçti.
