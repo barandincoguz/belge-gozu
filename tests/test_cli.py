@@ -606,11 +606,12 @@ def test_bench_oracle_help_lists_only_verified_and_all():
     assert "yalnız görsel" in result.output
 
 
-def _oracle_index_pair(tmp_path: Path, *, float_checksum: str) -> tuple[Path, Path]:
+def _oracle_index_pair(tmp_path: Path, *, float_checksum: str | None) -> tuple[Path, Path]:
     import numpy as np
     import pandas as pd
 
     from belge_gozu.index.float_store import FloatIndex
+    from belge_gozu.index.manifest import corpus_checksum, write_manifest
     from belge_gozu.index.store import PackedIndex
     from tests.index.test_manifest import make_manifest
 
@@ -618,19 +619,28 @@ def _oracle_index_pair(tmp_path: Path, *, float_checksum: str) -> tuple[Path, Pa
     embs = [np.ones((2, 128), dtype=np.float32)]
     packed_dir = tmp_path / "packed"
     float_dir = tmp_path / "float"
+    packed_manifest = make_manifest(n_pages=1, n_tokens=2, corpus_checksum="a" * 64)
+    float_manifest = make_manifest(quantization="float16", n_pages=1, n_tokens=2)
     PackedIndex.build(
         ids,
         embs,
-        manifest=make_manifest(n_pages=1, n_tokens=2, corpus_checksum="a" * 64),
+        manifest=packed_manifest,
     ).save(packed_dir)
     FloatIndex.build(
         ids,
         embs,
-        manifest=make_manifest(
-            quantization="float16", n_pages=1, n_tokens=2, corpus_checksum=float_checksum
-        ),
+        manifest=float_manifest,
     ).save(float_dir)
     pd.DataFrame({"page_id": ids}).to_parquet(packed_dir / "meta.parquet", index=False)
+    (float_dir / "meta.parquet").write_bytes((packed_dir / "meta.parquet").read_bytes())
+    live_checksum = corpus_checksum(packed_dir)
+    write_manifest(
+        packed_dir, packed_manifest.model_copy(update={"corpus_checksum": live_checksum})
+    )
+    write_manifest(
+        float_dir,
+        float_manifest.model_copy(update={"corpus_checksum": float_checksum or live_checksum}),
+    )
     return packed_dir, float_dir
 
 
@@ -682,7 +692,7 @@ def test_bench_oracle_report_identifies_visual_retrieval_scope(tmp_path: Path, m
             return np.ones((2, 128), dtype=np.float32)
 
     monkeypatch.setattr(encode, "ColSmolEncoder", FixedEncoder)
-    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum="a" * 64)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum=None)
     bench = tmp_path / "bench.jsonl"
     bench.write_text(
         json.dumps(q_dict(gold_doc_ids=["d1"], gold_page_ids=["d1:1"], gold_article_ids=["d1:m1"]))
@@ -724,7 +734,7 @@ def test_retrieval_cli_refuses_zero_answerable_questions_before_loading_model(
             raise AssertionError("model loaded before benchmark preflight")
 
     monkeypatch.setattr(encode, "ColSmolEncoder", FailEncoder)
-    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum="a" * 64)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum=None)
     monkeypatch.setenv("BG_INDEX_DIR", str(packed_dir))
     bench = tmp_path / "unanswerable.jsonl"
     bench.write_text(
@@ -761,6 +771,233 @@ def test_retrieval_cli_refuses_zero_answerable_questions_before_loading_model(
         result = runner.invoke(app, [*command, "--out", str(out)])
         assert result.exit_code != 0
         assert "cevaplanabilir soru yok" in result.output
+        assert not out.exists()
+
+
+def test_retrieval_cli_rejects_index_model_mismatch_before_loading_model(
+    tmp_path: Path, monkeypatch
+):
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+
+    class FailEncoder:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("model loaded before index identity validation")
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", FailEncoder)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum=None)
+    monkeypatch.setenv("BG_INDEX_DIR", str(packed_dir))
+    monkeypatch.setenv("BG_RETRIEVER_MODEL", "different/model")
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text(json.dumps(q_dict()) + "\n", encoding="utf-8")
+
+    commands = [
+        ["bench", "run", "--pipeline", "exhaustive", "--bench", str(bench)],
+        [
+            "bench",
+            "oracle",
+            "--bench",
+            str(bench),
+            "--packed-index",
+            str(packed_dir),
+            "--float-index",
+            str(float_dir),
+        ],
+    ]
+    for index, command in enumerate(commands):
+        out = tmp_path / f"mismatch-{index}.json"
+        result = runner.invoke(app, [*command, "--out", str(out)])
+        assert result.exit_code != 0
+        assert "model_name" in result.output
+        assert not out.exists()
+
+
+def test_bench_oracle_rejects_a_changed_corpus_with_unchanged_manifest(tmp_path: Path, monkeypatch):
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+
+    class FailEncoder:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("model loaded before live corpus validation")
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", FailEncoder)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum=None)
+    meta = float_dir / "meta.parquet"
+    meta.write_bytes(meta.read_bytes() + b"changed")
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text(json.dumps(q_dict()) + "\n", encoding="utf-8")
+    out = tmp_path / "oracle.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "bench",
+            "oracle",
+            "--bench",
+            str(bench),
+            "--packed-index",
+            str(packed_dir),
+            "--float-index",
+            str(float_dir),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "corpus_checksum" in result.output
+    assert not out.exists()
+
+
+def test_retrieval_cli_rejects_loaded_model_revision_mismatch(tmp_path: Path, monkeypatch):
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+
+    class OtherRevisionEncoder:
+        model_revision = "different-revision"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def encode_query(self, question):
+            raise AssertionError("scoring started before revision validation")
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", OtherRevisionEncoder)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum=None)
+    monkeypatch.setenv("BG_INDEX_DIR", str(packed_dir))
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text(json.dumps(q_dict()) + "\n", encoding="utf-8")
+
+    commands = [
+        ["bench", "run", "--pipeline", "exhaustive", "--bench", str(bench)],
+        [
+            "bench",
+            "oracle",
+            "--bench",
+            str(bench),
+            "--packed-index",
+            str(packed_dir),
+            "--float-index",
+            str(float_dir),
+        ],
+    ]
+    for index, command in enumerate(commands):
+        out = tmp_path / f"revision-{index}.json"
+        result = runner.invoke(app, [*command, "--out", str(out)])
+        assert result.exit_code != 0
+        assert "model_revision" in result.output
+        assert not out.exists()
+
+
+def test_bench_run_rejects_loaded_document_prompt_mismatch(tmp_path: Path, monkeypatch):
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+
+    class OtherPromptEncoder:
+        model_revision = "abc123"
+        doc_prompt_sha256 = "0" * 64
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def encode_query(self, question):
+            raise AssertionError("scoring started before prompt validation")
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", OtherPromptEncoder)
+    packed_dir, _ = _oracle_index_pair(tmp_path, float_checksum=None)
+    monkeypatch.setenv("BG_INDEX_DIR", str(packed_dir))
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text(json.dumps(q_dict()) + "\n", encoding="utf-8")
+    out = tmp_path / "report.json"
+
+    result = runner.invoke(
+        app,
+        ["bench", "run", "--pipeline", "exhaustive", "--bench", str(bench), "--out", str(out)],
+    )
+
+    assert result.exit_code != 0
+    assert "doc_prompt_sha256" in result.output
+    assert not out.exists()
+
+
+def test_bench_run_accepts_matching_index_and_encoder_identity(tmp_path: Path, monkeypatch):
+    import numpy as np
+
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+    from tests.index.test_manifest import TRAIN_COMPAT_DOC_PROMPT_SHA256
+
+    class MatchingEncoder:
+        model_revision = "abc123"
+        doc_prompt_sha256 = TRAIN_COMPAT_DOC_PROMPT_SHA256
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def encode_query(self, question):
+            return np.ones((2, 128), dtype=np.float32)
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", MatchingEncoder)
+    packed_dir, _ = _oracle_index_pair(tmp_path, float_checksum=None)
+    monkeypatch.setenv("BG_INDEX_DIR", str(packed_dir))
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text(
+        json.dumps(q_dict(gold_doc_ids=["d1"], gold_page_ids=["d1:1"], gold_article_ids=[])) + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "report.json"
+
+    result = runner.invoke(
+        app,
+        ["bench", "run", "--pipeline", "exhaustive", "--bench", str(bench), "--out", str(out)],
+    )
+
+    assert result.exit_code == 0, result.exception or result.output
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["overall"]["n"] == 1
+    assert report["overall"]["recall_at"]["5"] == 1.0
+    assert report["index_manifest"]["corpus_checksum"]
+
+
+def test_retrieval_cli_rejects_effective_query_format_mismatch(tmp_path: Path, monkeypatch):
+    from belge_gozu.index import encode
+    from belge_gozu.index.manifest import CPE_0_3_18
+    from tests.bench_question_factory import q_dict
+
+    class OtherFormatEncoder:
+        model_revision = "abc123"
+        query_format = CPE_0_3_18
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def encode_query(self, question):
+            raise AssertionError("scoring started before query format validation")
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", OtherFormatEncoder)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum=None)
+    monkeypatch.setenv("BG_INDEX_DIR", str(packed_dir))
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text(json.dumps(q_dict()) + "\n", encoding="utf-8")
+
+    commands = [
+        ["bench", "run", "--pipeline", "exhaustive", "--bench", str(bench)],
+        [
+            "bench",
+            "oracle",
+            "--bench",
+            str(bench),
+            "--packed-index",
+            str(packed_dir),
+            "--float-index",
+            str(float_dir),
+        ],
+    ]
+    for index, command in enumerate(commands):
+        out = tmp_path / f"format-{index}.json"
+        result = runner.invoke(app, [*command, "--out", str(out)])
+        assert result.exit_code != 0
+        assert "query_format" in result.output
         assert not out.exists()
 
 

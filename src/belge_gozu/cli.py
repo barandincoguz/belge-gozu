@@ -22,6 +22,7 @@ from belge_gozu.config import Settings
 from belge_gozu.corpus.download import download_all
 from belge_gozu.corpus.manifest import build_http_client, load_manifest, probe
 from belge_gozu.corpus.render import render_all
+from belge_gozu.index.compat import check_compatibility
 from belge_gozu.index.encode import FakeEncoder
 from belge_gozu.index.manifest import (
     CPE_0_3_18,
@@ -588,6 +589,30 @@ def _require_answerable_selection(selection: BenchSelection) -> None:
         raise typer.BadParameter("retrieval değerlendirmesinde cevaplanabilir soru yok")
 
 
+def _require_benchmark_index_compatibility(
+    index_dir: Path,
+    manifest: IndexManifest | None,
+    *,
+    model_name: str,
+    model_revision: str | None,
+    query_format_id: str,
+    doc_prompt_sha256: str | None = None,
+) -> None:
+    try:
+        problems = check_compatibility(
+            manifest,
+            model_name=model_name,
+            model_revision=model_revision,
+            query_format_id=query_format_id,
+            doc_prompt_sha256=doc_prompt_sha256,
+            index_dir=index_dir,
+        )
+    except OSError as exc:
+        raise typer.BadParameter(f"benchmark indeksi okunamıyor: {index_dir}: {exc}") from exc
+    if problems:
+        raise typer.BadParameter("benchmark indeks uyumsuzluğu: " + "; ".join(problems))
+
+
 @bench_app.command("run")
 def bench_run(
     bench: Path = typer.Option(Path("data/bench/retrieval_eval_v1.jsonl")),  # noqa: B008
@@ -616,8 +641,34 @@ def bench_run(
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
     selection = _load_bench_mode(bench, only_verified, min_verification)
     _require_answerable_selection(selection)
-    query_format = idx.manifest.query_format if idx.manifest else CPE_0_3_18
-    encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=query_format)
+    from belge_gozu.app.main import resolve_formats
+
+    query_format, doc_prompt = resolve_formats(s)
+    expected_doc_prompt_sha = (
+        hashlib.sha256(doc_prompt.encode()).hexdigest() if doc_prompt else None
+    )
+    _require_benchmark_index_compatibility(
+        s.index_dir,
+        idx.manifest,
+        model_name=s.retriever_model,
+        model_revision=None,
+        query_format_id=query_format.format_id,
+        doc_prompt_sha256=expected_doc_prompt_sha,
+    )
+    encoder = ColSmolEncoder(
+        s.retriever_model,
+        s.device,
+        query_format=query_format,
+        visual_prompt_override=doc_prompt,
+    )
+    _require_benchmark_index_compatibility(
+        s.index_dir,
+        idx.manifest,
+        model_name=s.retriever_model,
+        model_revision=getattr(encoder, "model_revision", None),
+        query_format_id=getattr(encoder, "query_format", query_format).format_id,
+        doc_prompt_sha256=getattr(encoder, "doc_prompt_sha256", expected_doc_prompt_sha),
+    )
 
     adapter: ExhaustiveDiagnosticAdapter | TwoStageDiagnosticAdapter | HybridDiagnosticAdapter
     if pipeline == Pipeline.hybrid:
@@ -775,7 +826,26 @@ def bench_oracle(
 
     selection = _load_bench_mode(bench, only_verified, min_verification)
     _require_answerable_selection(selection)
+    index_arms = [(packed_index, idx.manifest), (float_index, findex.manifest)]
+    if int8_index is not None and i8_manifest is not None:
+        index_arms.append((int8_index, i8_manifest))
+    for arm_dir, arm_manifest in index_arms:
+        _require_benchmark_index_compatibility(
+            arm_dir,
+            arm_manifest,
+            model_name=s.retriever_model,
+            model_revision=None,
+            query_format_id=idx.manifest.query_format.format_id,
+        )
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=idx.manifest.query_format)
+    for arm_dir, arm_manifest in index_arms:
+        _require_benchmark_index_compatibility(
+            arm_dir,
+            arm_manifest,
+            model_name=s.retriever_model,
+            model_revision=getattr(encoder, "model_revision", None),
+            query_format_id=getattr(encoder, "query_format", idx.manifest.query_format).format_id,
+        )
     retriever = ExhaustiveBinaryRetriever(idx, meta, None)
     known_binary_ids = set(idx.page_ids)
     known_float_ids = set(findex.page_ids)
