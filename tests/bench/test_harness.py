@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from belge_gozu.bench.dataset import BenchQuestion
 from belge_gozu.bench.harness import StageRecord, run_retrieval_eval
-from tests.bench.test_dataset import q_dict
+from tests.bench_question_factory import q_dict
 
 
 class MapPipeline:
@@ -21,6 +23,24 @@ class MapPipeline:
             latency_ms=1.0,
         )
         return ranked, [rec]
+
+
+def test_retrieval_eval_rejects_a_selection_without_answerable_questions():
+    question = BenchQuestion(
+        **q_dict(
+            answerable=False,
+            gold_doc_ids=[],
+            gold_page_ids=[],
+            gold_article_ids=[],
+            minimal_evidence_spans=[],
+            reference_answer="",
+            slice="korpus-disi",
+            unanswerable_reason="korpus-disi",
+        )
+    )
+
+    with pytest.raises(ValueError, match="cevaplanabilir soru yok"):
+        run_retrieval_eval(MapPipeline({}), [question], known_page_ids=set())
 
 
 def test_report_metrics_and_survival(tmp_path: Path):

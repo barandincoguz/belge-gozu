@@ -738,6 +738,57 @@ def test_bench_oracle_report_identifies_visual_retrieval_scope(tmp_path: Path, m
     assert report["summary"]["float"]["5"] == 1.0
 
 
+def test_retrieval_cli_refuses_zero_answerable_questions_before_loading_model(
+    tmp_path: Path, monkeypatch
+):
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+
+    class FailEncoder:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("model loaded before benchmark preflight")
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", FailEncoder)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum="a" * 64)
+    monkeypatch.setenv("BG_INDEX_DIR", str(packed_dir))
+    bench = tmp_path / "unanswerable.jsonl"
+    bench.write_text(
+        json.dumps(
+            q_dict(
+                answerable=False,
+                gold_doc_ids=[],
+                gold_page_ids=[],
+                gold_article_ids=[],
+                minimal_evidence_spans=[],
+                reference_answer="",
+                slice="korpus-disi",
+                unanswerable_reason="korpus-disi",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    commands = [
+        ["bench", "run", "--pipeline", "exhaustive", "--bench", str(bench)],
+        [
+            "bench",
+            "oracle",
+            "--bench",
+            str(bench),
+            "--packed-index",
+            str(packed_dir),
+            "--float-index",
+            str(float_dir),
+        ],
+    ]
+    for index, command in enumerate(commands):
+        out = tmp_path / f"report-{index}.json"
+        result = runner.invoke(app, [*command, "--out", str(out)])
+        assert result.exit_code != 0
+        assert "cevaplanabilir soru yok" in result.output
+        assert not out.exists()
+
+
 def test_broken_env_gives_readable_message_not_a_traceback(tmp_path: Path):
     """`belge-gozu --help` bozuk bir BG_* değerinde ham traceback BASMAZ.
 

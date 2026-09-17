@@ -583,6 +583,11 @@ def _load_bench_mode(
     return selection
 
 
+def _require_answerable_selection(selection: BenchSelection) -> None:
+    if not any(q.answerable for q in selection.questions):
+        raise typer.BadParameter("retrieval değerlendirmesinde cevaplanabilir soru yok")
+
+
 @bench_app.command("run")
 def bench_run(
     bench: Path = typer.Option(Path("data/bench/retrieval_eval_v1.jsonl")),  # noqa: B008
@@ -609,6 +614,8 @@ def bench_run(
     # dışında bir temsili ölçmesin (packed/int8/float manifest'ten çözülür).
     idx = load_scorable_index(s.index_dir)
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
+    selection = _load_bench_mode(bench, only_verified, min_verification)
+    _require_answerable_selection(selection)
     query_format = idx.manifest.query_format if idx.manifest else CPE_0_3_18
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=query_format)
 
@@ -636,7 +643,6 @@ def bench_run(
     else:
         adapter = ExhaustiveDiagnosticAdapter(ExhaustiveRetriever(idx, meta, encoder))
 
-    selection = _load_bench_mode(bench, only_verified, min_verification)
     questions = selection.questions
     run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-{pipeline.value}"
     out_path = out or Path("data/bench/results") / f"{run_id}.json"
@@ -767,13 +773,14 @@ def bench_oracle(
         _require_same_corpus("int8", i8.page_ids)
         _require_same_source_identity("int8", i8_manifest)
 
+    selection = _load_bench_mode(bench, only_verified, min_verification)
+    _require_answerable_selection(selection)
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=idx.manifest.query_format)
     retriever = ExhaustiveBinaryRetriever(idx, meta, None)
     known_binary_ids = set(idx.page_ids)
     known_float_ids = set(findex.page_ids)
     known_int8_ids = set(i8.page_ids) if i8 is not None else set()
 
-    selection = _load_bench_mode(bench, only_verified, min_verification)
     questions = selection.questions
     ks = (1, 5, 20, 50, 200)
     per_question: list[dict] = []
@@ -840,11 +847,11 @@ def bench_oracle(
     n = len(per_question)
     summary = {
         "n": n,
-        "binary": {str(k): (sum(v) / n if n else 0.0) for k, v in binary_recalls.items()},
-        "float": {str(k): (sum(v) / n if n else 0.0) for k, v in float_recalls.items()},
+        "binary": {str(k): sum(v) / n for k, v in binary_recalls.items()},
+        "float": {str(k): sum(v) / n for k, v in float_recalls.items()},
     }
     if i8 is not None:
-        summary["int8"] = {str(k): (sum(v) / n if n else 0.0) for k, v in int8_recalls.items()}
+        summary["int8"] = {str(k): sum(v) / n for k, v in int8_recalls.items()}
     report = {
         "run_id": f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-oracle",
         "git_commit": git_commit(),

@@ -264,6 +264,8 @@ def run_retrieval_eval(
     index_manifest: IndexManifest | None = None,
     config: dict | None = None,
 ) -> EvalReport:
+    if not any(q.answerable for q in questions):
+        raise ValueError("retrieval değerlendirmesinde cevaplanabilir soru yok")
     missing = sorted({p for q in questions for p in q.gold_page_ids if p not in known_page_ids})
     diags: list[QuestionDiagnostic] = []
     rows: list[tuple[BenchQuestion, list[str]]] = []
@@ -289,7 +291,7 @@ def run_retrieval_eval(
 
     def block(pairs: list[tuple[BenchQuestion, list[str]]]) -> MetricBlock:
         if not pairs:
-            return MetricBlock(recall_at={k: 0.0 for k in ks}, mrr=0.0, ndcg5=0.0, n=0)
+            raise ValueError("retrieval metrik bloğunda cevaplanabilir soru yok")
         r5 = [recall_at_k(set(q.gold_page_ids), r, 5) for q, r in pairs]
         return MetricBlock(
             recall_at={
