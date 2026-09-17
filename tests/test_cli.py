@@ -6,6 +6,7 @@ import pymupdf as fitz
 from typer.testing import CliRunner
 
 from belge_gozu.cli import _load_bench_mode, app
+from tests.bench_question_factory import q_dict as _bench_q
 
 runner = CliRunner()
 
@@ -521,32 +522,6 @@ def test_metrics_export_no_events_table(tmp_path, monkeypatch):
 
 
 # --- R15: bench run/oracle --only-verified/--all -----------------------------
-
-
-def _bench_q(**over) -> dict:
-    base = dict(
-        question_id="q1",
-        question="Yerleşim yeri nedir?",
-        query_style="dogal",
-        answerable=True,
-        gold_doc_ids=["k4721"],
-        gold_page_ids=["k4721:4"],
-        gold_article_ids=["k4721:m19"],
-        minimal_evidence_spans=[
-            "Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
-        ],
-        reference_answer="Sürekli kalma niyetiyle oturulan yerdir (TMK m.19).",
-        slice="paraphrase",
-        difficulty="orta",
-        source_type="insan",
-        requires_visual=False,
-        requires_multi_hop=False,
-        unanswerable_reason=None,
-        verified_by="baran",
-        verification_status="verified",
-    )
-    base.update(over)
-    return base
 
 
 def _write_bench_jsonl(path: Path, rows: list[dict]) -> None:
