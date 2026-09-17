@@ -1,5 +1,6 @@
 import json
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -25,32 +26,14 @@ from verify_retrieval_eval import (  # noqa: E402
 )
 
 from belge_gozu.bench.dataset import BenchQuestion  # noqa: E402
+from tests.bench_question_factory import q_dict as make_question_dict  # noqa: E402
 
-
-def q_dict(**over) -> dict:
-    base = dict(
-        question_id="c001",
-        question="Yerleşim yeri nedir?",
-        query_style="dogal",
-        answerable=True,
-        gold_doc_ids=["k4721"],
-        gold_page_ids=["k4721:4"],
-        gold_article_ids=["k4721:m19"],
-        minimal_evidence_spans=[
-            "Yerleşim yeri bir kimsenin sürekli kalma niyetiyle oturduğu yerdir."
-        ],
-        reference_answer="Sürekli kalma niyetiyle oturulan yerdir (TMK m.19).",
-        slice="paraphrase",
-        difficulty="orta",
-        source_type="insan",
-        requires_visual=False,
-        requires_multi_hop=False,
-        unanswerable_reason=None,
-        verified_by="",
-        verification_status="draft",
-    )
-    base.update(over)
-    return base
+q_dict = partial(
+    make_question_dict,
+    question_id="c001",
+    verified_by="",
+    verification_status="draft",
+)
 
 
 def bq(**over) -> BenchQuestion:
