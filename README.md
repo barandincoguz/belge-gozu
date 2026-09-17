@@ -212,6 +212,10 @@ int8, her k değerinde float16 ile aynı sıralama kalitesini verir, 1-bit'ten 4
 hem Recall@20'de 7 puan kaybettirir hem de daha yavaştır — bit paketleme numaraları burada
 BLAS'a yeniliyor. Yayında olan int8'dir; diğerleri yeniden üretilebilir ablasyon olarak durur.
 
+`bench oracle` raporundaki `retrieval_pipeline=exhaustive-visual`, float16/int8/1-bit
+karşılaştırmasının yalnız görsel exhaustive getirimde yapıldığını belirtir. Bu rapor,
+BM25 ve yönlendirme kullanan üretim hibrit hattının oracle ölçümü değildir.
+
 ### Cevap yolu
 
 Sayfa etiketleri görüntülerin arasına serpiştirilir (`[S1]`, görüntü, `[S2]`, görüntü, …),
@@ -593,6 +597,10 @@ int8 matches float16 ranking quality at every k, runs 4.3× faster than 1-bit (0
 1.08 s per query on CPU), and costs 476 MB against 58 MB. 1-bit loses 7 points of Recall@20
 *and* is slower — bit-packing tricks lose to BLAS here. int8 ships; the others stay as
 reproducible ablations.
+
+The `retrieval_pipeline=exhaustive-visual` field in a `bench oracle` report marks a
+float16/int8/1-bit comparison of exhaustive visual retrieval only. It does not measure
+the production hybrid pipeline, which uses BM25 and routing.
 
 ### Answer path
 

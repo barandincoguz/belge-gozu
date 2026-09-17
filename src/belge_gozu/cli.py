@@ -664,7 +664,10 @@ def bench_run(
         typer.echo(f"missing_gold_pages={len(report.missing_gold_pages)}")
 
 
-@bench_app.command("oracle")
+@bench_app.command(
+    "oracle",
+    help="Float16, int8 ve 1-bit için yalnız görsel exhaustive getirim karşılaştırması.",
+)
 def bench_oracle(
     bench: Path = typer.Option(..., "--bench"),  # noqa: B008
     packed_index: Path = typer.Option(..., "--packed-index"),  # noqa: B008
@@ -710,6 +713,15 @@ def bench_oracle(
             f"page_ids uyuşmuyor: packed n={len(idx.page_ids)} {name} n={len(other_ids)} — {detail}"
         )
 
+    def _require_same_source_identity(name: str, other: IndexManifest) -> None:
+        # Nicemleme ve koşum zamanı künyesi kollar arasında farklı olabilir;
+        # kalan alanlar aynı kaynak embedding/korpusundan gelmelidir.
+        for field in IndexManifest.model_fields:
+            if field in {"quantization", "built_at", "git_commit"}:
+                continue
+            if getattr(idx.manifest, field) != getattr(other, field):
+                raise typer.BadParameter(f"{field} uyuşmuyor: packed ve {name} farklı kaynak")
+
     _require_same_corpus("float", findex.page_ids)
     if idx.manifest.query_format.format_id != findex.manifest.query_format.format_id:
         raise typer.BadParameter(
@@ -724,6 +736,7 @@ def bench_oracle(
             "doc_prompt uyuşmuyor: packed="
             f"{idx.manifest.doc_prompt_sha256[:12]} float={findex.manifest.doc_prompt_sha256[:12]}"
         )
+    _require_same_source_identity("float", findex.manifest)
 
     # T12/review R1 IMPORTANT-3: üçüncü (isteğe bağlı) int8 kolu — C2 ablasyonu
     # bugüne kadar hiçbir şeyin Int8Index'i skorlayamaması yüzünden koşulamıyordu.
@@ -752,6 +765,7 @@ def bench_oracle(
                 f"{idx.manifest.doc_prompt_sha256[:12]}"
             )
         _require_same_corpus("int8", i8.page_ids)
+        _require_same_source_identity("int8", i8_manifest)
 
     encoder = ColSmolEncoder(s.retriever_model, s.device, query_format=idx.manifest.query_format)
     retriever = ExhaustiveBinaryRetriever(idx, meta, None)
@@ -834,6 +848,7 @@ def bench_oracle(
     report = {
         "run_id": f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-oracle",
         "git_commit": git_commit(),
+        "retrieval_pipeline": "exhaustive-visual",
         "bench": str(bench),
         "only_verified": only_verified,
         "verification": selection.provenance(),

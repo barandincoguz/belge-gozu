@@ -628,6 +628,114 @@ def test_bench_oracle_help_lists_only_verified_and_all():
     assert "--only-verified" in result.output
     assert "--all" in result.output
     assert "--min-verification" in result.output
+    assert "yalnız görsel" in result.output
+
+
+def _oracle_index_pair(tmp_path: Path, *, float_checksum: str) -> tuple[Path, Path]:
+    import numpy as np
+    import pandas as pd
+
+    from belge_gozu.index.float_store import FloatIndex
+    from belge_gozu.index.store import PackedIndex
+    from tests.index.test_manifest import make_manifest
+
+    ids = ["d1:1"]
+    embs = [np.ones((2, 128), dtype=np.float32)]
+    packed_dir = tmp_path / "packed"
+    float_dir = tmp_path / "float"
+    PackedIndex.build(
+        ids,
+        embs,
+        manifest=make_manifest(n_pages=1, n_tokens=2, corpus_checksum="a" * 64),
+    ).save(packed_dir)
+    FloatIndex.build(
+        ids,
+        embs,
+        manifest=make_manifest(
+            quantization="float16", n_pages=1, n_tokens=2, corpus_checksum=float_checksum
+        ),
+    ).save(float_dir)
+    pd.DataFrame({"page_id": ids}).to_parquet(packed_dir / "meta.parquet", index=False)
+    return packed_dir, float_dir
+
+
+def test_bench_oracle_rejects_matching_page_ids_from_different_corpora(tmp_path: Path, monkeypatch):
+    """Aynı page_id dizisi, farklı kaynak içeriğini eşdeğer yapmaz."""
+    from belge_gozu.index import encode
+
+    # Guard, gerçek model yüklenmeden önce çalışmalı; CI'da torch da yok.
+    class FailEncoder:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("encoder was constructed before identity validation")
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", FailEncoder)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum="b" * 64)
+    out = tmp_path / "oracle.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "bench",
+            "oracle",
+            "--bench",
+            str(tmp_path / "unused.jsonl"),
+            "--packed-index",
+            str(packed_dir),
+            "--float-index",
+            str(float_dir),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "corpus_checksum uyuşmuyor" in result.output
+    assert not out.exists()
+
+
+def test_bench_oracle_report_identifies_visual_retrieval_scope(tmp_path: Path, monkeypatch):
+    import numpy as np
+
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+
+    class FixedEncoder:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def encode_query(self, question):
+            return np.ones((2, 128), dtype=np.float32)
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", FixedEncoder)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum="a" * 64)
+    bench = tmp_path / "bench.jsonl"
+    bench.write_text(
+        json.dumps(q_dict(gold_doc_ids=["d1"], gold_page_ids=["d1:1"], gold_article_ids=["d1:m1"]))
+        + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "oracle.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "bench",
+            "oracle",
+            "--bench",
+            str(bench),
+            "--packed-index",
+            str(packed_dir),
+            "--float-index",
+            str(float_dir),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0, result.exception or result.output
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["retrieval_pipeline"] == "exhaustive-visual"
+    assert report["summary"]["float"]["5"] == 1.0
 
 
 def test_broken_env_gives_readable_message_not_a_traceback(tmp_path: Path):
