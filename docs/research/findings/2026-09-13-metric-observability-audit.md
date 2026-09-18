@@ -199,3 +199,16 @@ geliştirme sırasında eşik seçimi için kullanılmayacaktır.
   sürümlendi ve `verify_evaluation_report.py` ile doğrulandı. Komutlar,
   rapor hash'leri ve dış yan indeks dosyası gereksinimi
   [dev karşılaştırma kaydında](2026-09-17-retrieval-dev-parity.md).
+- `5e5eb23`, görsel-only `bench oracle` için aynı kanonik split seçimini,
+  test bölmesi final kapı korumasını, benchmark/split SHA-256 künyesini ve
+  soru-düzeyi gold sırasından Recall@k özetini yeniden hesaplayan
+  `verify_evaluation_report.py --kind oracle` yolunu ekledi (`make test`:
+  917 passed, 6 deselected; `make lint` yeşil). Yerelde yalnız üretim int8
+  ana indeksi var; taze packed/float ana indeksler bulunmadığından gerçek
+  modelle **yeni G0.4 oracle ölçümü yapılmadı**. Tarihî
+  `a1-cpe0318-oracle.json`/`a2-traincompat-oracle.json` raporları yeni
+  `retrieval_pipeline` künyesini taşımıyor. Kapsamı yalnız tanı amaçlı
+  bellekte varsayarak mevcut benchmark ile karşılaştırınca `k213:9` gold'u
+  raporun soru sıralarında bulunmuyor; bu tarihî raporlara güncel veri
+  kümesiyle kendini doğruluyor iddiası verilemez. Görsel oracle geçmişi ile
+  hibrit üretim oracle'ı ayrıca farklı kavramlardır (#8/#26/#27).
