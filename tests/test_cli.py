@@ -607,6 +607,9 @@ def test_bench_oracle_help_lists_only_verified_and_all():
     assert "--only-verified" in result.output
     assert "--all" in result.output
     assert "--min-verification" in result.output
+    assert "--split" in result.output
+    assert "--splits" in result.output
+    assert "--yes-final-gate" in result.output
     assert "yalnız görsel" in result.output
 
 
@@ -725,6 +728,89 @@ def test_bench_oracle_report_identifies_visual_retrieval_scope(tmp_path: Path, m
     report = json.loads(out.read_text(encoding="utf-8"))
     assert report["retrieval_pipeline"] == "exhaustive-visual"
     assert report["summary"]["float"]["5"] == 1.0
+
+
+def test_bench_oracle_selects_dev_and_guards_test_split(tmp_path: Path, monkeypatch):
+    import subprocess
+    import sys
+
+    import numpy as np
+
+    from belge_gozu.bench.report_validation import validate_oracle_report_payload
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+
+    class FixedEncoder:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def encode_query(self, question):
+            return np.ones((2, 128), dtype=np.float32)
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", FixedEncoder)
+    packed_dir, float_dir = _oracle_index_pair(tmp_path, float_checksum=None)
+    bench = tmp_path / "bench.jsonl"
+    rows = [
+        q_dict(question_id="dev", gold_doc_ids=["d1"], gold_page_ids=["d1:1"], gold_article_ids=[]),
+        q_dict(
+            question_id="test",
+            answerable=False,
+            gold_doc_ids=["d2"],
+            gold_page_ids=[],
+            gold_article_ids=[],
+            minimal_evidence_spans=[],
+            reference_answer="",
+            slice="korpus-disi",
+            unanswerable_reason="korpus-disi",
+        ),
+    ]
+    bench.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    splits = tmp_path / "splits.json"
+    splits.write_text(json.dumps({"dev_docs": ["d1"], "test_docs": ["d2"]}), encoding="utf-8")
+    command = [
+        "bench",
+        "oracle",
+        "--bench",
+        str(bench),
+        "--packed-index",
+        str(packed_dir),
+        "--float-index",
+        str(float_dir),
+        "--splits",
+        str(splits),
+        "--split",
+        "dev",
+    ]
+    out = tmp_path / "dev-oracle.json"
+
+    result = runner.invoke(app, [*command, "--out", str(out)])
+
+    assert result.exit_code == 0, result.exception or result.output
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["split"] == "dev"
+    assert report["benchmark"]["sha256"]
+    assert report["splits"]["sha256"]
+    assert report["selected_after_split"] == 1
+    assert report["summary"]["n"] == 1
+    assert [row["question_id"] for row in report["per_question"]] == ["dev"]
+    validate_oracle_report_payload(report, require_bench=True)
+    report["summary"]["float"]["5"] = 0.0
+    with pytest.raises(ValueError, match="summary.float.5"):
+        validate_oracle_report_payload(report, require_bench=True)
+    verifier = Path(__file__).resolve().parents[1] / "scripts" / "verify_evaluation_report.py"
+    checked = subprocess.run(
+        [sys.executable, str(verifier), str(out), "--kind", "auto"],
+        capture_output=True,
+        text=True,
+    )
+    assert checked.returncode == 0, checked.stderr
+    assert "(oracle)" in checked.stdout
+
+    test_command = [*command[:-1], "test", "--out", str(tmp_path / "test-oracle.json")]
+    rejected = runner.invoke(app, test_command)
+    assert rejected.exit_code != 0
+    assert "--yes-final-gate" in rejected.output
+    assert not (tmp_path / "test-oracle.json").exists()
 
 
 def test_retrieval_cli_refuses_zero_answerable_questions_before_loading_model(

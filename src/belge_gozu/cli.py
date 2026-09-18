@@ -16,7 +16,7 @@ import typer
 from PIL import Image
 from pydantic import ValidationError
 
-from belge_gozu.bench.dataset import BenchSelection, VerificationLevel
+from belge_gozu.bench.dataset import BenchQuestion, BenchSelection, VerificationLevel
 from belge_gozu.bench.oracle import FloatIndex, native_float_scores, rank_of
 from belge_gozu.config import Settings
 from belge_gozu.corpus.download import download_all
@@ -638,6 +638,25 @@ class Split(StrEnum):
     test = "test"
 
 
+def _select_bench_split(
+    selection: BenchSelection,
+    split: Split | None,
+    splits_path: Path,
+    yes_final_gate: bool,
+) -> tuple[list[BenchQuestion], dict | None]:
+    if split is None:
+        return selection.questions, None
+    from belge_gozu.bench.dataset import load_splits, question_split
+    from belge_gozu.bench.dense_artifacts import sha256_file
+
+    _gate_test_split(split, yes_final_gate)
+    splits = load_splits(splits_path)
+    questions = [q for q in selection.questions if question_split(q, splits) == split.value]
+    if not any(q.answerable for q in questions):
+        raise typer.BadParameter(f"{split.value} bölmesinde cevaplanabilir soru yok")
+    return questions, {"path": str(splits_path), "sha256": sha256_file(splits_path)}
+
+
 @bench_app.command("run")
 def bench_run(
     bench: Path = typer.Option(Path("data/bench/retrieval_eval_v1.jsonl")),  # noqa: B008
@@ -651,7 +670,6 @@ def bench_run(
     yes_final_gate: bool = typer.Option(False, "--yes-final-gate"),  # noqa: B008
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
 ) -> None:
-    from belge_gozu.bench.dataset import load_splits, question_split
     from belge_gozu.bench.dense_artifacts import sha256_file
     from belge_gozu.bench.harness import (
         ExhaustiveDiagnosticAdapter,
@@ -671,15 +689,7 @@ def bench_run(
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
     selection = _load_bench_mode(bench, only_verified, min_verification)
     _require_answerable_selection(selection)
-    questions = selection.questions
-    split_meta = None
-    if split is not None:
-        _gate_test_split(split, yes_final_gate)
-        splits = load_splits(splits_path)
-        questions = [q for q in questions if question_split(q, splits) == split.value]
-        if not any(q.answerable for q in questions):
-            raise typer.BadParameter(f"{split.value} bölmesinde cevaplanabilir soru yok")
-        split_meta = {"path": str(splits_path), "sha256": sha256_file(splits_path)}
+    questions, split_meta = _select_bench_split(selection, split, splits_path, yes_final_gate)
     from belge_gozu.app.main import load_configured_late_channels, resolve_formats
     from belge_gozu.retrieval.text import recipe_fingerprint
 
@@ -803,8 +813,12 @@ def bench_oracle(
     min_verification: VerificationLevel | None = typer.Option(  # noqa: B008
         None, "--min-verification"
     ),
+    split: Split | None = typer.Option(None, "--split"),  # noqa: B008
+    splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
+    yes_final_gate: bool = typer.Option(False, "--yes-final-gate"),  # noqa: B008
     out: Path = typer.Option(..., "--out"),  # noqa: B008
 ) -> None:
+    from belge_gozu.bench.dense_artifacts import sha256_file
     from belge_gozu.bench.metrics import recall_at_k
     from belge_gozu.index.encode import ColSmolEncoder
     from belge_gozu.index.quantize import Int8Index
@@ -895,6 +909,7 @@ def bench_oracle(
 
     selection = _load_bench_mode(bench, only_verified, min_verification)
     _require_answerable_selection(selection)
+    questions, split_meta = _select_bench_split(selection, split, splits_path, yes_final_gate)
     index_arms = [(packed_index, idx.manifest), (float_index, findex.manifest)]
     if int8_index is not None and i8_manifest is not None:
         index_arms.append((int8_index, i8_manifest))
@@ -920,7 +935,6 @@ def bench_oracle(
     known_float_ids = set(findex.page_ids)
     known_int8_ids = set(i8.page_ids) if i8 is not None else set()
 
-    questions = selection.questions
     ks = (1, 5, 20, 50, 200)
     per_question: list[dict] = []
     binary_recalls: dict[int, list[float]] = {k: [] for k in ks}
@@ -991,13 +1005,20 @@ def bench_oracle(
     }
     if i8 is not None:
         summary["int8"] = {str(k): sum(v) / n for k, v in int8_recalls.items()}
+    run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-oracle"
+    if split is not None:
+        run_id += f"-{split.value}"
     report = {
-        "run_id": f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-oracle",
+        "run_id": run_id,
         "git_commit": git_commit(),
         "retrieval_pipeline": "exhaustive-visual",
         "bench": str(bench),
+        "benchmark": {"path": str(bench), "sha256": sha256_file(bench)},
         "only_verified": only_verified,
         "verification": selection.provenance(),
+        "split": split.value if split is not None else None,
+        "splits": split_meta,
+        "selected_after_split": len(questions) if split is not None else None,
         "packed_index": str(packed_index),
         "float_index": str(float_index),
         "packed_manifest": idx.manifest.model_dump(),

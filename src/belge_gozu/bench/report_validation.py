@@ -17,6 +17,7 @@ from belge_gozu.bench.dataset import load_bench, load_splits, question_split, se
 from belge_gozu.bench.dense_artifacts import sha256_file
 from belge_gozu.bench.harness import EvalReport
 from belge_gozu.bench.metrics import bootstrap_ci, ndcg_at_k, recall_at_k
+from belge_gozu.index.manifest import IndexManifest
 
 
 def _assert_finite(value: object, path: str = "report") -> None:
@@ -160,24 +161,11 @@ def _check_metric_block(
             _check_close(f"{path}.ci_recall5[{index}]", actual, wanted)
 
 
-def validate_retrieval_report_payload(
-    payload: Mapping[str, Any],
-    *,
-    require_bench: bool = False,
-) -> EvalReport:
-    """Validate canonical retrieval aggregates against persisted diagnostics."""
-    _assert_finite(payload)
-    report = EvalReport.model_validate(payload)
-    diagnostics = {diagnostic.question_id: diagnostic for diagnostic in report.diagnostics}
-    if len(diagnostics) != len(report.diagnostics):
-        raise ValueError("diagnostics question_id değerleri yinelenemez")
-
-    bench_path = report.config.get("bench")
-    if not isinstance(bench_path, str):
-        if require_bench:
-            raise ValueError("retrieval report config.bench yolu zorunludur")
-        return report
-    verification = report.config.get("verification")
+def _select_report_bench(
+    metadata: Mapping[str, Any], bench_path: str, *, legacy_only_verified: bool
+) -> list:
+    """Retrieval ve oracle raporlarının aynı seçim/split künyesini doğrula."""
+    verification = metadata.get("verification")
     if verification is not None:
         if not isinstance(verification, Mapping) or not isinstance(
             verification.get("only_verified"), bool
@@ -195,20 +183,20 @@ def validate_retrieval_report_payload(
         # Eski raporlar seçimi config köküne yazmıştı; yalnız onlarda bu yolu koru.
         questions = load_bench(
             bench_path,
-            only_verified=bool(report.config.get("only_verified", True)),
-            min_verification=report.config.get("min_verification"),
+            only_verified=bool(metadata.get("only_verified", legacy_only_verified)),
+            min_verification=metadata.get("min_verification"),
         )
-    benchmark = report.config.get("benchmark")
+    benchmark = metadata.get("benchmark")
     if benchmark is not None:
         if not isinstance(benchmark, Mapping) or benchmark.get("path") != bench_path:
             raise ValueError("config.benchmark.path ile config.bench uyuşmuyor")
         if benchmark.get("sha256") != sha256_file(Path(bench_path)):
             raise ValueError("config.benchmark.sha256 veri kümesiyle uyuşmuyor")
-    split = report.config.get("split")
+    split = metadata.get("split")
     if split is not None:
         if split not in ("dev", "test"):
             raise ValueError(f"config.split geçersiz: {split!r}")
-        split_meta = report.config.get("splits")
+        split_meta = metadata.get("splits")
         if not isinstance(split_meta, Mapping) or not isinstance(split_meta.get("path"), str):
             raise ValueError("config.splits.path zorunludur")
         split_path = Path(split_meta["path"])
@@ -216,8 +204,29 @@ def validate_retrieval_report_payload(
             raise ValueError("config.splits.sha256 bölme dosyasıyla uyuşmuyor")
         splits = load_splits(split_path)
         questions = [q for q in questions if question_split(q, splits) == split]
-        if report.config.get("selected_after_split") != len(questions):
+        if metadata.get("selected_after_split") != len(questions):
             raise ValueError("config.selected_after_split bölme seçimiyle uyuşmuyor")
+    return questions
+
+
+def validate_retrieval_report_payload(
+    payload: Mapping[str, Any],
+    *,
+    require_bench: bool = False,
+) -> EvalReport:
+    """Validate canonical retrieval aggregates against persisted diagnostics."""
+    _assert_finite(payload)
+    report = EvalReport.model_validate(payload)
+    diagnostics = {diagnostic.question_id: diagnostic for diagnostic in report.diagnostics}
+    if len(diagnostics) != len(report.diagnostics):
+        raise ValueError("diagnostics question_id değerleri yinelenemez")
+
+    bench_path = report.config.get("bench")
+    if not isinstance(bench_path, str):
+        if require_bench:
+            raise ValueError("retrieval report config.bench yolu zorunludur")
+        return report
+    questions = _select_report_bench(report.config, bench_path, legacy_only_verified=True)
     answerable = {q.question_id: q for q in questions if q.answerable}
     if set(answerable) != set(diagnostics):
         raise ValueError("bench answerable question_id kümesi diagnostics ile uyuşmuyor")
@@ -254,6 +263,87 @@ def validate_retrieval_report_payload(
     for name, block in report.per_doc.items():
         _check_metric_block(f"per_doc.{name}", block, by_doc.get(name, []))
     return report
+
+
+def validate_oracle_report_payload(
+    payload: Mapping[str, Any], *, require_bench: bool = False
+) -> Mapping[str, Any]:
+    """Recompute visual oracle recalls from persisted per-question gold ranks."""
+    _assert_finite(payload)
+    if payload.get("retrieval_pipeline") != "exhaustive-visual":
+        raise ValueError("oracle retrieval_pipeline=exhaustive-visual olmalı")
+    bench_path = payload.get("bench")
+    if not isinstance(bench_path, str):
+        if require_bench:
+            raise ValueError("oracle bench yolu zorunludur")
+        return payload
+    if require_bench and (not payload.get("run_id") or not payload.get("git_commit")):
+        raise ValueError("oracle run_id/git_commit zorunludur")
+    questions = _select_report_bench(payload, bench_path, legacy_only_verified=False)
+    answerable = [question for question in questions if question.answerable]
+    rows = payload.get("per_question")
+    if not isinstance(rows, list) or not answerable:
+        raise ValueError("oracle per_question cevaplanabilir soru içermeli")
+    if [row.get("question_id") if isinstance(row, Mapping) else None for row in rows] != [
+        question.question_id for question in answerable
+    ]:
+        raise ValueError("oracle per_question question_id sırası benchmark ile uyuşmuyor")
+
+    arm_manifests = {
+        "binary": IndexManifest.model_validate(payload.get("packed_manifest")),
+        "float": IndexManifest.model_validate(payload.get("float_manifest")),
+    }
+    if payload.get("int8_manifest") is not None:
+        arm_manifests["int8"] = IndexManifest.model_validate(payload["int8_manifest"])
+    for arm, quantization in (("binary", "sign-1bit"), ("float", "float16"), ("int8", "int8")):
+        manifest = arm_manifests.get(arm)
+        if manifest is None:
+            continue
+        if manifest.quantization != quantization:
+            raise ValueError(f"oracle {arm} manifest quantization uyuşmuyor")
+        for field in IndexManifest.model_fields:
+            if field in {"quantization", "built_at", "git_commit"}:
+                continue
+            if getattr(manifest, field) != getattr(arm_manifests["binary"], field):
+                raise ValueError(f"oracle {arm} manifest {field} uyuşmuyor")
+
+    ks = (1, 5, 20, 50, 200)
+    measured = {arm: {k: [] for k in ks} for arm in arm_manifests}
+    missing: set[str] = set()
+    for question, row in zip(answerable, rows, strict=True):
+        gold = set(question.gold_page_ids)
+        rank_keys: set[str] | None = None
+        for arm, manifest in arm_manifests.items():
+            ranks = row.get(f"{arm}_rank")
+            if not isinstance(ranks, Mapping) or not set(ranks) <= gold:
+                raise ValueError(f"oracle {question.question_id}.{arm}_rank gold ile uyuşmuyor")
+            if rank_keys is None:
+                rank_keys = set(ranks)
+                missing.update(gold - rank_keys)
+            elif set(ranks) != rank_keys:
+                raise ValueError(f"oracle {question.question_id} kollarının gold kapsamı farklı")
+            if any(
+                type(rank) is not int or rank < 1 or rank > manifest.n_pages
+                for rank in ranks.values()
+            ) or len(set(ranks.values())) != len(ranks):
+                raise ValueError(f"oracle {question.question_id}.{arm}_rank geçersiz sıra")
+            for k in ks:
+                measured[arm][k].append(sum(rank <= k for rank in ranks.values()) / len(gold))
+    if payload.get("missing_gold_pages") != sorted(missing):
+        raise ValueError("oracle missing_gold_pages soru kanıtıyla uyuşmuyor")
+
+    summary = payload.get("summary")
+    if not isinstance(summary, Mapping) or summary.get("n") != len(answerable):
+        raise ValueError("oracle summary.n uyuşmuyor")
+    if set(summary) != {"n", *arm_manifests}:
+        raise ValueError("oracle summary kolları manifestlerle uyuşmuyor")
+    for arm, values in measured.items():
+        stored = summary.get(arm)
+        if not isinstance(stored, Mapping) or set(stored) != {str(k) for k in ks}:
+            raise ValueError(f"oracle summary.{arm} k değerleri uyuşmuyor")
+        for k in ks:
+            _check_close(f"summary.{arm}.{k}", stored[str(k)], sum(values[k]) / len(answerable))
+    return payload
 
 
 def validate_reranker_report_payload(

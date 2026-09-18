@@ -13,6 +13,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from belge_gozu.answer.calibrate import recipe_fingerprint  # noqa: E402
 from belge_gozu.bench.report_validation import (  # noqa: E402
     validate_answer_report_payload,
+    validate_oracle_report_payload,
     validate_provenance_hashes,
     validate_reranker_report_payload,
     validate_retrieval_report_payload,
@@ -23,7 +24,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", type=Path)
     parser.add_argument(
-        "--kind", choices=("auto", "answer", "retrieval", "reranker"), default="auto"
+        "--kind", choices=("auto", "answer", "retrieval", "oracle", "reranker"), default="auto"
     )
     parser.add_argument("--root", type=Path, default=REPO_ROOT)
     args = parser.parse_args()
@@ -37,6 +38,8 @@ def main() -> int:
                 kind = "answer"
             elif "per_question" in payload and "pinned" in payload:
                 kind = "reranker"
+            elif "per_question" in payload and "packed_manifest" in payload:
+                kind = "oracle"
             else:
                 kind = "retrieval"
         validate_provenance_hashes(payload, root=args.root)
@@ -48,6 +51,8 @@ def main() -> int:
             )
         elif kind == "retrieval":
             validate_retrieval_report_payload(payload, require_bench=True)
+        elif kind == "oracle":
+            validate_oracle_report_payload(payload, require_bench=True)
         else:
             validate_reranker_report_payload(payload, require_benchmark=True)
     except Exception as exc:
