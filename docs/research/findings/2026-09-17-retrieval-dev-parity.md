@@ -53,8 +53,9 @@ uv run python scripts/verify_evaluation_report.py /tmp/belge-gozu-retrieval-v2-h
 İki rapor da doğrulayıcıda `OK` verdi. Rapor SHA-256 değerleri sırasıyla
 geç adaylı kol için `214b670a3b43189ddf653623af73641149f89a45f6b33d9bc70f7ed38f32b520`,
 kapalı kol için `e2a3e0c2c6c50feeaa6bc7fd14156ceb5428232a9658497a4e17c669bba91f5c`.
-Raporlar ve seçili JSONL şimdilik `/tmp` altındadır; bu kayıt onları
-kalıcı/taşınabilir artefakt olarak sunmaz.
+Bu ilk koşumun raporları ve seçili JSONL'si `/tmp` altındaydı. Aşağıdaki
+2026-09-18 koşumu kanonik veri kümesi ve split dosyasını doğrudan kullanır;
+raporları sürümlüdür.
 
 ## Dev sonuçları
 
@@ -80,3 +81,32 @@ aday örmenin gold sayfayı neden ilk beşten ittiği #17'deki sıralayıcı
 kararından önce incelenmelidir. Cevap kalitesi, atıf doğruluğu ve
 cevaplanamaz sorularda güvenlik bu koşumun kapsamı dışındadır; #1, #2,
 #9, #10 ve #13 açık kalır.
+
+## 2026-09-18 — kanonik split ve sürümlü raporla tekrar
+
+`444f017`, `bench run --split dev --splits` seçimini ve kaynak/split SHA-256
+künyesini ekledi. `retrieval_eval_v2.jsonl` üzerinde
+`--min-verification human --split dev` **24 cevaplanabilir soruyu** seçti;
+geçici altküme dosyası gerekmedi. Aynı ana indeks
+`133444d8c235/train-compat-v1/int8`, BM25 reçetesi `7b56eeeb7327` ve
+iki geç indeks revizyonu kullanıldı. Sonuçlar yukarıdaki tablo ve soru
+farklarıyla birebir aynıydı.
+
+```bash
+BG_LATE_CHANNEL_ENABLED=true HF_HUB_ETAG_TIMEOUT=10 HF_HUB_DOWNLOAD_TIMEOUT=20 .venv-lab/bin/belge-gozu bench run --pipeline hybrid --bench data/bench/retrieval_eval_v2.jsonl --min-verification human --split dev --splits data/bench/splits_v1.json --out /tmp/belge-gozu-retrieval-v2-human-dev-444f017-late.json
+BG_LATE_CHANNEL_ENABLED=false HF_HUB_ETAG_TIMEOUT=10 HF_HUB_DOWNLOAD_TIMEOUT=20 .venv-lab/bin/belge-gozu bench run --pipeline hybrid --bench data/bench/retrieval_eval_v2.jsonl --min-verification human --split dev --splits data/bench/splits_v1.json --out /tmp/belge-gozu-retrieval-v2-human-dev-444f017-no-late.json
+cp /tmp/belge-gozu-retrieval-v2-human-dev-444f017-late.json data/bench/results/20260918-444f017-retrieval_eval_v2-human-dev-hybrid-late.json
+cp /tmp/belge-gozu-retrieval-v2-human-dev-444f017-no-late.json data/bench/results/20260918-444f017-retrieval_eval_v2-human-dev-hybrid-no-late.json
+uv run python scripts/verify_evaluation_report.py data/bench/results/20260918-444f017-retrieval_eval_v2-human-dev-hybrid-late.json --kind retrieval
+uv run python scripts/verify_evaluation_report.py data/bench/results/20260918-444f017-retrieval_eval_v2-human-dev-hybrid-no-late.json --kind retrieval
+```
+
+Sürümlü raporlar: [geç aday açık](../../../data/bench/results/20260918-444f017-retrieval_eval_v2-human-dev-hybrid-late.json)
+(SHA-256 `6505b7f00df340b76ea1bdb03ada33cc7f8dcb3878374abe214152bc0e6055ee`)
+ve [geç aday kapalı](../../../data/bench/results/20260918-444f017-retrieval_eval_v2-human-dev-hybrid-no-late.json)
+(SHA-256 `c0f01be61c97c973b87640c2d4f11e43a1246cd3046b15086920cbf27b91dad7`).
+İkisi de `verify_evaluation_report.py` ile `OK` verdi. Açık raporun tam
+provenance doğrulaması yerel geç indeks dosyalarını gerektirir; bu büyük
+dosyalar Git'te sürümlü değildir. #6'daki pinli Hub yayını tamamlanana
+kadar temiz klonda aynı hash kontrolü yapılamaz. Test bölmesi ve G1/G2 final
+kapıları hâlâ çalıştırılmadı.

@@ -191,3 +191,11 @@ geliştirme sırasında eşik seçimi için kullanılmayacaktır.
   içinde. Bunlar dev tanısıdır; final test sayısı veya cevap güvenlik kapısı
   sonucu değildir. Geç kanal açık kolda ilk beşten düşen `c208` ve `c408`
   #17 sıralayıcı incelemesinin somut örnekleridir.
+- `444f017`, retrieval kıyasına kanonik `--split dev|test` seçimi,
+  `--yes-final-gate` test koruması ve benchmark/split SHA-256 doğrulaması
+  ekledi. Aynı insan onaylı dev n=24 karşılaştırması geçici altküme olmadan
+  tekrar koşuldu: geç kanal açık R@5 `0,8125`, kapalı `0,6875`; her iki
+  JSON rapor [data/bench/results](../../../data/bench/results/) altında
+  sürümlendi ve `verify_evaluation_report.py` ile doğrulandı. Komutlar,
+  rapor hash'leri ve dış yan indeks dosyası gereksinimi
+  [dev karşılaştırma kaydında](2026-09-17-retrieval-dev-parity.md).
