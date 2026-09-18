@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from belge_gozu.bench.answer_eval import AnswerEvalReport, run_answer_eval
-from belge_gozu.bench.dataset import load_bench, select_bench
+from belge_gozu.bench.dataset import load_bench, load_splits, question_split, select_bench
 from belge_gozu.bench.dense_artifacts import sha256_file
 from belge_gozu.bench.harness import EvalReport
 from belge_gozu.bench.metrics import bootstrap_ci, ndcg_at_k, recall_at_k
@@ -198,6 +198,26 @@ def validate_retrieval_report_payload(
             only_verified=bool(report.config.get("only_verified", True)),
             min_verification=report.config.get("min_verification"),
         )
+    benchmark = report.config.get("benchmark")
+    if benchmark is not None:
+        if not isinstance(benchmark, Mapping) or benchmark.get("path") != bench_path:
+            raise ValueError("config.benchmark.path ile config.bench uyuşmuyor")
+        if benchmark.get("sha256") != sha256_file(Path(bench_path)):
+            raise ValueError("config.benchmark.sha256 veri kümesiyle uyuşmuyor")
+    split = report.config.get("split")
+    if split is not None:
+        if split not in ("dev", "test"):
+            raise ValueError(f"config.split geçersiz: {split!r}")
+        split_meta = report.config.get("splits")
+        if not isinstance(split_meta, Mapping) or not isinstance(split_meta.get("path"), str):
+            raise ValueError("config.splits.path zorunludur")
+        split_path = Path(split_meta["path"])
+        if split_meta.get("sha256") != sha256_file(split_path):
+            raise ValueError("config.splits.sha256 bölme dosyasıyla uyuşmuyor")
+        splits = load_splits(split_path)
+        questions = [q for q in questions if question_split(q, splits) == split]
+        if report.config.get("selected_after_split") != len(questions):
+            raise ValueError("config.selected_after_split bölme seçimiyle uyuşmuyor")
     answerable = {q.question_id: q for q in questions if q.answerable}
     if set(answerable) != set(diagnostics):
         raise ValueError("bench answerable question_id kümesi diagnostics ile uyuşmuyor")

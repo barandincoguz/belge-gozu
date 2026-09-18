@@ -596,6 +596,9 @@ def test_bench_run_help_lists_only_verified_and_all():
     assert "--only-verified" in result.output
     assert "--all" in result.output
     assert "--min-verification" in result.output
+    assert "--split" in result.output
+    assert "--splits" in result.output
+    assert "--yes-final-gate" in result.output
 
 
 def test_bench_oracle_help_lists_only_verified_and_all():
@@ -1128,6 +1131,93 @@ def test_bench_run_hybrid_uses_configured_late_channels_and_records_recipe(
         validate_provenance_hashes(report)
     assert report["diagnostics"][0]["stages"][-1]["stage"] == "late_candidate_union"
     assert report["diagnostics"][0]["final_ranked"][1] == late_page
+
+
+def test_bench_run_selects_dev_from_canonical_benchmark_and_guards_test_split(
+    tiny_corpus, monkeypatch
+):
+    from belge_gozu.bench.report_validation import validate_retrieval_report_payload
+    from belge_gozu.index import encode
+    from tests.bench_question_factory import q_dict
+    from tests.index.test_manifest import TRAIN_COMPAT_DOC_PROMPT_SHA256
+
+    data_dir, inner_encoder, _ = tiny_corpus
+    index_dir = data_dir / "index"
+
+    class MatchingEncoder:
+        model_revision = "abc123"
+        doc_prompt_sha256 = TRAIN_COMPAT_DOC_PROMPT_SHA256
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def encode_query(self, question):
+            return inner_encoder.encode_query(question)
+
+    monkeypatch.setattr(encode, "ColSmolEncoder", MatchingEncoder)
+    monkeypatch.setenv("BG_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("BG_INDEX_DIR", str(index_dir))
+    bench = data_dir / "bench.jsonl"
+    bench.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in (
+                q_dict(
+                    question_id="dev",
+                    gold_doc_ids=["d0"],
+                    gold_page_ids=["d0:1"],
+                    gold_article_ids=[],
+                ),
+                q_dict(
+                    question_id="test",
+                    gold_doc_ids=["d1"],
+                    gold_page_ids=["d1:1"],
+                    gold_article_ids=[],
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    splits = data_dir / "splits.json"
+    splits.write_text(json.dumps({"dev_docs": ["d0"], "test_docs": ["d1"]}), encoding="utf-8")
+    out = data_dir / "dev-report.json"
+    command = [
+        "bench",
+        "run",
+        "--pipeline",
+        "exhaustive",
+        "--bench",
+        str(bench),
+        "--min-verification",
+        "human",
+        "--splits",
+        str(splits),
+        "--split",
+        "dev",
+    ]
+
+    result = runner.invoke(app, [*command, "--out", str(out)])
+
+    assert result.exit_code == 0, result.exception or result.output
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["config"]["split"] == "dev"
+    assert payload["config"]["splits"]["sha256"]
+    assert payload["config"]["benchmark"]["sha256"]
+    assert payload["config"]["selected_after_split"] == 1
+    assert [row["question_id"] for row in payload["diagnostics"]] == ["dev"]
+    validate_retrieval_report_payload(payload, require_bench=True)
+    split_sha = payload["config"]["splits"]["sha256"]
+    payload["config"]["splits"]["sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="splits.sha256"):
+        validate_retrieval_report_payload(payload, require_bench=True)
+    payload["config"]["splits"]["sha256"] = split_sha
+
+    test_command = [*command[:-1], "test", "--out", str(data_dir / "test-report.json")]
+    rejected = runner.invoke(app, test_command)
+    assert rejected.exit_code != 0
+    assert "--yes-final-gate" in rejected.output
+    assert not (data_dir / "test-report.json").exists()
 
 
 def test_broken_env_gives_readable_message_not_a_traceback(tmp_path: Path):

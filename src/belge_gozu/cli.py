@@ -630,6 +630,14 @@ def _late_index_evidence(index_dir: Path) -> dict:
     return {"index_dir": str(index_dir), "sidecar": sidecar, "files": files}
 
 
+DEFAULT_SPLITS = Path("data/bench/splits_v1.json")
+
+
+class Split(StrEnum):
+    dev = "dev"
+    test = "test"
+
+
 @bench_app.command("run")
 def bench_run(
     bench: Path = typer.Option(Path("data/bench/retrieval_eval_v1.jsonl")),  # noqa: B008
@@ -638,8 +646,13 @@ def bench_run(
     min_verification: VerificationLevel | None = typer.Option(  # noqa: B008
         None, "--min-verification"
     ),
+    split: Split | None = typer.Option(None, "--split"),  # noqa: B008
+    splits_path: Path = typer.Option(DEFAULT_SPLITS, "--splits"),  # noqa: B008
+    yes_final_gate: bool = typer.Option(False, "--yes-final-gate"),  # noqa: B008
     out: Path | None = typer.Option(None, "--out"),  # noqa: B008
 ) -> None:
+    from belge_gozu.bench.dataset import load_splits, question_split
+    from belge_gozu.bench.dense_artifacts import sha256_file
     from belge_gozu.bench.harness import (
         ExhaustiveDiagnosticAdapter,
         HybridDiagnosticAdapter,
@@ -658,6 +671,15 @@ def bench_run(
     meta = pd.read_parquet(s.index_dir / "meta.parquet")
     selection = _load_bench_mode(bench, only_verified, min_verification)
     _require_answerable_selection(selection)
+    questions = selection.questions
+    split_meta = None
+    if split is not None:
+        _gate_test_split(split, yes_final_gate)
+        splits = load_splits(splits_path)
+        questions = [q for q in questions if question_split(q, splits) == split.value]
+        if not any(q.answerable for q in questions):
+            raise typer.BadParameter(f"{split.value} bölmesinde cevaplanabilir soru yok")
+        split_meta = {"path": str(splits_path), "sha256": sha256_file(splits_path)}
     from belge_gozu.app.main import load_configured_late_channels, resolve_formats
     from belge_gozu.retrieval.text import recipe_fingerprint
 
@@ -731,8 +753,9 @@ def bench_run(
     else:
         adapter = ExhaustiveDiagnosticAdapter(ExhaustiveRetriever(idx, meta, encoder))
 
-    questions = selection.questions
     run_id = f"{datetime.now(UTC):%Y%m%d-%H%M}-{git_commit()}-{pipeline.value}"
+    if split is not None:
+        run_id += f"-{split.value}"
     out_path = out or Path("data/bench/results") / f"{run_id}.json"
 
     report = run_retrieval_eval(
@@ -744,7 +767,11 @@ def bench_run(
         config={
             "pipeline": pipeline.value,
             "bench": str(bench),
+            "benchmark": {"path": str(bench), "sha256": sha256_file(bench)},
             "verification": selection.provenance(),
+            "split": split.value if split is not None else None,
+            "splits": split_meta,
+            "selected_after_split": len(questions) if split is not None else None,
             "index_revision": index_revision(idx.manifest) if idx.manifest else None,
             "recipe_fingerprint": recipe_fingerprint() if pipeline == Pipeline.hybrid else None,
             "late_channel_enabled": pipeline == Pipeline.hybrid and s.late_channel_enabled,
@@ -1001,13 +1028,7 @@ def bench_oracle(
 
 DEFAULT_RETRIEVAL_EVAL = Path("data/bench/retrieval_eval_v1.jsonl")
 DEFAULT_ABSTENTION_EVAL = Path("data/bench/abstention_eval_v1.jsonl")
-DEFAULT_SPLITS = Path("data/bench/splits_v1.json")
 DEFAULT_CALIBRATION_REPORT = Path("data/bench/results/p2-calibration-dev-v1.json")
-
-
-class Split(StrEnum):
-    dev = "dev"
-    test = "test"
 
 
 def _gate_test_split(split: Split, yes_final_gate: bool) -> None:
