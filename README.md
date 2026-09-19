@@ -10,10 +10,10 @@
 | | |
 |---|---|
 | **Korpus / Corpus** | 4.222 sayfa · 56 belge (50 kanun + 6 taranmış *Resmî Gazete*, 1928–1975) |
-| **Getirim kalitesi / Retrieval** | Recall@5 **0.8605** (37/43) · Recall@20 0.930 — aksanlı ve aksansız yazımda aynı |
+| **Getirim kalitesi / Retrieval** | BM25 tabanı: `retrieval_eval_v1` R@5 **0.8605** (37/43). Geç aday açık: `retrieval_eval_v2` insan onaylı **dev** n=24 R@5 **0.8125**; veri kümeleri farklıdır, final test sonucu değildir. |
 | **Başlangıç / Starting point** | Aynı kıyas kümesinde Recall@5 **0.116** |
 | **Gecikme / Latency** | metin getirimi 2–5 ms · uçtan uca cevap 6–24 sn (LLM'e bağlı) |
-| **Mühendislik / Engineering** | 707 test · CI hem süiti koşar hem dağıtım imajını derler · her sayı tarihli bir koşum artefaktına bağlı |
+| **Mühendislik / Engineering** | CI ağsız test süitini koşar ve dağıtım imajını derler · ölçümler tarihli koşum künyeleriyle raporlanır |
 | **Yığın / Stack** | Python 3.12 · FastAPI · PyTorch · Transformers · ColPali-class vision encoder · BM25 (hand-written) · SQLite · Prometheus · Grafana · Docker · GitHub Actions · pytest · ruff · pyright · uv |
 
 İndeks ve tüm sayfa görüntüleri Hugging Face Datasets üzerinde herkese açık:
@@ -77,8 +77,9 @@ güçlü hizalanır.
 
 ## 3. Mühendislik haritası
 
-Her adım tek bir kontrollü deneydir: tek değişken, tek birincil metrik (43 soruluk kıyas
-kümesinde Recall@5), donmuş bir ölçüm düzeneği ve tut-ya-da-geri-al kararı. **Kesikli
+Bu diyagram geç aday kanalları öncesindeki `retrieval_eval_v1` BM25 tabanını
+gösterir. Her adım tek bir kontrollü deneydir: tek değişken, tek birincil metrik
+(43 soruluk kümede Recall@5), donmuş bir ölçüm düzeneği ve tut-ya-da-geri-al kararı. **Kesikli
 dallar ölçüldü ve reddedildi** — portfolyoların çoğunun sildiği kısım.
 
 ```mermaid
@@ -114,7 +115,7 @@ Diyagram render edilmiyorsa (ör. GitHub mobil uygulaması Mermaid çizmez) ayn�
 | mutlak doküman bölümleme | 0.791 | reddedildi (korkuluk vetosu) |
 | pencere 50 | **0.837** | tutuldu |
 | pencere içi RRF | 0.535 | reddedildi |
-| + aksan katlama | **0.8605** | tutuldu — yayında |
+| + aksan katlama | **0.8605** | BM25 tabanı; geç aday öncesi |
 | çift-biçim token | 0.837 | reddedildi (iki korkuluk düştü) |
 
 Üç sonuç açıkça yazılmayı hak ediyor, çünkü üçü de bariz yaklaşımı çürütüyor:
@@ -130,12 +131,16 @@ yeniden düzenlemedir.
 Kanal yine de her sorguda çalışır: telemetriyi ve kalibrasyon veri kümesini besler, ayrıca
 metin katmanı zayıf olan 16 sayfa için ayrı bir ölçüm sinyali sağlar. Ama artık
 sıralamıyor. Bu, ilk sunuma uyan sonuç değil; ölçümün söylediği sonuçtur.
-**Üretimde iki kanal koşar; sıralamayı yalnız BM25 metin kanalı belirler.**
+Hibrit üretim yolunda BM25 ve doküman-adı yönlendirme başlangıç sırasını kurar.
+Geç ColBERT aday kanalları etkinse sayfaları sonraki sıralara örer; **BM25 ilk
+sırayı ve cevap eşiğinin skor ölçeğini korur.** ColSmol görsel skoru sıralamaya
+girmez. Geç aday açık/kapalı karşılaştırmasının veri kümesi, indeks ve reçete
+künyesi [dev koşum kaydında](docs/research/findings/2026-09-17-retrieval-dev-parity.md).
 
 **Aksan işaretleri bir üretim hatasıydı, incelik değil.** Türkçe klavye rutin olarak devre
 dışı bırakılır; kullanıcı *"yillik ucretli izin"* yazar. Ölçüldüğünde bu, Recall@5'i
 0.837'den 0.581'e düşürüyordu. Aksanları hem indeks hem sorgu tarafında katlamak sistemi
-**yazım-değişmez** yapıyor: iki koşulda da 0.8605.
+**yazım-değişmez** yapıyor: v1 BM25 tabanında iki koşulda da 0.8605.
 
 ## 4. Mimari
 
@@ -198,7 +203,12 @@ bayt düzeyinde aynı kaldığını doğrulayan bir test vardır.
 | yalnız görsel, 1-bit (ilk sürüm) | 0.116 | — | — | 3127 / — |
 | yalnız görsel, int8 | 0.233 | 0.302 | 0.149 | 664 / 137 |
 | hibrit, katlama öncesi | 0.837 | 0.930 | 0.655 | 2 / 2 |
-| **hibrit + katlama (yayında)** | **0.8605** | **0.930** | 0.632 | **2 / 2** |
+| **hibrit + katlama (v1 BM25 tabanı)** | **0.8605** | **0.930** | 0.632 | **2 / 2** |
+
+Geç adayların etkin olduğu güncel hatta, `retrieval_eval_v2` insan onaylı dev
+bölmesi (`n=24`) R@5'i aynı bölmedeki kapalı kola göre `0.6875 → 0.8125`
+taşıdı; iki soru ilk beşten düştü. Bu, [künyeli dev karşılaştırmasıdır](docs/research/findings/2026-09-17-retrieval-dev-parity.md),
+final test kapısı değildir ve v1 tablosuyla doğrudan karşılaştırılmaz.
 
 Sağlamlık taraması: BM25 `k1` ∈ [0.9, 1.8] × `b` ∈ [0.5, 0.9] kombinasyonlarının tamamı
 0.814–0.837 aralığında kalıyor; ön ek uzunluğu 4–7 bir plato. Reçete bıçak sırtında değil.
@@ -464,8 +474,9 @@ than with an article's body text.
 
 ## 3. Engineering map
 
-Each step is one controlled experiment: one variable changed, one primary metric
-(Recall@5 over a 43-question benchmark), a frozen harness, and a keep-or-revert decision.
+This diagram shows the `retrieval_eval_v1` BM25 baseline before late candidate
+channels. Each step is one controlled experiment: one variable changed, one
+primary metric (Recall@5 over a 43-question benchmark), a frozen harness, and a keep-or-revert decision.
 **Dashed branches were measured and rejected** — the part most portfolios delete.
 
 ```mermaid
@@ -501,7 +512,7 @@ If the diagram does not render (the GitHub mobile app draws no Mermaid), the sam
 | absolute document partition | 0.791 | rejected (guardrail veto) |
 | window 50 | **0.837** | kept |
 | within-window RRF | 0.535 | rejected |
-| + diacritic folding | **0.8605** | kept — shipped |
+| + diacritic folding | **0.8605** | BM25 baseline before late candidates |
 | dual-form tokens | 0.837 | rejected (two guardrails down) |
 
 Three results worth stating plainly, because each contradicts the obvious approach:
@@ -516,12 +527,16 @@ granularity tried. What survived is lexical-primary ranking with a rule-based re
 It still runs on every query — it feeds telemetry and the calibration dataset, and it is
 an independent measurement signal for the 16 pages with a weak text layer — but it no
 longer ranks. That is the honest result, not the one that fits the original pitch.
-**Both channels run in production; BM25 alone determines the ranking.**
+In the hybrid production path, BM25 and document-name routing establish the
+initial order. When enabled, late ColBERT channels interleave candidate pages;
+**BM25 keeps the first page and the answer threshold's score scale.** The
+ColSmol visual score does not rank pages. The [development run record](docs/research/findings/2026-09-17-retrieval-dev-parity.md)
+identifies the dataset, index and recipe behind the late-channel comparison.
 
 **Diacritics were a production bug, not a nicety.** Turkish keyboards are routinely
 bypassed: users type *"yillik ucretli izin"*. Measured, that collapsed Recall@5 from 0.837
 to 0.581. Folding diacritics on both the index and the query side makes the system
-**writing-invariant** — 0.8605 in both conditions.
+**writing-invariant** — 0.8605 in both conditions on the v1 BM25 baseline.
 
 ## 4. Architecture
 
@@ -584,7 +599,13 @@ while they are off.
 | visual only, 1-bit (original) | 0.116 | — | — | 3127 / — |
 | visual only, int8 | 0.233 | 0.302 | 0.149 | 664 / 137 |
 | hybrid, before folding | 0.837 | 0.930 | 0.655 | 2 / 2 |
-| **hybrid + folding (shipped)** | **0.8605** | **0.930** | 0.632 | **2 / 2** |
+| **hybrid + folding (v1 BM25 baseline)** | **0.8605** | **0.930** | 0.632 | **2 / 2** |
+
+With late candidates enabled, the human verified `retrieval_eval_v2` development
+split (`n=24`) measured R@5 `0.6875 → 0.8125` against the same split with
+late candidates disabled; two questions fell out of the first five. This
+[versioned development comparison](docs/research/findings/2026-09-17-retrieval-dev-parity.md)
+is not a final test result and cannot be compared directly with the v1 table.
 
 Robustness sweep: BM25 `k1` ∈ [0.9, 1.8] × `b` ∈ [0.5, 0.9] all land in 0.814–0.837, and
 prefix length 4–7 is a plateau — the recipe is not balanced on a knife edge. One tuning

@@ -98,6 +98,15 @@ RETRIEVAL_LABELS: dict[str, dict[str, str]] = {
 }
 
 
+def retrieval_labels(s: Settings) -> dict[str, str]:
+    labels = dict(RETRIEVAL_LABELS[s.retrieval_pipeline])
+    if s.retrieval_pipeline == "hybrid" and s.late_channel_enabled:
+        labels["ranking_channel"] = "BM25 + ColBERT aday örme"
+        labels["stage_label"] = "BM25 metin araması + doküman yönlendirme + geç aday örme"
+    labels["late_channel"] = "enabled" if s.late_channel_enabled else "disabled"
+    return labels
+
+
 class SearchBody(BaseModel):
     query: str = Field(..., max_length=MAX_QUERY_CHARS)
     k: int | None = Field(None, ge=1, le=MAX_K)
@@ -822,10 +831,7 @@ def create_app(
             "calibrator": calibrator,
             "verifier": verifier,
             "index": {"quantization": quantization, "revision": revision},
-            "retrieval": {
-                **RETRIEVAL_LABELS[s.retrieval_pipeline],
-                "late_channel": "enabled" if s.late_channel_enabled else "disabled",
-            },
+            "retrieval": retrieval_labels(s),
         }
 
     @app.post("/search")

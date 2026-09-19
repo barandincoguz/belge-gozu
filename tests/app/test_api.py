@@ -180,6 +180,20 @@ def test_healthz_reports_late_candidate_channel(tiny_corpus):
     assert retrieval["late_channel"] == "disabled"
 
 
+def test_healthz_names_late_candidate_ranking_separately_from_bm25_score(tiny_corpus, monkeypatch):
+    monkeypatch.setattr(
+        "belge_gozu.app.main.load_configured_late_channels",
+        lambda settings, page_ids: (object(),),
+    )
+    retrieval = (
+        make_client(tiny_corpus, late_channel_enabled=True).get("/healthz").json()["retrieval"]
+    )
+
+    assert retrieval["ranking_channel"] == "BM25 + ColBERT aday örme"
+    assert retrieval["score_label"] == "BM25 skoru"
+    assert "geç aday" in retrieval["stage_label"]
+
+
 def test_search_returns_hits(tiny_corpus):
     c = make_client(tiny_corpus)
     r = c.post("/search", json={"query": "deneme sorgusu"})
@@ -828,6 +842,16 @@ def test_ui_uses_server_owned_retrieval_truth_and_no_match_state(tiny_corpus):
     assert "bağıl eksen; yüzde değildir" in html
 
 
+def test_ui_does_not_present_legacy_v1_metrics_as_active_retrieval_quality(tiny_corpus):
+    html = make_client(tiny_corpus).get("/").text
+
+    assert 'id="tagline"' in html
+    assert 'id="how-hybrid" hidden' in html
+    assert "Recall@5 0.8605" not in html
+    assert "43 soruluk retrieval_eval" not in html
+    assert "50</b> kanun" not in html
+
+
 def test_degraded_card_gets_its_own_class_not_abstained(tiny_corpus):
     """N1: bozulma durumu `.abstained` sınıfını ÖDÜNÇ almamalı — sınıf adı
     durumu yanlış söylerdi (görsel etki yoktu, çünkü #answer-text o durumda
@@ -1037,8 +1061,8 @@ def test_pydantic_level_422_writes_no_event(tiny_corpus):
 # YAPININ varlığını kilitler — tıpkı yukarıdaki `data.status` testleri gibi.
 
 
-def test_ui_has_a_single_in_flight_guard_for_button_enter_and_chips(tiny_corpus):
-    """Y28: Enter ve çipler çift-gönderim korumasını ATLIYORDU.
+def test_ui_aborts_previous_request_for_button_enter_and_chips(tiny_corpus):
+    """Y28/Y37: tüm soru girişleri ortak meşguliyet ve iptal yolunu kullanır.
 
     Tek koruma `ask-btn.disabled` idi ve o yalnız O DÜĞMEYE tıklamayı
     durdurur; Enter'a basılı tutmak ya da çiplere tıklamak N eşzamanlı /ask
@@ -1046,7 +1070,10 @@ def test_ui_has_a_single_in_flight_guard_for_button_enter_and_chips(tiny_corpus)
     c = make_client(tiny_corpus)
     html = c.get("/").text
     assert "let inFlight = false;" in html
-    assert "if (inFlight) return;" in html  # ask() içindeki TEK kapı
+    assert "let activeAskController = null;" in html
+    assert "activeAskController.abort();" in html
+    assert "signal: controller.signal" in html
+    assert 'err.name === "AbortError"' in html
     assert "function setBusy(on)" in html
     assert "setBusy(true)" in html and "setBusy(false)" in html
     assert 'classList.toggle("busy", on)' in html  # görsel devre dışı durum

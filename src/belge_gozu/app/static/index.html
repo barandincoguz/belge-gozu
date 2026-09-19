@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#F7F5F0">
-<title>Belge-Gözü — Türk mevzuatında hibrit belge arama</title>
-<meta name="description" content="4.222 sayfalık Türk mevzuatı korpusunda hibrit arama: BM25 metin kanalı + doküman yönlendirme + görsel sayfa dizini. Dayanak bulamazsa yanıt üretmez.">
+<title>Belge-Gözü — Türk mevzuatında kanıtlı belge arama</title>
+<meta name="description" content="Türk mevzuatında sayfa dayanaklı arama ve soru-cevap. Etkin getirim kanalı ve skor ölçeği sunucu yapılandırmasından gösterilir.">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Belge-Gözü — Türk mevzuatında hibrit belge arama">
-<meta property="og:description" content="50 kanun, 4.222 sayfa. Sıralamayı BM25 metin kanalı kurar, görsel kanal yanında koşar. Dayanak yoksa mühür basılır, yanıt uydurulmaz.">
+<meta property="og:title" content="Belge-Gözü — Türk mevzuatında kanıtlı belge arama">
+<meta property="og:description" content="Türk mevzuatında sayfa dayanaklı arama ve soru-cevap. Dayanak yoksa yanıt üretilmez.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -195,17 +195,16 @@
   .chart { background: var(--card); border: 1px solid var(--rule); border-radius: 8px;
            padding: 16px 20px 14px; }
   .chart-rows { position: relative; }
-  /* Dört sütun = dört ayrı bilgi: belge · dağılım · BM25 skoru · görsel skor.
-     İki skor AYRI sütunlarda çünkü AYRI ölçeklerde (BM25 üst sınırsız,
-     görsel normalize [-1,1]); tek bir eksende çizmek onları
-     karşılaştırılabilirmiş gibi gösterirdi. */
+  /* Dört sütun: belge · bağıl çubuk · etkin skor · varsa ayrı görsel skor.
+     Hibrit modda BM25 ve görsel skor farklı ölçeklerdedir; tek eksende
+     çizilmezler. */
   .crow, .chart-head { display: grid;
           grid-template-columns: minmax(104px, 210px) 1fr 58px 54px;
           gap: 10px; align-items: center; }
   .chart-head { padding: 0 0 7px; border-bottom: 1px solid var(--rule); margin-bottom: 4px; }
   .chart-head > span { font-family: var(--mono); font-size: .66rem; letter-spacing: .09em;
                        text-transform: uppercase; color: var(--muted); }
-  .chart-head .h-bm25 { color: var(--stamp); }
+  .chart-head .h-score { color: var(--stamp); }
   .chart-head .h-scan { color: var(--scan); }
   .chart-head .h-track { position: relative; }
   .crow { padding: 5px 0; border-radius: 4px; cursor: pointer; width: 100%;
@@ -331,8 +330,8 @@
   <div class="rule-thick"></div>
   <div class="rule-thin"></div>
   <h1>Belge-Gözü</h1>
-  <p class="tagline">Türk mevzuatında hibrit arama — metin kanalı sıralar, sayfalar görüntü olarak dizinlidir.</p>
-  <p class="kunye"><b id="page-count">—</b> sayfa · <b>50</b> kanun · <b>1928–2024</b> · Resmî Gazete ve mevzuat.gov.tr kaynaklı</p>
+  <p class="tagline" id="tagline">Etkin getirim yapılandırması yükleniyor.</p>
+  <p class="kunye"><b id="page-count">—</b> sayfa · kaynak sayfalar ve belge bağlantıları sonuçlarda gösterilir</p>
   <div class="rule-thin"></div>
 </header>
 
@@ -414,26 +413,26 @@
 
   <section id="retrieval-sec" hidden aria-label="Retrieval sonuçları">
     <h2 class="sec-title">Sistem hangi sayfalara baktı?</h2>
-    <p class="sec-sub">Retrieval’ın seçtiği en yakın <span id="hits-count">—</span> sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
+    <p class="sec-sub">Getirimin seçtiği en yakın <span id="hits-count">—</span> sayfa. <b>Kırmızı çizgi cevap eşiği:</b>
       kaba, kalibre edilmemiş bir kesme noktasıdır (güven ölçüsü değil) — eşik
       <b>sıralamanın birincisine</b> uygulanır: o sayfa çizgiyi geçemezse sistem, yanıt
-      uydurmak yerine “dayanak bulunamadı” der ve Gemini hiç çağrılmaz. Doküman-adı
-      yönlendirmesi ilk sırayı skora göre değil <i>sorguda adı geçen kanuna</i> göre
-      belirlediği için liste skora göre azalan olmayabilir.</p>
+      uydurmak yerine “dayanak bulunamadı” der ve Gemini hiç çağrılmaz.
+      Sıra her çalışma modunda skora göre azalan olmayabilir.</p>
     <div class="chart" id="chart"></div>
     <div id="hits" class="hits"></div>
   </section>
 
   <p id="status" role="status"></p>
 
-  <section class="how" aria-labelledby="how-title">
+  <section class="how" id="how-hybrid" hidden aria-labelledby="how-title">
     <span class="eyebrow">nasıl çalışır</span>
-    <h2 id="how-title">İki kanal, bir kural</h2>
-    <p class="lede">Sorgu iki ayrı yoldan aynı korpusa vurur. Sıralamayı bugün yalnız biri kuruyor —
-      hangisinin kazandığı tahmin değil, ölçüm sonucu.</p>
+    <h2 id="how-title">Hibrit sıralama ve aday kanalları</h2>
+    <p class="lede">BM25 metin kanalı başlangıç sırasını kurar ve ilk sayfayı sabit tutar.
+      Doküman adı yönlendirmesi sıralamayı etkiler; etkinse geç ColBERT kanalları
+      diğer sıralara aday sayfalar örer. ColSmol görsel skoru ayrı ölçülür.</p>
     <div class="cols">
       <div class="col text-ch">
-        <span class="eyebrow">metin kanalı · sıralar</span>
+        <span class="eyebrow">metin kanalı · başlangıç sırası</span>
         <h3>Türkçeye uyarlanmış BM25</h3>
         <p>PDF’lerin metin katmanı üzerinde: İ/I duyarlı küçültme, işlev kelimesi eleme,
           5 harflik gövde kırpması ve aksan katlaması. Katlama sistemi yazım-değişmez yapar —
@@ -449,28 +448,37 @@
       <div class="col scan-ch">
         <span class="eyebrow">görsel kanal · sıralamaz</span>
         <h3>ColSmol sayfa dizini</h3>
-        <p>Her sorguda 4.222 sayfa görüntüsü de taranır. Ölçümde sıralamaya benzersiz
-          katkısı sıfır çıktı, bu yüzden sıraya girmiyor; skoru yukarıdaki
+        <p>Her sorguda <span id="how-page-count">—</span> sayfa görüntüsü de taranır.
+          Bu kanalın skoru final sıraya girmez; yukarıdaki
           <b style="color:var(--scan)">görsel</b> sütununda ve telemetride duruyor.</p>
+      </div>
+      <div class="col text-ch" id="late-explain" hidden>
+        <span class="eyebrow">geç aday kanalları · etkin</span>
+        <h3>ColBERT sayfa adayları</h3>
+        <p>İki geç kanal BM25 sırasına aday sayfalar örer; ilk sayfa ve cevap eşiğinin
+          BM25 skor ölçeği korunur. Adayların ilk beşteki etkisi ayrıca ölçülür.</p>
       </div>
     </div>
     <p class="how-kunye">
-      künye · <b>Recall@5 0.8605</b> (37/43, ikili tanım) · <b>Recall@20 0.9302</b> ·
-      43 soruluk retrieval_eval · <b>4.222</b> sayfa / <b>50</b> kanun ·
-      aksanlı ve aksansız yazımda <b>aynı</b> sonuç<br>
-      <span class="caveat">uyarı:</span> skor kalibre edilmemiş bir BM25 birimidir, güven ya da
-      doğruluk yüzdesi değildir; eşik bir kalibrasyon değil, sayıca yeniden üretilmiş bir
-      çalışma noktasıdır. Kalan 6 soru sözcüksel tavana takılıyor.<br>
-      <span class="caveat">doğrulama künyesi:</span> retrieval_eval'nin 48 satırından <b>3'ü insan</b>,
-      <b>45'i model-çapraz-kontrol</b> ile doğrulanmıştır — bu sayılar
-      <b>insan-doğrulanmış sayılmaz</b>.
+      <span class="caveat">ölçüm sınırı:</span> BM25 skoru doğruluk yüzdesi değildir;
+      cevap eşiği ayrı kalibrasyon gerektirir. Veri kümesi sürümü, insan doğrulama
+      sayıları, indeks kimliği ve geç aday karşılaştırması
+      <a href="https://github.com/barandincoguz/belge-gozu/blob/main/docs/research/findings/2026-09-17-retrieval-dev-parity.md">koşum kanıtında</a>
+      kayıtlıdır; geliştirme ölçümü final kapı sayısı değildir.
+      Eski <code>retrieval_eval_v1</code> kümesinin 48 satırından 3'ü insan,
+      45'i model-çapraz-kontrol ile doğrulanmıştı; o koşum insan-doğrulanmış
+      kıyas olarak sunulmaz.
     </p>
+  </section>
+  <section class="how" id="how-other" hidden aria-labelledby="how-other-title">
+    <span class="eyebrow">etkin getirim modu</span>
+    <h2 id="how-other-title">Sunucunun seçtiği sıralama</h2>
+    <p class="lede" id="how-other-detail"></p>
   </section>
 </main>
 
 <footer>
-  <p class="inner">ColSmol-500M görsel dizin · bütün korpusta hibrit arama: BM25 metin kanalı + doküman-adı yönlendirme (görsel MaxSim telemetride) ·
-     Gemini Flash yanıtlayıcı · kaynaklar sayfa kartlarında</p>
+  <p class="inner" id="footer-detail">Etkin getirim bilgisi yükleniyor. Kaynaklar sayfa kartlarında gösterilir.</p>
 </footer>
 
 <div id="lightbox" class="lightbox" hidden>
@@ -495,6 +503,21 @@ fetch("/healthz").then(r => r.json()).then(h => {
   TOP_K = Number.isInteger(h.top_k) ? h.top_k : null;
   RETRIEVAL = h.retrieval && h.retrieval.ranking_channel ? h.retrieval : null;
   $("page-count").textContent = h.pages.toLocaleString("tr-TR");
+  const mode = RETRIEVAL && RETRIEVAL.stage_label;
+  $("tagline").textContent = mode
+    ? `Türk mevzuatında ${mode}; sayfa dayanaklı yanıt.`
+    : "Etkin getirim bilgisi alınamadı; yanıtların dayanak sayfalarını kontrol edin.";
+  $("footer-detail").textContent = mode
+    ? `${mode}. Kaynaklar sayfa kartlarında gösterilir.`
+    : "Kaynaklar sayfa kartlarında gösterilir.";
+  const hybrid = h.pipeline === "hybrid";
+  $("how-hybrid").hidden = !hybrid;
+  $("how-other").hidden = hybrid;
+  $("late-explain").hidden = !hybrid || !RETRIEVAL || RETRIEVAL.late_channel !== "enabled";
+  $("how-page-count").textContent = h.pages.toLocaleString("tr-TR");
+  $("how-other-detail").textContent = RETRIEVAL
+    ? `${RETRIEVAL.ranking_channel} sıralar. ${RETRIEVAL.visual_role}`
+    : "Etkin sıralama bilgisi alınamadı.";
   const stageLabel = h.retrieval && h.retrieval.stage_label;
   if (stageLabel && TOP_K !== null) {
     $("st-scan").textContent =
@@ -504,8 +527,11 @@ fetch("/healthz").then(r => r.json()).then(h => {
     ? "eşik kontrolü"
     : `eşik kontrolü (${fmt(THRESHOLD, 2)})`;
   if (TOP_K !== null) $("hits-count").textContent = String(TOP_K);
-  if (h.pipeline !== "hybrid") $("st-encode").textContent = "sorgu kodlanıyor";
-}).catch(() => {});
+  if (!hybrid) $("st-encode").textContent = "sorgu kodlanıyor";
+}).catch(() => {
+  $("tagline").textContent = "Etkin getirim bilgisi alınamadı; dayanak sayfalarını kontrol edin.";
+  $("footer-detail").textContent = "Kaynaklar sayfa kartlarında gösterilir.";
+});
 
 /* ---- pipeline ---- */
 function pipelineStart() {
@@ -586,7 +612,7 @@ function renderChart(hits) {
   head.innerHTML = `<span class="h-doc">belge · sayfa</span>
       <span class="h-track"${hasThreshold ? ` style="--th:${thPos}"` : ""}>bağıl eksen; yüzde değildir
         ${hasThreshold ? `<span class="thlabel">eşik ${fmt(THRESHOLD, 2)}</span>` : ""}</span>
-      <span class="h-bm25">${esc(rankingChannel || "—")}</span>${hasScan ? '<span class="h-scan">görsel</span>' : "<span></span>"}`;
+      <span class="h-score">${esc(scoreLabel || "skor")}</span>${hasScan ? '<span class="h-scan">görsel</span>' : "<span></span>"}`;
   c.appendChild(head);
 
   const rows = document.createElement("div");
@@ -733,15 +759,11 @@ function friendly422(payload) {
 }
 
 /* ---- soru akışı ---- */
-/* Y28 — TEK uçuş bayrağı. Düğme, Enter tuşu ve çipler AYNI kapıdan geçer.
-   Eskiden tek koruma `$("ask-btn").disabled = true` idi ve o yalnız O DÜĞMEYE
-   tıklamayı durduruyordu: Enter'a basılı tutmak ya da istek sürerken çiplere
-   tıklamak N eşzamanlı /ask başlatıyordu — her biri beş sayfa görüntüsü
-   üzerinden TAM bir Gemini vision faturası, üstelik sunucu tarafı hız sınırı
-   varsayılan KAPALI. İkincil hasar: `finally` düğmeyi İLK yanıt gelince
-   yeniden etkinleştirdiği için ekranda EN SON ÇÖZÜLEN yanıt kalıyordu — yani
-   gösterilen cevap URL'deki ?q='dan daha ESKİ bir soruya ait olabiliyordu. */
+/* Y28/Y37 — Düğme, Enter tuşu ve çipler aynı soru akışını kullanır.
+   Yeni soru geldiğinde önceki fetch iptal edilir; böylece eski yanıt yeni
+   sorunun arayüz durumunu veya meşguliyet bayrağını ezemez. */
 let inFlight = false;
+let activeAskController = null;
 function setBusy(on) {
   inFlight = on;
   $("ask-btn").disabled = on;
@@ -750,7 +772,7 @@ function setBusy(on) {
   $("chips").setAttribute("aria-busy", on ? "true" : "false");
 }
 async function ask() {
-  if (inFlight) return;  // <- düğme/Enter/çip: üçü de burada durur
+  if (activeAskController) activeAskController.abort();
   const q = $("q").value.trim();
   clearFieldError();
   if (!q) { fieldError("Önce bir soru yazın."); return; }
@@ -760,6 +782,8 @@ async function ask() {
   }
   history.replaceState(null, "", "?q=" + encodeURIComponent(q));
   setBusy(true);
+  const controller = new AbortController();
+  activeAskController = controller;
   $("status").textContent = "";
   $("status").className = "";
   $("answer-sec").hidden = true;
@@ -775,6 +799,7 @@ async function ask() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question: q }),
+      signal: controller.signal,
     });
     if (!r.ok) {
       $("pipeline").hidden = true;
@@ -919,6 +944,7 @@ async function ask() {
     renderHits(hits);
     $("retrieval-sec").hidden = false;
   } catch (err) {
+    if (err && err.name === "AbortError") return;
     $("pipeline").hidden = true;
     $("status").className = "error";
     $("status").textContent =
@@ -926,7 +952,10 @@ async function ask() {
   } finally {
     /* Bayrak BAŞARI, HATA ve 422/429 erken dönüşlerinin HEPSİNDE bırakılır —
        `finally` bu üç yolun da tek ortak çıkışı. */
-    setBusy(false);
+    if (activeAskController === controller) {
+      activeAskController = null;
+      setBusy(false);
+    }
   }
 }
 // derin link: ?q= ile gelen soru kutuyu doldurur (LLM maliyeti yüzünden otomatik sormaz)
